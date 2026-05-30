@@ -1,6 +1,5 @@
 /* =========================
-   Page background + app shell
-   Controls the full page layout
+   Page background + shell
 ========================= */
 body {
     margin: 0;
@@ -10,71 +9,14 @@ body {
 }
 
 .app-shell {
-    display: flex;
     min-height: 100vh;
+    padding: 18px;
 }
 
-/* =========================
-   Left sidebar
-   Controls the SV logo and left menu
-========================= */
-.sidebar {
-    width: 92px;
-    background: rgba(8, 18, 58, 0.92);
-    border-right: 1px solid rgba(119, 170, 255, 0.16);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    padding-top: 18px;
-    box-shadow: 6px 0 22px rgba(0, 0, 0, 0.18);
-}
-
-/* SV logo box */
-.logo {
-    width: 50px;
-    height: 50px;
-    border-radius: 14px;
-    background: linear-gradient(135deg, #ff5e7d, #ff9d5c);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-    color: white;
-    margin-bottom: 28px;
-    box-shadow: 0 8px 18px rgba(0, 0, 0, 0.2);
-}
-
-/* Sidebar menu items */
-.nav-item {
-    width: 74px;
-    text-align: center;
-    font-size: 12px;
-    padding: 12px 6px;
-    margin-bottom: 10px;
-    border-radius: 10px;
-    color: #adc2ea;
-    cursor: default;
-    user-select: none;
-}
-
-.nav-item.active,
-.nav-item:hover {
-    background: rgba(70, 125, 255, 0.18);
-    color: #ffffff;
-}
-
-/* =========================
-   Main content area
-========================= */
-.main-panel {
-    flex: 1;
-    padding: 20px 22px;
-}
 
 /* =========================
    Top header card
-   Controls ticker/company title and quote strip
+   Ticker title + live quote strip
 ========================= */
 .topbar {
     background: rgba(8, 22, 70, 0.84);
@@ -85,7 +27,6 @@ body {
     box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
 }
 
-/* Big title like MSFT / Microsoft */
 .pair-title {
     font-size: 30px;
     font-weight: 700;
@@ -93,7 +34,6 @@ body {
     margin-bottom: 10px;
 }
 
-/* Live quote text */
 .quote-strip {
     font-family: Consolas, "Courier New", monospace;
     font-size: 14px;
@@ -102,9 +42,95 @@ body {
     word-break: break-word;
 }
 
+
+/* =========================
+   Main tabs
+   Dashboard tab = normal/live feel
+   Watch tab = replay feel
+========================= */
+
+.main-tab {
+    background: rgba(10, 28, 80, 0.78) !important;
+    color: #eaf2ff !important;
+    border: 1px solid rgba(119, 170, 255, 0.18) !important;
+    padding: 12px 18px !important;
+    border-radius: 12px 12px 0 0 !important;
+    font-weight: 600 !important;
+}
+
+.main-tab:hover {
+    background: rgba(30, 58, 138, 0.88) !important;
+    color: #ffffff !important;
+}
+
+.main-tab-selected {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-weight: 700 !important;
+    border-top: 3px solid #38bdf8 !important;
+}
+.main-tabs {
+    margin: 12px 0 16px 0;
+}
+
+.main-tab {
+    min-width: 120px;
+    text-align: center;
+}
+
+.tab-panel {
+    width: 100%;
+}
+
+/* =========================
+   Tab content wrappers
+========================= */
+.tab-content {
+    width: 100%;
+}
+
+.tab-panel {
+    width: 100%;
+}
+
+/* Dashboard + Watch tab content glow */
+.dashboard-tab-panel,
+.watch-tab-panel {
+    background: linear-gradient(180deg, rgba(52, 16, 78, 0.20), rgba(8, 22, 70, 0.00));
+    border-radius: 14px;
+    padding-top: 4px;
+}
+
+/* Dashboard + Watch status color */
+.dashboard-tab-panel .status-text,
+.watch-tab-panel .status-text {
+    color: #f9a8d4;
+}
+
+/* Dashboard + Watch controls accent */
+.dashboard-tab-panel .control-box,
+.watch-tab-panel .control-box {
+    border: 1px solid rgba(236, 72, 153, 0.22);
+    box-shadow: 0 10px 22px rgba(72, 12, 60, 0.18);
+}
+
+/* Dashboard + Watch chart card accent */
+.dashboard-tab-panel .chart-card,
+.watch-tab-panel .chart-card {
+    border: 1px solid rgba(236, 72, 153, 0.24);
+    box-shadow: 0 14px 30px rgba(72, 12, 60, 0.22);
+}
+
+/* Dashboard + Watch button accent */
+.dashboard-tab-panel button,
+.watch-tab-panel button {
+    background: linear-gradient(90deg, #f472b6, #a78bfa);
+    color: #1f1147;
+}
+
+
 /* =========================
    Controls row
-   Search bar + timeframe
 ========================= */
 .controls-row {
     display: flex;
@@ -114,7 +140,6 @@ body {
     margin-bottom: 10px;
 }
 
-/* Each control card */
 .control-box {
     background: rgba(10, 28, 80, 0.78);
     border: 1px solid rgba(119, 170, 255, 0.16);
@@ -123,26 +148,52 @@ body {
     box-shadow: 0 10px 22px rgba(0, 0, 0, 0.16);
 }
 
-/* Symbol/company search box size */
 .control-symbol {
     min-width: 420px;
 }
 
-/* Timeframe dropdown size */
 .control-timeframe {
     min-width: 220px;
 }
 
-/* Labels above controls */
 .control-box label {
     display: block;
     margin-bottom: 8px;
     font-size: 13px;
-    color: #d4e1ff;
+    color: #ffffff;
 }
 
+
 /* =========================
-   Small status text under controls
+   Buttons
+========================= */
+button {
+    min-width: 90px;
+    height: 40px;
+    border: none;
+    border-radius: 10px;
+    background: linear-gradient(90deg, #27d2c3, #47bbff);
+    color: #081b45;
+    font-weight: 700;
+    font-size: 14px;
+    cursor: pointer;
+    transition: transform 0.12s ease, filter 0.12s ease;
+}
+
+button:hover {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+}
+
+/* Replay buttons inside Watch tab get a replay accent */
+.watch-tab-panel button {
+    background: linear-gradient(90deg, #f472b6, #a78bfa);
+    color: #1f1147;
+}
+
+
+/* =========================
+   Status text
 ========================= */
 .status-text {
     min-height: 20px;
@@ -150,6 +201,7 @@ body {
     color: #88d7ff;
     font-size: 13px;
 }
+
 
 /* =========================
    Chart card
@@ -162,7 +214,6 @@ body {
     box-shadow: 0 14px 30px rgba(0, 0, 0, 0.22);
 }
 
-/* Plotly chart wrapper */
 .chart-graph {
     border-radius: 12px;
     overflow: hidden;
@@ -173,70 +224,123 @@ body {
     overflow: hidden;
 }
 
+
 /* =========================
-   Dash dropdown styling
-   Search bar + timeframe dropdown
+   Black text dropdown fix
+   Selected text, typed text, placeholder, and menu options
 ========================= */
-
-/* Outer control and opened menu */
-.Select-control,
-.Select-menu-outer,
-.Select-menu {
-    background-color: #ffffff !important;
-    color: black !important;
-    border: 1px solid rgba(93, 170, 255, 0.42) !important;
+.black-dropdown .Select-control {
+    background: #000000 !important;
+    color: #000000 !important;
+    border: 1px solid rgb(0 132 236 / 0.42) !important;
     border-radius: 10px !important;
-    box-shadow: none !important;
 }
 
-/* Selected value in the closed dropdown */
-.Select--single > .Select-control .Select-value,
-.Select--single > .Select-control .Select-value .Select-value-label,
-.Select-value-label {
-    color: black !important;
+.black-dropdown .Select-menu-outer,
+.black-dropdown .Select-menu {
+    background: #000000 !important;
+    color: #000000 !important;
 }
 
-/* Placeholder text */
-.Select-placeholder {
-    color: black !important;
+.black-dropdown .Select-value,
+.black-dropdown .Select-value-label,
+.black-dropdown .Select--single > .Select-control .Select-value,
+.black-dropdown .Select--single > .Select-control .Select-value .Select-value-label {
+    color: #000000 !important;
 }
 
-/* Typed search text */
-.Select-input > input {
-    color: black !important;
+.black-dropdown .Select-placeholder {
+    color: #000000 !important;
 }
 
-/* Dropdown list container */
-.VirtualizedSelectGrid,
-.VirtualizedSelectOption {
-    background-color: #ffffff !important;
-    color: black !important;
+.black-dropdown .Select-input > input {
+    color: #000000 !important;
+    background: #000000 !important;
 }
 
-/* Hovered / focused option */
-.VirtualizedSelectFocusedOption {
-    background-color: #dbeafe !important;
-    color: black !important;
+.black-dropdown .VirtualizedSelectOption,
+.black-dropdown .VirtualizedSelectFocusedOption,
+.black-dropdown .Select-option {
+    color: #000000 !important;
+    background: #000000 !important;
 }
 
-/* Force links/spans/divs inside options to black too */
-.VirtualizedSelectOption *,
-.VirtualizedSelectFocusedOption *,
-.Select-option,
-.Select-option *,
-.Select-menu-outer * {
-    color: black !important;
+.black-dropdown .VirtualizedSelectFocusedOption {
+    background: #000000 !important;
+    color: #000000 !important;
 }
 
-/* Dropdown arrow */
-.Select-arrow {
-    border-top-color: black !important;
+.black-dropdown .VirtualizedSelectOption *,
+.black-dropdown .VirtualizedSelectFocusedOption *,
+.black-dropdown .Select-option *,
+.black-dropdown .Select-menu-outer *,
+.black-dropdown .Select-value *,
+.black-dropdown * {
+    color: #000000 !important;
 }
 
-/* Focus state */
-.Select.is-focused > .Select-control {
+.black-dropdown .Select-arrow {
+    border-top-color: #000000 !important;
+}
+
+.black-dropdown .Select-clear-zone,
+.black-dropdown .Select-clear,
+.black-dropdown .Select-arrow-zone {
+    color: #000000 !important;
+}
+
+.black-dropdown.is-focused .Select-control,
+.black-dropdown .is-focused > .Select-control,
+.black-dropdown .Select.is-focused > .Select-control {
     border-color: #62c4ff !important;
     box-shadow: 0 0 0 2px rgba(98, 196, 255, 0.15) !important;
+}
+
+/* =========================
+   Replay slider colors
+   Makes the slider track/handle white
+========================= */
+
+/* Dash / rc-slider rail */
+.rc-slider-rail {
+    background-color: rgba(255, 255, 255, 0.35) !important;
+}
+
+/* Filled part of the slider */
+.rc-slider-track {
+    background-color: #ffffff !important;
+}
+
+/* Slider handle */
+.rc-slider-handle {
+    border: 2px solid #ffffff !important;
+    background-color: #ffffff !important;
+    box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.12) !important;
+    opacity: 1 !important;
+}
+
+/* Handle hover/focus */
+.rc-slider-handle:hover,
+.rc-slider-handle:focus,
+.rc-slider-handle:active {
+    border-color: #ffffff !important;
+    background-color: #ffffff !important;
+    box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.18) !important;
+}
+
+/* Optional: slider marks/dots if you use them later */
+.rc-slider-dot {
+    border-color: rgba(255, 255, 255, 0.45) !important;
+    background-color: transparent !important;
+}
+
+.rc-slider-dot-active {
+    border-color: #ffffff !important;
+}
+
+/* Tooltip text if enabled later */
+.rc-slider-mark-text {
+    color: #ffffff !important;
 }
 
 /* =========================
@@ -249,14 +353,6 @@ body {
 }
 
 @media (max-width: 820px) {
-    .sidebar {
-        display: none;
-    }
-
-    .main-panel {
-        padding: 14px;
-    }
-
     .pair-title {
         font-size: 24px;
     }
@@ -264,5 +360,9 @@ body {
     .control-symbol,
     .control-timeframe {
         min-width: 100%;
+    }
+
+    .app-shell {
+        padding: 12px;
     }
 }

@@ -40,19 +40,6 @@ class SymbolState:
     tick_count: int = 0
 
 
-@dataclass
-class ReplayState:
-    symbol: str = ""
-    timeframe: str = "1 min"
-    enabled: bool = False
-    playing: bool = False
-    speed: float = 1.0
-    current_index: int = 0
-    source_bars: pd.DataFrame = field(default_factory=lambda: pd.DataFrame(
-        columns=["time", "open", "high", "low", "close", "volume"]
-    ))
-
-
 class RealTimeIB:
     def __init__(
         self,
@@ -76,10 +63,6 @@ class RealTimeIB:
         self._startup_error: Optional[str] = None
 
         self._requests: queue.Queue[tuple[Any, ...]] = queue.Queue()
-
-        self._mode = "live"  # live or replay
-        self._replay = ReplayState()
-        self._replay_progress = 0.0
 
         base_dir = Path(__file__).resolve().parent
 
@@ -169,7 +152,6 @@ class RealTimeIB:
 
                 while True:
                     self._process_requests()
-                    self._process_replay()
                     self.ib.sleep(0.25)
 
             except Exception as exc:
@@ -188,10 +170,6 @@ class RealTimeIB:
         symbol = self._sanitize_symbol(symbol)
         self._requests.put(("symbol", symbol))
 
-    def request_replay(self, symbol: str, start_index: int = 100) -> None:
-        symbol = self._sanitize_symbol(symbol)
-        self._requests.put(("replay", symbol, int(start_index)))
-
     def _process_requests(self) -> None:
         while not self._requests.empty():
             req = self._requests.get()
@@ -203,108 +181,10 @@ class RealTimeIB:
                     symbol = str(req[1])
                     print(f"[REQUEST] loading live symbol {symbol}", flush=True)
                     self.ensure_symbol_ready(symbol, "1 min")
-                    with self._lock:
-                        self._mode = "live"
                     print(f"[REQUEST] loaded live symbol {symbol}", flush=True)
-
-                elif kind == "replay":
-                    symbol = str(req[1])
-                    start_index = int(req[2])
-                    print(f"[REQUEST] loading replay symbol {symbol}", flush=True)
-
-                    bars = self.load_history(symbol, "1 min").copy()
-                    if bars.empty:
-                        raise ValueError(f"No history available for {symbol}")
-
-                    start_index = max(1, min(start_index, len(bars) - 1 if len(bars) > 1 else 1))
-
-                    with self._lock:
-                        self._mode = "replay"
-                        self._replay = ReplayState(
-                            symbol=symbol,
-                            timeframe="1 min",
-                            enabled=True,
-                            playing=False,
-                            speed=1.0,
-                            current_index=start_index,
-                            source_bars=bars,
-                        )
-                        self._replay_progress = 0.0
-
-                    print(f"[REQUEST] loaded replay symbol {symbol}", flush=True)
 
             except Exception as exc:
                 print(f"[REQUEST ERROR] {req}: {exc}", flush=True)
-
-    def _process_replay(self) -> None:
-        with self._lock:
-            if self._mode != "replay":
-                return
-            if not self._replay.enabled or not self._replay.playing:
-                return
-            if self._replay.source_bars.empty:
-                return
-
-            self._replay_progress += max(0.01, self._replay.speed)
-            step = int(self._replay_progress)
-
-            if step < 1:
-                return
-
-            self._replay_progress -= step
-            max_index = len(self._replay.source_bars)
-            self._replay.current_index = min(self._replay.current_index + step, max_index)
-
-            if self._replay.current_index >= max_index:
-                self._replay.playing = False
-
-    def play_replay(self) -> None:
-        with self._lock:
-            if self._replay.enabled:
-                self._replay.playing = True
-
-    def pause_replay(self) -> None:
-        with self._lock:
-            if self._replay.enabled:
-                self._replay.playing = False
-
-    def stop_replay(self) -> None:
-        with self._lock:
-            self._mode = "live"
-            self._replay = ReplayState()
-            self._replay_progress = 0.0
-
-    def set_replay_speed(self, speed: float) -> None:
-        with self._lock:
-            self._replay.speed = max(0.25, float(speed))
-
-    def step_replay(self, steps: int = 1) -> None:
-        with self._lock:
-            if not self._replay.enabled or self._replay.source_bars.empty:
-                return
-
-            max_index = len(self._replay.source_bars)
-            self._replay.current_index = min(self._replay.current_index + max(1, steps), max_index)
-
-    def set_replay_index(self, index: int) -> None:
-        with self._lock:
-            if not self._replay.enabled or self._replay.source_bars.empty:
-                return
-
-            max_index = len(self._replay.source_bars)
-            self._replay.current_index = max(1, min(int(index), max_index))
-
-    def get_replay_info(self) -> dict[str, Any]:
-        with self._lock:
-            return {
-                "mode": self._mode,
-                "enabled": self._replay.enabled,
-                "playing": self._replay.playing,
-                "speed": self._replay.speed,
-                "current_index": self._replay.current_index,
-                "max_index": len(self._replay.source_bars),
-                "symbol": self._replay.symbol,
-            }
 
     def get_contract(self, symbol: str) -> Stock:
         symbol = self._sanitize_symbol(symbol)
@@ -408,32 +288,6 @@ class RealTimeIB:
 
     def get_snapshot(self, symbol: str, timeframe: str) -> SymbolState:
         symbol = self._sanitize_symbol(symbol)
-
-        with self._lock:
-            if self._mode == "replay" and self._replay.enabled and self._replay.symbol == symbol:
-                replay_df = self._replay.source_bars.iloc[:self._replay.current_index].copy()
-
-                if replay_df.empty:
-                    raise ValueError(f"No replay bars visible for {symbol}")
-
-                if timeframe != "1 min":
-                    replay_df = resample_bars(replay_df, timeframe)
-
-                last_row = replay_df.iloc[-1]
-                last_price = float(last_row["close"])
-
-                return SymbolState(
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    bars=replay_df,
-                    bid=last_price,
-                    ask=last_price,
-                    last=last_price,
-                    last_size=float(last_row.get("volume", 0)),
-                    updated_at=datetime.now(),
-                    tick_count=self._replay.current_index,
-                )
-
         key = (symbol, "1 min")
 
         with self._lock:
