@@ -230,7 +230,7 @@ button:hover {
    Selected text, typed text, placeholder, and menu options
 ========================= */
 .black-dropdown .Select-control {
-    background: #000000 !important;
+    background: #ff0000 !important;
     color: #000000 !important;
     border: 1px solid rgb(0 132 236 / 0.42) !important;
     border-radius: 10px !important;
@@ -238,7 +238,7 @@ button:hover {
 
 .black-dropdown .Select-menu-outer,
 .black-dropdown .Select-menu {
-    background: #000000 !important;
+    background: #ff0000 !important;
     color: #000000 !important;
 }
 
@@ -255,18 +255,18 @@ button:hover {
 
 .black-dropdown .Select-input > input {
     color: #000000 !important;
-    background: #000000 !important;
+    background: #ff0000 !important;
 }
 
 .black-dropdown .VirtualizedSelectOption,
 .black-dropdown .VirtualizedSelectFocusedOption,
 .black-dropdown .Select-option {
     color: #000000 !important;
-    background: #000000 !important;
+    background: #ff0000 !important;
 }
 
 .black-dropdown .VirtualizedSelectFocusedOption {
-    background: #000000 !important;
+    background: #ff0000 !important;
     color: #000000 !important;
 }
 
@@ -303,7 +303,7 @@ button:hover {
 
 /* Dash / rc-slider rail */
 .rc-slider-rail {
-    background-color: rgba(255, 255, 255, 0.35) !important;
+    background-color: rgb(255 0 0 / 0.35) !important;
 }
 
 /* Filled part of the slider */
