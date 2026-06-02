@@ -16,6 +16,15 @@ class ReplayEngine:
     speed: float = 1.0
     progress: float = 0.0
 
+    def reset(self) -> None:
+        self.bars = pd.DataFrame(
+            columns=["time", "open", "high", "low", "close", "volume"]
+        )
+        self.current_index = 1
+        self.playing = False
+        self.speed = 1.0
+        self.progress = 0.0
+
     def load_from_csv(self, path: str) -> None:
         df = pd.read_csv(path)
         self.load_from_df(df)
@@ -26,7 +35,6 @@ class ReplayEngine:
 
         out = df.copy()
 
-        # Accept common alternate time column names
         if "time" not in out.columns:
             if "date" in out.columns:
                 out = out.rename(columns={"date": "time"})
@@ -58,9 +66,8 @@ class ReplayEngine:
             raise ValueError("Replay data became empty after cleaning.")
 
         self.bars = out
-        self.current_index = min(100, len(out))
+        self.current_index = max(1, min(100, len(out)))
         self.playing = False
-        self.speed = 1.0
         self.progress = 0.0
 
     def play(self) -> None:

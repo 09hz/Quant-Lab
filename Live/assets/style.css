@@ -1,11 +1,11 @@
 /* =========================
-   Page background + shell
+   Global dark theme
 ========================= */
 body {
     margin: 0;
-    background: linear-gradient(135deg, #11385b 0%, #16245c 58%, #261d61 100%);
+    background: linear-gradient(135deg, #07111f 0%, #0a1630 45%, #130f2c 100%);
     font-family: Arial, Helvetica, sans-serif;
-    color: #eaf2ff;
+    color: #e6eefc;
 }
 
 .app-shell {
@@ -16,28 +16,27 @@ body {
 
 /* =========================
    Top header card
-   Ticker title + live quote strip
 ========================= */
 .topbar {
-    background: rgba(8, 22, 70, 0.84);
-    border: 1px solid rgba(119, 170, 255, 0.18);
+    background: rgba(7, 17, 40, 0.92);
+    border: 1px solid rgba(108, 92, 231, 0.22);
     border-radius: 16px;
     padding: 16px 18px;
     margin-bottom: 16px;
-    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.34);
 }
 
 .pair-title {
     font-size: 30px;
     font-weight: 700;
-    color: #f6f9ff;
+    color: #f4f7ff;
     margin-bottom: 10px;
 }
 
 .quote-strip {
     font-family: Consolas, "Courier New", monospace;
     font-size: 14px;
-    color: #97f4d8;
+    color: #9ce6d1;
     line-height: 1.5;
     word-break: break-word;
 }
@@ -45,30 +44,7 @@ body {
 
 /* =========================
    Main tabs
-   Dashboard tab = normal/live feel
-   Watch tab = replay feel
 ========================= */
-
-.main-tab {
-    background: rgba(10, 28, 80, 0.78) !important;
-    color: #eaf2ff !important;
-    border: 1px solid rgba(119, 170, 255, 0.18) !important;
-    padding: 12px 18px !important;
-    border-radius: 12px 12px 0 0 !important;
-    font-weight: 600 !important;
-}
-
-.main-tab:hover {
-    background: rgba(30, 58, 138, 0.88) !important;
-    color: #ffffff !important;
-}
-
-.main-tab-selected {
-    background: #ffffff !important;
-    color: #000000 !important;
-    font-weight: 700 !important;
-    border-top: 3px solid #38bdf8 !important;
-}
 .main-tabs {
     margin: 12px 0 16px 0;
 }
@@ -76,61 +52,69 @@ body {
 .main-tab {
     min-width: 120px;
     text-align: center;
+    background: rgba(10, 22, 50, 0.92) !important;
+    color: #dfe8ff !important;
+    border: 1px solid rgba(108, 92, 231, 0.18) !important;
+    padding: 12px 18px !important;
+    border-radius: 12px 12px 0 0 !important;
+    font-weight: 600 !important;
 }
 
-.tab-panel {
-    width: 100%;
+.main-tab:hover {
+    background: rgba(26, 42, 84, 0.98) !important;
+    color: #ffffff !important;
 }
+
+.main-tab-selected {
+    background: rgba(26, 18, 62, 0.98) !important;
+    color: #ffffff !important;
+    font-weight: 700 !important;
+    border-top: 3px solid #f472b6 !important;
+}
+
 
 /* =========================
-   Tab content wrappers
+   Tab containers
 ========================= */
-.tab-content {
-    width: 100%;
-}
-
 .tab-panel {
     width: 100%;
 }
 
-/* Dashboard + Watch tab content glow */
 .dashboard-tab-panel,
-.watch-tab-panel {
-    background: linear-gradient(180deg, rgba(52, 16, 78, 0.20), rgba(8, 22, 70, 0.00));
+.watch-tab-panel,
+.quotes-tab-panel,
+.charts-tab-panel {
+    background: linear-gradient(180deg, rgba(49, 19, 80, 0.22), rgba(9, 16, 46, 0.04));
     border-radius: 14px;
     padding-top: 4px;
 }
 
-/* Dashboard + Watch status color */
 .dashboard-tab-panel .status-text,
-.watch-tab-panel .status-text {
-    color: #f9a8d4;
+.watch-tab-panel .status-text,
+.quotes-tab-panel .status-text,
+.charts-tab-panel .status-text {
+    color: #f7b1d9;
 }
 
-/* Dashboard + Watch controls accent */
 .dashboard-tab-panel .control-box,
-.watch-tab-panel .control-box {
-    border: 1px solid rgba(236, 72, 153, 0.22);
-    box-shadow: 0 10px 22px rgba(72, 12, 60, 0.18);
+.watch-tab-panel .control-box,
+.quotes-tab-panel .control-box,
+.charts-tab-panel .control-box {
+    border: 1px solid rgba(236, 72, 153, 0.18);
+    box-shadow: 0 10px 22px rgba(41, 10, 44, 0.28);
 }
 
-/* Dashboard + Watch chart card accent */
 .dashboard-tab-panel .chart-card,
-.watch-tab-panel .chart-card {
-    border: 1px solid rgba(236, 72, 153, 0.24);
-    box-shadow: 0 14px 30px rgba(72, 12, 60, 0.22);
-}
-
-/* Dashboard + Watch button accent */
-.dashboard-tab-panel button,
-.watch-tab-panel button {
-    background: linear-gradient(90deg, #f472b6, #a78bfa);
-    color: #1f1147;
+.watch-tab-panel .chart-card,
+.quotes-tab-panel .chart-card,
+.charts-tab-panel .chart-card {
+    border: 1px solid rgba(236, 72, 153, 0.20);
+    box-shadow: 0 14px 30px rgba(22, 7, 36, 0.30);
 }
 
 
 /* =========================
-   Controls row
+   Controls
 ========================= */
 .controls-row {
     display: flex;
@@ -141,11 +125,11 @@ body {
 }
 
 .control-box {
-    background: rgba(10, 28, 80, 0.78);
-    border: 1px solid rgba(119, 170, 255, 0.16);
+    background: rgba(11, 20, 48, 0.92);
+    border: 1px solid rgba(108, 92, 231, 0.16);
     border-radius: 14px;
     padding: 12px 14px;
-    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.16);
+    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.26);
 }
 
 .control-symbol {
@@ -160,7 +144,7 @@ body {
     display: block;
     margin-bottom: 8px;
     font-size: 13px;
-    color: #ffffff;
+    color: #f4f7ff;
 }
 
 
@@ -172,23 +156,18 @@ button {
     height: 40px;
     border: none;
     border-radius: 10px;
-    background: linear-gradient(90deg, #27d2c3, #47bbff);
-    color: #081b45;
+    background: linear-gradient(90deg, #7c3aed, #ec4899);
+    color: #f8f5ff;
     font-weight: 700;
     font-size: 14px;
     cursor: pointer;
     transition: transform 0.12s ease, filter 0.12s ease;
+    box-shadow: 0 8px 16px rgba(30, 10, 40, 0.30);
 }
 
 button:hover {
-    filter: brightness(1.06);
+    filter: brightness(1.08);
     transform: translateY(-1px);
-}
-
-/* Replay buttons inside Watch tab get a replay accent */
-.watch-tab-panel button {
-    background: linear-gradient(90deg, #f472b6, #a78bfa);
-    color: #1f1147;
 }
 
 
@@ -198,7 +177,7 @@ button:hover {
 .status-text {
     min-height: 20px;
     margin: 8px 0 14px 2px;
-    color: #88d7ff;
+    color: #9fc3ff;
     font-size: 13px;
 }
 
@@ -207,11 +186,11 @@ button:hover {
    Chart card
 ========================= */
 .chart-card {
-    background: rgba(8, 22, 70, 0.84);
-    border: 1px solid rgba(119, 170, 255, 0.18);
+    background: rgba(6, 12, 34, 0.96);
+    border: 1px solid rgba(108, 92, 231, 0.18);
     border-radius: 16px;
     padding: 12px;
-    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.22);
+    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.36);
 }
 
 .chart-graph {
@@ -226,122 +205,338 @@ button:hover {
 
 
 /* =========================
-   Black text dropdown fix
-   Selected text, typed text, placeholder, and menu options
+   Dropdown styling
 ========================= */
-.black-dropdown .Select-control {
-    background: #ff0000 !important;
-    color: #000000 !important;
-    border: 1px solid rgb(0 132 236 / 0.42) !important;
-    border-radius: 10px !important;
+.black-dropdown {
+    color: #f4f7ff !important;
 }
 
-.black-dropdown .Select-menu-outer,
-.black-dropdown .Select-menu {
-    background: #ff0000 !important;
-    color: #000000 !important;
+.black-dropdown .Select,
+.black-dropdown .select__control,
+.black-dropdown [class*="control"] {
+    background: #0f172a !important;
+    color: #f4f7ff !important;
+    border: 1px solid rgba(236, 72, 153, 0.24) !important;
+    border-radius: 10px !important;
+    box-shadow: none !important;
 }
 
 .black-dropdown .Select-value,
 .black-dropdown .Select-value-label,
-.black-dropdown .Select--single > .Select-control .Select-value,
-.black-dropdown .Select--single > .Select-control .Select-value .Select-value-label {
-    color: #000000 !important;
+.black-dropdown .select__single-value,
+.black-dropdown [class*="singleValue"],
+.black-dropdown [class*="ValueContainer"] * {
+    color: #f4f7ff !important;
 }
 
-.black-dropdown .Select-placeholder {
-    color: #000000 !important;
+.black-dropdown .Select-placeholder,
+.black-dropdown .select__placeholder,
+.black-dropdown [class*="placeholder"] {
+    color: #cbd5e1 !important;
+    opacity: 1 !important;
 }
 
-.black-dropdown .Select-input > input {
-    color: #000000 !important;
-    background: #ff0000 !important;
+.black-dropdown .Select-input > input,
+.black-dropdown .select__input-container,
+.black-dropdown .select__input-container input,
+.black-dropdown input {
+    color: #f4f7ff !important;
+    background: transparent !important;
+}
+
+.black-dropdown .Select-menu-outer,
+.black-dropdown .Select-menu,
+.black-dropdown .select__menu,
+.black-dropdown .select__menu-list,
+.black-dropdown [class*="menu"] {
+    background: #0b1226 !important;
+    color: #f4f7ff !important;
+    border: 1px solid rgba(236, 72, 153, 0.22) !important;
 }
 
 .black-dropdown .VirtualizedSelectOption,
 .black-dropdown .VirtualizedSelectFocusedOption,
-.black-dropdown .Select-option {
-    color: #000000 !important;
-    background: #ff0000 !important;
+.black-dropdown .Select-option,
+.black-dropdown .select__option,
+.black-dropdown [class*="option"] {
+    background: #0b1226 !important;
+    color: #f4f7ff !important;
 }
 
-.black-dropdown .VirtualizedSelectFocusedOption {
-    background: #ff0000 !important;
-    color: #000000 !important;
+.black-dropdown .VirtualizedSelectFocusedOption,
+.black-dropdown .Select-option.is-focused,
+.black-dropdown .select__option--is-focused,
+.black-dropdown [class*="option"]:hover {
+    background: #251a52 !important;
+    color: #ffffff !important;
 }
 
-.black-dropdown .VirtualizedSelectOption *,
-.black-dropdown .VirtualizedSelectFocusedOption *,
-.black-dropdown .Select-option *,
-.black-dropdown .Select-menu-outer *,
-.black-dropdown .Select-value *,
-.black-dropdown * {
-    color: #000000 !important;
+.black-dropdown .Select-option.is-selected,
+.black-dropdown .select__option--is-selected {
+    background: #4c1d95 !important;
+    color: #ffffff !important;
 }
 
-.black-dropdown .Select-arrow {
-    border-top-color: #000000 !important;
+.black-dropdown .Select-arrow,
+.black-dropdown .select__indicator,
+.black-dropdown .select__dropdown-indicator,
+.black-dropdown [class*="indicator"] {
+    color: #f4f7ff !important;
+    border-top-color: #f4f7ff !important;
 }
 
 .black-dropdown .Select-clear-zone,
 .black-dropdown .Select-clear,
-.black-dropdown .Select-arrow-zone {
-    color: #000000 !important;
+.black-dropdown .select__clear-indicator {
+    color: #f4f7ff !important;
 }
 
-.black-dropdown.is-focused .Select-control,
-.black-dropdown .is-focused > .Select-control,
-.black-dropdown .Select.is-focused > .Select-control {
-    border-color: #62c4ff !important;
-    box-shadow: 0 0 0 2px rgba(98, 196, 255, 0.15) !important;
+.black-dropdown .select__indicator-separator {
+    background-color: rgba(255, 255, 255, 0.18) !important;
 }
+
+.black-dropdown *,
+.black-dropdown *::placeholder {
+    color: #f4f7ff !important;
+}
+
 
 /* =========================
-   Replay slider colors
-   Makes the slider track/handle white
+   Slider styling
 ========================= */
-
-/* Dash / rc-slider rail */
 .rc-slider-rail {
-    background-color: rgb(255 0 0 / 0.35) !important;
+    background-color: rgba(255, 255, 255, 0.22) !important;
 }
 
-/* Filled part of the slider */
 .rc-slider-track {
-    background-color: #ffffff !important;
+    background-color: #a855f7 !important;
 }
 
-/* Slider handle */
 .rc-slider-handle {
-    border: 2px solid #ffffff !important;
-    background-color: #ffffff !important;
-    box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.12) !important;
+    border: 2px solid #f472b6 !important;
+    background-color: #f472b6 !important;
+    box-shadow: 0 0 0 4px rgba(244, 114, 182, 0.16) !important;
     opacity: 1 !important;
 }
 
-/* Handle hover/focus */
 .rc-slider-handle:hover,
 .rc-slider-handle:focus,
 .rc-slider-handle:active {
-    border-color: #ffffff !important;
-    background-color: #ffffff !important;
-    box-shadow: 0 0 0 6px rgba(255, 255, 255, 0.18) !important;
+    border-color: #f472b6 !important;
+    background-color: #f472b6 !important;
+    box-shadow: 0 0 0 6px rgba(244, 114, 182, 0.22) !important;
 }
 
-/* Optional: slider marks/dots if you use them later */
 .rc-slider-dot {
-    border-color: rgba(255, 255, 255, 0.45) !important;
+    border-color: rgba(255, 255, 255, 0.35) !important;
     background-color: transparent !important;
 }
 
 .rc-slider-dot-active {
-    border-color: #ffffff !important;
+    border-color: #f472b6 !important;
 }
 
-/* Tooltip text if enabled later */
 .rc-slider-mark-text {
+    color: #dbe6ff !important;
+}
+
+
+/* =========================
+   Date picker dark styling
+========================= */
+.date-picker-dark .DateInput_input {
+    background: #0f172a !important;
+    color: #f4f7ff !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    border: 1px solid rgba(236, 72, 153, 0.24) !important;
+}
+
+.date-picker-dark .DateInput {
+    background: transparent !important;
+}
+
+.date-picker-dark .SingleDatePickerInput {
+    background: #0f172a !important;
+    border-radius: 10px !important;
+    overflow: hidden;
+    border: 1px solid rgba(236, 72, 153, 0.22) !important;
+}
+
+.date-picker-dark .SingleDatePicker_picker {
+    background: #0b1226 !important;
+}
+
+.DateRangePicker_picker,
+.SingleDatePicker_picker,
+.DayPicker,
+.CalendarMonth,
+.CalendarMonthGrid,
+.DayPicker_transitionContainer {
+    background: #0b1226 !important;
+    color: #f4f7ff !important;
+}
+
+.CalendarDay {
+    background: #0f172a !important;
+    color: #f4f7ff !important;
+    border: 1px solid rgba(255, 255, 255, 0.04) !important;
+}
+
+.CalendarDay:hover {
+    background: #251a52 !important;
     color: #ffffff !important;
 }
+
+.CalendarDay__selected,
+.CalendarDay__selected:hover {
+    background: #4c1d95 !important;
+    border: 1px solid #a855f7 !important;
+    color: #ffffff !important;
+}
+
+.DayPickerNavigation_button {
+    background: #0f172a !important;
+    border: 1px solid rgba(236, 72, 153, 0.22) !important;
+    color: #f4f7ff !important;
+}
+
+
+/* =========================
+   Market-style metrics + range + stats
+========================= */
+.metrics-strip {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    align-items: center;
+    margin: 6px 0 12px 0;
+    padding: 12px 14px;
+    border-radius: 14px;
+    background: rgba(8, 14, 30, 0.82);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.metric-price {
+    font-size: 30px;
+    font-weight: 800;
+    color: #f8fbff;
+}
+
+.metric-positive {
+    color: #22c55e;
+    font-weight: 700;
+    font-size: 24px;
+}
+
+.metric-negative {
+    color: #ef4444;
+    font-weight: 700;
+    font-size: 24px;
+}
+
+.metric-muted {
+    color: #94a3b8;
+    font-size: 13px;
+}
+
+.range-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin: 0 0 12px 0;
+}
+
+.range-btn {
+    min-width: auto;
+    height: 34px;
+    padding: 0 14px;
+    background: rgba(22, 28, 45, 0.95);
+    color: #dbe6ff;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    font-size: 13px;
+    font-weight: 700;
+    box-shadow: none;
+}
+
+.range-btn:hover {
+    background: rgba(35, 42, 70, 0.98);
+    color: #ffffff;
+    transform: none;
+}
+
+.range-btn.active {
+    background: rgba(80, 64, 130, 0.95);
+    color: #ffffff;
+    border-color: rgba(244, 114, 182, 0.40);
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(180px, 1fr));
+    gap: 12px;
+    margin-top: 14px;
+}
+
+.stat-card {
+    background: rgba(10, 16, 32, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
+    padding: 14px 16px;
+}
+
+.stat-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.stat-label {
+    color: #94a3b8;
+}
+
+.stat-value {
+    color: #f8fbff;
+    font-weight: 700;
+}
+
+
+/* =========================
+   Watch chart loading overlay
+========================= */
+.watch-chart-wrap {
+    position: relative;
+}
+
+.watch-loading-overlay {
+    position: absolute;
+    inset: 12px;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(5, 10, 25, 0.82);
+    border-radius: 12px;
+    backdrop-filter: blur(4px);
+}
+
+.watch-loading-overlay.hidden {
+    display: none;
+}
+
+.watch-loading-text {
+    color: #f4f7ff;
+    font-size: 18px;
+    font-weight: 700;
+    padding: 14px 18px;
+    border-radius: 12px;
+    background: rgba(38, 18, 72, 0.90);
+    border: 1px solid rgba(236, 72, 153, 0.28);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.30);
+}
+
 
 /* =========================
    Responsive layout
@@ -349,6 +544,10 @@ button:hover {
 @media (max-width: 1100px) {
     .control-symbol {
         min-width: 300px;
+    }
+
+    .stats-grid {
+        grid-template-columns: repeat(2, minmax(180px, 1fr));
     }
 }
 
@@ -360,6 +559,10 @@ button:hover {
     .control-symbol,
     .control-timeframe {
         min-width: 100%;
+    }
+
+    .stats-grid {
+        grid-template-columns: 1fr;
     }
 
     .app-shell {

@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import sys
+import asyncio
 import plotly.graph_objects as go
+from datetime import datetime, timedelta
 from dash import Dash, Input, Output, State, dcc, html, no_update, ctx
+
+if sys.platform.startswith("win"):
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from RealTime import RealTimeIB, TIMEFRAME_MAP
 from chart_utils import create_candlestick_figure
@@ -36,7 +42,6 @@ app.layout = html.Div(
                 html.Div(id="quote-strip", className="quote-strip"),
             ],
         ),
-
         dcc.Tabs(
             id="main-tabs",
             value="dashboard",
@@ -67,6 +72,7 @@ app.layout = html.Div(
                             default_symbol="MSFT",
                             default_speed=1,
                             default_index=100,
+                            default_date=None,
                         )
                     ],
                 ),
@@ -98,8 +104,7 @@ app.layout = html.Div(
                 ),
             ],
         ),
-
-        dcc.Interval(id="ui-interval", interval=250, n_intervals=0),
+        dcc.Interval(id="ui-interval", interval=1000, n_intervals=0, disabled=False),
         dcc.Store(id="zoom-state", data={}),
         dcc.Store(id="active-symbol", data=DEFAULT_SYMBOL),
         dcc.Store(id="load-status", data="Ready"),
@@ -116,15 +121,116 @@ app.layout = html.Div(
                 "symbol": "MSFT",
                 "replay_speed": 1,
                 "replay_index": 100,
+                "replay_date": None,
             },
         ),
     ],
 )
 
 
-# =========================
-# Shared callbacks
-# =========================
+def _build_metrics_strip(symbol: str, company: str, last, open_, updated_at, prefix: str = "USD"):
+    if last is None:
+        return [
+            html.Div(f"{symbol} / {company}", className="metric-price"),
+            html.Div("Waiting for data...", className="metric-muted"),
+        ]
+
+    last_f = float(last)
+    open_f = float(open_) if open_ not in (None, 0) else last_f
+    change = last_f - open_f
+    pct = (change / open_f * 100) if open_f else 0.0
+    cls = "metric-positive" if change >= 0 else "metric-negative"
+    updated_text = updated_at.strftime("%A, %I:%M %p") if updated_at else "--"
+
+    return [
+        html.Div(f"{last_f:,.2f} {prefix}", className="metric-price"),
+        html.Div(f"{change:+.2f} ({pct:+.2f}%)", className=cls),
+        html.Div(f"{symbol} · {company}", className="metric-muted"),
+        html.Div(f"Updated {updated_text}", className="metric-muted"),
+    ]
+
+
+def _build_stats_grid_from_bars(df):
+    if df is None or df.empty:
+        return [
+            html.Div(
+                className="stat-card",
+                children=[html.Div("No data loaded", className="stat-label")],
+            )
+        ]
+
+    first = df.iloc[0]
+    last = df.iloc[-1]
+
+    open_v = float(first["open"])
+    high_v = float(df["high"].max())
+    low_v = float(df["low"].min())
+    close_v = float(last["close"])
+    volume_v = float(df["volume"].sum())
+
+    cards = [
+        html.Div(
+            className="stat-card",
+            children=[
+                html.Div(className="stat-row", children=[html.Div("Open", className="stat-label"), html.Div(f"{open_v:,.2f}", className="stat-value")]),
+                html.Div(className="stat-row", children=[html.Div("High", className="stat-label"), html.Div(f"{high_v:,.2f}", className="stat-value")]),
+                html.Div(className="stat-row", children=[html.Div("Low", className="stat-label"), html.Div(f"{low_v:,.2f}", className="stat-value")]),
+            ],
+        ),
+        html.Div(
+            className="stat-card",
+            children=[
+                html.Div(className="stat-row", children=[html.Div("Close", className="stat-label"), html.Div(f"{close_v:,.2f}", className="stat-value")]),
+                html.Div(className="stat-row", children=[html.Div("Bars", className="stat-label"), html.Div(f"{len(df):,}", className="stat-value")]),
+                html.Div(className="stat-row", children=[html.Div("Volume", className="stat-label"), html.Div(f"{volume_v:,.0f}", className="stat-value")]),
+            ],
+        ),
+        html.Div(
+            className="stat-card",
+            children=[
+                html.Div(className="stat-row", children=[html.Div("Range", className="stat-label"), html.Div(f"{high_v - low_v:,.2f}", className="stat-value")]),
+                html.Div(className="stat-row", children=[html.Div("First Bar", className="stat-label"), html.Div(str(first['time'])[:16], className="stat-value")]),
+                html.Div(className="stat-row", children=[html.Div("Last Bar", className="stat-label"), html.Div(str(last['time'])[:16], className="stat-value")]),
+            ],
+        ),
+    ]
+    return cards
+
+
+@app.callback(
+    Output("ui-interval", "disabled"),
+    Input("main-tabs", "value"),
+    Input("symbol-dropdown", "search_value"),
+    Input("timeframe-dropdown", "search_value"),
+    Input("watch-symbol-dropdown", "search_value"),
+    Input("quotes-symbol-dropdown", "search_value"),
+    Input("charts-symbol-dropdown", "search_value"),
+    Input("charts-timeframe-dropdown", "search_value"),
+    prevent_initial_call=False,
+)
+def pause_interval_while_searching(
+    active_tab,
+    dashboard_symbol_search,
+    dashboard_timeframe_search,
+    watch_symbol_search,
+    quotes_symbol_search,
+    charts_symbol_search,
+    charts_timeframe_search,
+):
+    if active_tab == "dashboard":
+        return bool(dashboard_symbol_search or dashboard_timeframe_search)
+
+    if active_tab == "watch":
+        return bool(watch_symbol_search)
+
+    if active_tab == "quotes":
+        return bool(quotes_symbol_search)
+
+    if active_tab == "charts":
+        return bool(charts_symbol_search or charts_timeframe_search)
+
+    return False
+
 
 @app.callback(
     Output("pair-title", "children"),
@@ -152,9 +258,20 @@ def update_pair_title(active_symbol, active_tab, watch_state, dashboard_state):
     Input("symbol-dropdown", "value"),
     Input("timeframe-dropdown", "value"),
     State("dashboard-state", "data"),
+    State("symbol-dropdown", "search_value"),
+    State("timeframe-dropdown", "search_value"),
     prevent_initial_call=True,
 )
-def save_dashboard_state(symbol, timeframe, current_state):
+def save_dashboard_state(
+    symbol,
+    timeframe,
+    current_state,
+    symbol_search_value,
+    timeframe_search_value,
+):
+    if symbol_search_value or timeframe_search_value:
+        return no_update
+
     state = dict(current_state or {})
     if symbol:
         state["symbol"] = symbol
@@ -167,14 +284,23 @@ def save_dashboard_state(symbol, timeframe, current_state):
     Output("active-symbol", "data"),
     Output("load-status", "data"),
     Input("symbol-dropdown", "value"),
+    State("symbol-dropdown", "search_value"),
+    State("active-symbol", "data"),
     prevent_initial_call=True,
 )
-def auto_load_symbol(symbol):
+def auto_load_symbol(symbol, symbol_search_value, current_active_symbol):
+    if symbol_search_value:
+        return no_update, no_update
+
     if not symbol:
         return no_update, "No symbol selected"
 
     try:
         symbol = rt._sanitize_symbol(symbol)
+
+        if symbol == current_active_symbol:
+            return no_update, no_update
+
         rt.request_symbol(symbol)
         return symbol, f"Loading live data for {symbol}"
     except Exception as exc:
@@ -205,16 +331,31 @@ def show_load_status(status):
 @app.callback(
     Output("quote-strip", "children"),
     Output("live-chart", "figure"),
+    Output("dashboard-metrics-strip", "children"),
+    Output("dashboard-stats-grid", "children"),
     Input("ui-interval", "n_intervals"),
     Input("active-symbol", "data"),
     Input("timeframe-dropdown", "value"),
     State("main-tabs", "value"),
     State("zoom-state", "data"),
+    State("symbol-dropdown", "search_value"),
+    State("timeframe-dropdown", "search_value"),
     prevent_initial_call=True,
 )
-def render_dashboard_chart(_n, active_symbol, timeframe, active_tab, zoom_state):
+def render_dashboard_chart(
+    _n,
+    active_symbol,
+    timeframe,
+    active_tab,
+    zoom_state,
+    symbol_search_value,
+    timeframe_search_value,
+):
     if active_tab != "dashboard":
-        return no_update, no_update
+        return no_update, no_update, no_update, no_update
+
+    if symbol_search_value or timeframe_search_value:
+        return no_update, no_update, no_update, no_update
 
     try:
         symbol = active_symbol or DEFAULT_SYMBOL
@@ -223,18 +364,13 @@ def render_dashboard_chart(_n, active_symbol, timeframe, active_tab, zoom_state)
 
         snap = rt.get_snapshot(symbol, timeframe)
         fig = create_candlestick_figure(snap.bars, symbol, timeframe)
-
-        bid = f"{snap.bid:.2f}" if snap.bid is not None else "--"
-        ask = f"{snap.ask:.2f}" if snap.ask is not None else "--"
-        last = f"{snap.last:.2f}" if snap.last is not None else "--"
-        size = f"{snap.last_size:.0f}" if snap.last_size is not None else "--"
-        updated = snap.updated_at.strftime("%H:%M:%S") if snap.updated_at else "--:--:--"
-
-        quote_text = (
-            f"[LIVE] {symbol} ({company_name}) | "
-            f"Last: {last} | Bid: {bid} | Ask: {ask} | "
-            f"Size: {size} | Ticks: {snap.tick_count} | Updated: {updated}"
+        fig.update_layout(
+            uirevision=f"dashboard-{symbol}-{timeframe}",
+            dragmode="pan",
         )
+
+        updated = snap.updated_at.strftime("%H:%M:%S") if snap.updated_at else "--:--:--"
+        quote_text = f"LIVE · {company_name} ({symbol}) · Updated {updated}"
 
         if zoom_state:
             if "xaxis.range[0]" in zoom_state and "xaxis.range[1]" in zoom_state:
@@ -250,7 +386,11 @@ def render_dashboard_chart(_n, active_symbol, timeframe, active_tab, zoom_state)
                     col=1,
                 )
 
-        return quote_text, fig
+        open_val = None if snap.bars.empty else float(snap.bars.iloc[0]["open"])
+        metrics = _build_metrics_strip(symbol, company_name, snap.last, open_val, snap.updated_at)
+        stats = _build_stats_grid_from_bars(snap.bars)
+
+        return quote_text, fig, metrics, stats
 
     except Exception as exc:
         fig = go.Figure()
@@ -261,7 +401,7 @@ def render_dashboard_chart(_n, active_symbol, timeframe, active_tab, zoom_state)
             plot_bgcolor="#0d1b4f",
             font={"color": "#e8f1ff"},
         )
-        return f"Loading dashboard... {exc}", fig
+        return f"Loading dashboard... {exc}", fig, [], []
 
 
 # =========================
@@ -273,49 +413,68 @@ def render_dashboard_chart(_n, active_symbol, timeframe, active_tab, zoom_state)
     Input("watch-symbol-dropdown", "value"),
     Input("replay-speed", "value"),
     Input("replay-slider", "value"),
+    Input("replay-date", "date"),
     State("watch-state", "data"),
     prevent_initial_call=True,
 )
-def save_watch_state(symbol, replay_speed, replay_index, current_state):
+def save_watch_state(symbol, replay_speed, replay_index, replay_date, current_state):
     state = dict(current_state or {})
     if symbol:
         state["symbol"] = symbol
     if replay_speed is not None:
         state["replay_speed"] = replay_speed
+        replay.set_speed(replay_speed)
     if replay_index is not None:
         state["replay_index"] = replay_index
+    state["replay_date"] = replay_date
     return state
 
 
 @app.callback(
     Output("watch-status", "children"),
+    Output("replay-slider", "max", allow_duplicate=True),
+    Output("replay-slider", "value", allow_duplicate=True),
     Input("main-tabs", "value"),
     Input("watch-symbol-dropdown", "value"),
+    Input("replay-date", "date"),
+    Input("replay-speed", "value"),
     prevent_initial_call=True,
 )
-def load_watch_symbol(active_tab, symbol):
-    print(f"[CALLBACK] load_watch_symbol active_tab={active_tab} symbol={symbol}", flush=True)
-
+def load_watch_symbol(active_tab, symbol, replay_date, replay_speed):
     if active_tab != "watch":
-        return no_update
+        return no_update, no_update, no_update
 
     symbol = symbol or "MSFT"
 
     try:
         symbol = rt._sanitize_symbol(symbol)
-        hist = rt.load_history(symbol, "1 min")
+
+        if replay_speed is not None:
+            replay.set_speed(replay_speed)
+
+        replay.reset()
+
+        if replay_date:
+            start_dt = datetime.fromisoformat(replay_date)
+            end_dt = start_dt + timedelta(days=1)
+            hist = rt.load_history_range(symbol, "1 min", start_dt, end_dt)
+        else:
+            hist = rt.load_history(symbol, "1 min")
 
         if hist is None or hist.empty:
-            print(f"[WATCH LOAD] no history for {symbol}", flush=True)
-            return f"Replay load error: no history returned for {symbol}"
+            return f"No replay history returned for {symbol}", 100, 1
 
         replay.load_from_df(hist)
-        print(f"[WATCH LOAD] symbol={symbol} rows={len(hist)}", flush=True)
-        print(f"[WATCH LOAD] replay_info={replay.info()}", flush=True)
-        return f"Replay loaded for {symbol} ({len(hist)} bars)"
+        info = replay.info()
+
+        return (
+            f"Replay loaded for {symbol} ({len(hist)} bars)",
+            max(1, info["max_index"]),
+            max(1, info["current_index"]),
+        )
+
     except Exception as exc:
-        print(f"[WATCH LOAD ERROR] {exc}", flush=True)
-        return f"Replay load error: {exc}"
+        return f"Replay load error: {exc}", 100, 1
 
 
 @app.callback(
@@ -330,8 +489,6 @@ def load_watch_symbol(active_tab, symbol):
     prevent_initial_call=True,
 )
 def control_replay(play_clicks, pause_clicks, step_clicks, rewind_clicks, slider_value, active_tab):
-    print(f"[CALLBACK] control_replay trigger={ctx.triggered_id} active_tab={active_tab}", flush=True)
-
     if active_tab != "watch":
         return no_update, no_update
 
@@ -367,32 +524,31 @@ def control_replay(play_clicks, pause_clicks, step_clicks, rewind_clicks, slider
 
 @app.callback(
     Output("watch-chart", "figure"),
-    Output("replay-slider", "max"),
-    Output("replay-slider", "value"),
+    Output("replay-slider", "max", allow_duplicate=True),
+    Output("replay-slider", "value", allow_duplicate=True),
+    Output("watch-metrics-strip", "children"),
+    Output("watch-stats-grid", "children"),
+    Output("watch-loading-overlay", "className"),
     Input("ui-interval", "n_intervals"),
-    Input("watch-symbol-dropdown", "value"),
     State("main-tabs", "value"),
+    State("watch-symbol-dropdown", "value"),
+    State("watch-symbol-dropdown", "search_value"),
     prevent_initial_call=True,
 )
-def render_watch_tab(_n, symbol, active_tab):
-    print(f"[CALLBACK] render_watch_tab active_tab={active_tab} symbol={symbol}", flush=True)
-
+def render_watch_tab(_n, active_tab, symbol, watch_symbol_search_value):
     if active_tab != "watch":
-        return no_update, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update, "watch-loading-overlay hidden"
+
+    if watch_symbol_search_value:
+        return no_update, no_update, no_update, no_update, no_update, no_update
 
     try:
         symbol = symbol or "MSFT"
-
-        if replay.bars.empty:
-            hist = rt.load_history(symbol, "1 min")
-            replay.load_from_df(hist)
-            print(f"[WATCH FALLBACK LOAD] symbol={symbol} rows={len(hist)}", flush=True)
 
         replay.tick()
         visible = replay.visible_bars()
 
         if visible.empty:
-            print("[WATCH RENDER] visible empty", flush=True)
             fig = go.Figure()
             fig.update_layout(
                 title=f"{symbol} | 1 min | No replay data loaded yet",
@@ -400,14 +556,37 @@ def render_watch_tab(_n, symbol, active_tab):
                 paper_bgcolor="#0d1b4f",
                 plot_bgcolor="#0d1b4f",
                 font={"color": "#e8f1ff"},
+                uirevision=f"watch-{symbol}",
+                dragmode="pan",
             )
-            return fig, 100, 1
+            return fig, 100, 1, [], [], "watch-loading-overlay"
 
         info = replay.info()
-        print(f"[WATCH RENDER] visible_rows={len(visible)} info={info}", flush=True)
+
+        if not info["playing"] and ctx.triggered_id == "ui-interval":
+            return no_update, no_update, no_update, no_update, no_update, no_update
 
         fig = create_candlestick_figure(visible, symbol, "1 min")
-        return fig, max(1, info["max_index"]), max(1, info["current_index"])
+        fig.update_layout(
+            uirevision=f"watch-{symbol}",
+            dragmode="pan",
+        )
+
+        company = rt.get_company_name(symbol)
+        last_close = float(visible.iloc[-1]["close"]) if not visible.empty else None
+        open_val = float(visible.iloc[0]["open"]) if not visible.empty else None
+
+        metrics = _build_metrics_strip(symbol, company, last_close, open_val, datetime.now())
+        stats = _build_stats_grid_from_bars(visible)
+
+        return (
+            fig,
+            max(1, info["max_index"]),
+            max(1, info["current_index"]),
+            metrics,
+            stats,
+            "watch-loading-overlay hidden",
+        )
 
     except Exception as exc:
         print(f"[WATCH RENDER ERROR] {exc}", flush=True)
@@ -418,8 +597,10 @@ def render_watch_tab(_n, symbol, active_tab):
             paper_bgcolor="#0d1b4f",
             plot_bgcolor="#0d1b4f",
             font={"color": "#e8f1ff"},
+            uirevision=f"watch-{symbol or 'MSFT'}",
+            dragmode="pan",
         )
-        return fig, 100, 1
+        return fig, 100, 1, [], [], "watch-loading-overlay"
 
 
 # =========================
@@ -488,6 +669,7 @@ def render_charts_tab(_n, symbol, timeframe, active_tab):
 
         snap = rt.get_snapshot(symbol, timeframe)
         fig = create_candlestick_figure(snap.bars, symbol, timeframe)
+        fig.update_layout(uirevision=f"charts-{symbol}-{timeframe}", dragmode="pan")
 
         return f"Charts loaded for {symbol}", fig
 
