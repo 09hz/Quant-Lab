@@ -116,7 +116,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                                 searchable=True,
                                 clearable=False,
                                 className="black-dropdown",
-                            ),
+                            )
                         ],
                     ),
                     html.Div(

@@ -52,24 +52,25 @@ body {
 .main-tab {
     min-width: 120px;
     text-align: center;
-    background: rgba(10, 22, 50, 0.92) !important;
-    color: #dfe8ff !important;
-    border: 1px solid rgba(108, 92, 231, 0.18) !important;
+    background: rgba(10, 28, 80, 0.78) !important;
+    color: #eaf2ff !important;
+    border: 1px solid rgba(119, 170, 255, 0.18) !important;
     padding: 12px 18px !important;
     border-radius: 12px 12px 0 0 !important;
     font-weight: 600 !important;
 }
 
 .main-tab:hover {
-    background: rgba(26, 42, 84, 0.98) !important;
+    background: rgba(30, 58, 138, 0.88) !important;
     color: #ffffff !important;
 }
 
 .main-tab-selected {
-    background: rgba(26, 18, 62, 0.98) !important;
+    background: rgba(24, 34, 78, 0.98) !important;
     color: #ffffff !important;
     font-weight: 700 !important;
-    border-top: 3px solid #f472b6 !important;
+    border-top: 3px solid #38bdf8 !important;
+    box-shadow: 0 8px 20px rgba(56, 189, 248, 0.16) !important;
 }
 
 
@@ -183,14 +184,14 @@ button:hover {
 
 
 /* =========================
-   Chart card
+   Chart card - darker revert
 ========================= */
 .chart-card {
-    background: rgba(6, 12, 34, 0.96);
-    border: 1px solid rgba(108, 92, 231, 0.18);
-    border-radius: 16px;
+    background: linear-gradient(180deg, rgba(9, 16, 30, 0.96), rgba(6, 12, 24, 0.96));
+    border: 1px solid rgba(96, 165, 250, 0.12);
+    border-radius: 18px;
     padding: 12px;
-    box-shadow: 0 14px 30px rgba(0, 0, 0, 0.36);
+    box-shadow: 0 16px 34px rgba(0, 0, 0, 0.34);
 }
 
 .chart-graph {
@@ -205,7 +206,7 @@ button:hover {
 
 
 /* =========================
-   Dropdown styling
+   Dropdown styling - dark background
 ========================= */
 .black-dropdown {
     color: #f4f7ff !important;
@@ -214,9 +215,9 @@ button:hover {
 .black-dropdown .Select,
 .black-dropdown .select__control,
 .black-dropdown [class*="control"] {
-    background: #0f172a !important;
+    background: rgba(8, 22, 70, 0.95) !important;
     color: #f4f7ff !important;
-    border: 1px solid rgba(236, 72, 153, 0.24) !important;
+    border: 1px solid rgba(119, 170, 255, 0.28) !important;
     border-radius: 10px !important;
     box-shadow: none !important;
 }
@@ -249,9 +250,9 @@ button:hover {
 .black-dropdown .select__menu,
 .black-dropdown .select__menu-list,
 .black-dropdown [class*="menu"] {
-    background: #0b1226 !important;
+    background: rgba(8, 22, 70, 0.98) !important;
     color: #f4f7ff !important;
-    border: 1px solid rgba(236, 72, 153, 0.22) !important;
+    border: 1px solid rgba(119, 170, 255, 0.24) !important;
 }
 
 .black-dropdown .VirtualizedSelectOption,
@@ -259,7 +260,7 @@ button:hover {
 .black-dropdown .Select-option,
 .black-dropdown .select__option,
 .black-dropdown [class*="option"] {
-    background: #0b1226 !important;
+    background: rgba(8, 22, 70, 0.98) !important;
     color: #f4f7ff !important;
 }
 
@@ -267,7 +268,7 @@ button:hover {
 .black-dropdown .Select-option.is-focused,
 .black-dropdown .select__option--is-focused,
 .black-dropdown [class*="option"]:hover {
-    background: #251a52 !important;
+    background: rgba(30, 58, 138, 0.95) !important;
     color: #ffffff !important;
 }
 
@@ -293,11 +294,6 @@ button:hover {
 
 .black-dropdown .select__indicator-separator {
     background-color: rgba(255, 255, 255, 0.18) !important;
-}
-
-.black-dropdown *,
-.black-dropdown *::placeholder {
-    color: #f4f7ff !important;
 }
 
 
@@ -474,34 +470,46 @@ button:hover {
 
 .stats-grid {
     display: grid;
-    grid-template-columns: repeat(3, minmax(180px, 1fr));
-    gap: 12px;
-    margin-top: 14px;
+    grid-template-columns: repeat(3, minmax(220px, 1fr));
+    gap: 14px;
+    margin-top: 16px;
 }
 
 .stat-card {
-    background: rgba(10, 16, 32, 0.92);
-    border: 1px solid rgba(255, 255, 255, 0.06);
-    border-radius: 14px;
-    padding: 14px 16px;
+    background: linear-gradient(180deg, rgba(10, 18, 34, 0.96), rgba(7, 13, 26, 0.96));
+    border: 1px solid rgba(96, 165, 250, 0.12);
+    border-radius: 18px;
+    padding: 16px 18px;
+    box-shadow:
+        0 10px 24px rgba(0, 0, 0, 0.28),
+        inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .stat-row {
     display: flex;
     justify-content: space-between;
-    gap: 10px;
-    margin-bottom: 8px;
+    align-items: center;
+    gap: 12px;
+    padding: 9px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.stat-row:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
 }
 
 .stat-label {
     color: #94a3b8;
+    font-size: 13px;
+    font-weight: 500;
 }
 
 .stat-value {
     color: #f8fbff;
     font-weight: 700;
+    font-size: 14px;
 }
-
 
 /* =========================
    Watch chart loading overlay

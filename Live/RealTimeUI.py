@@ -19,7 +19,7 @@ from tabs_ui import (
 )
 from ReplayModule import ReplayEngine
 
-
+replay_cache = {}
 DEFAULT_SYMBOL = "MSFT"
 DEFAULT_TIMEFRAME = "1 min"
 
@@ -42,6 +42,7 @@ app.layout = html.Div(
                 html.Div(id="quote-strip", className="quote-strip"),
             ],
         ),
+
         dcc.Tabs(
             id="main-tabs",
             value="dashboard",
@@ -52,59 +53,31 @@ app.layout = html.Div(
                     value="dashboard",
                     className="main-tab",
                     selected_className="main-tab-selected",
-                    children=[
-                        build_dashboard_tab(
-                            symbol_options=SYMBOL_OPTIONS,
-                            timeframe_map=TIMEFRAME_MAP,
-                            default_symbol=DEFAULT_SYMBOL,
-                            default_timeframe=DEFAULT_TIMEFRAME,
-                        )
-                    ],
                 ),
                 dcc.Tab(
                     label="Watch",
                     value="watch",
                     className="main-tab",
                     selected_className="main-tab-selected",
-                    children=[
-                        build_watch_tab(
-                            symbol_options=SYMBOL_OPTIONS,
-                            default_symbol="MSFT",
-                            default_speed=1,
-                            default_index=100,
-                            default_date=None,
-                        )
-                    ],
                 ),
                 dcc.Tab(
                     label="Quotes",
                     value="quotes",
                     className="main-tab",
                     selected_className="main-tab-selected",
-                    children=[
-                        build_quotes_tab(
-                            symbol_options=SYMBOL_OPTIONS,
-                            default_symbol=DEFAULT_SYMBOL,
-                        )
-                    ],
                 ),
                 dcc.Tab(
                     label="Charts",
                     value="charts",
                     className="main-tab",
                     selected_className="main-tab-selected",
-                    children=[
-                        build_charts_tab(
-                            symbol_options=SYMBOL_OPTIONS,
-                            timeframe_map=TIMEFRAME_MAP,
-                            default_symbol=DEFAULT_SYMBOL,
-                            default_timeframe=DEFAULT_TIMEFRAME,
-                        )
-                    ],
                 ),
             ],
         ),
-        dcc.Interval(id="ui-interval", interval=1000, n_intervals=0, disabled=False),
+
+        html.Div(id="tab-content", className="tab-content"),
+
+        dcc.Interval(id="ui-interval", interval=75, n_intervals=0),
         dcc.Store(id="zoom-state", data={}),
         dcc.Store(id="active-symbol", data=DEFAULT_SYMBOL),
         dcc.Store(id="load-status", data="Ready"),
@@ -198,41 +171,6 @@ def _build_stats_grid_from_bars(df):
 
 
 @app.callback(
-    Output("ui-interval", "disabled"),
-    Input("main-tabs", "value"),
-    Input("symbol-dropdown", "search_value"),
-    Input("timeframe-dropdown", "search_value"),
-    Input("watch-symbol-dropdown", "search_value"),
-    Input("quotes-symbol-dropdown", "search_value"),
-    Input("charts-symbol-dropdown", "search_value"),
-    Input("charts-timeframe-dropdown", "search_value"),
-    prevent_initial_call=False,
-)
-def pause_interval_while_searching(
-    active_tab,
-    dashboard_symbol_search,
-    dashboard_timeframe_search,
-    watch_symbol_search,
-    quotes_symbol_search,
-    charts_symbol_search,
-    charts_timeframe_search,
-):
-    if active_tab == "dashboard":
-        return bool(dashboard_symbol_search or dashboard_timeframe_search)
-
-    if active_tab == "watch":
-        return bool(watch_symbol_search)
-
-    if active_tab == "quotes":
-        return bool(quotes_symbol_search)
-
-    if active_tab == "charts":
-        return bool(charts_symbol_search or charts_timeframe_search)
-
-    return False
-
-
-@app.callback(
     Output("pair-title", "children"),
     Input("active-symbol", "data"),
     Input("main-tabs", "value"),
@@ -252,6 +190,55 @@ def update_pair_title(active_symbol, active_tab, watch_state, dashboard_state):
 # =========================
 # Dashboard callbacks
 # =========================
+
+@app.callback(
+    Output("tab-content", "children"),
+    Input("main-tabs", "value"),
+    State("dashboard-state", "data"),
+    State("watch-state", "data"),
+)
+def render_tab_content(active_tab, dashboard_state, watch_state):
+    dashboard_state = dashboard_state or {}
+    watch_state = watch_state or {}
+
+    dashboard_symbol = dashboard_state.get("symbol", DEFAULT_SYMBOL)
+    dashboard_timeframe = dashboard_state.get("timeframe", DEFAULT_TIMEFRAME)
+
+    watch_symbol = watch_state.get("symbol", "MSFT")
+    watch_speed = watch_state.get("replay_speed", 1)
+    watch_index = watch_state.get("replay_index", 100)
+    watch_date = watch_state.get("replay_date")
+
+    if active_tab == "watch":
+        return build_watch_tab(
+            symbol_options=SYMBOL_OPTIONS,
+            default_symbol=watch_symbol,
+            default_speed=watch_speed,
+            default_index=watch_index,
+            default_date=watch_date,
+        )
+
+    if active_tab == "quotes":
+        return build_quotes_tab(
+            symbol_options=SYMBOL_OPTIONS,
+            default_symbol=dashboard_symbol,
+        )
+
+    if active_tab == "charts":
+        return build_charts_tab(
+            symbol_options=SYMBOL_OPTIONS,
+            timeframe_map=TIMEFRAME_MAP,
+            default_symbol=dashboard_symbol,
+            default_timeframe=dashboard_timeframe,
+        )
+
+    return build_dashboard_tab(
+        symbol_options=SYMBOL_OPTIONS,
+        timeframe_map=TIMEFRAME_MAP,
+        default_symbol=dashboard_symbol,
+        default_timeframe=dashboard_timeframe,
+    )
+
 
 @app.callback(
     Output("dashboard-state", "data"),
@@ -375,15 +362,11 @@ def render_dashboard_chart(
         if zoom_state:
             if "xaxis.range[0]" in zoom_state and "xaxis.range[1]" in zoom_state:
                 fig.update_xaxes(
-                    range=[zoom_state["xaxis.range[0]"], zoom_state["xaxis.range[1]"]],
-                    row=1,
-                    col=1,
+                    range=[zoom_state["xaxis.range[0]"], zoom_state["xaxis.range[1]"]]
                 )
             if "yaxis.range[0]" in zoom_state and "yaxis.range[1]" in zoom_state:
                 fig.update_yaxes(
-                    range=[zoom_state["yaxis.range[0]"], zoom_state["yaxis.range[1]"]],
-                    row=1,
-                    col=1,
+                    range=[zoom_state["yaxis.range[0]"], zoom_state["yaxis.range[1]"]]
                 )
 
         open_val = None if snap.bars.empty else float(snap.bars.iloc[0]["open"])
@@ -441,6 +424,20 @@ def save_watch_state(symbol, replay_speed, replay_index, replay_date, current_st
     prevent_initial_call=True,
 )
 def load_watch_symbol(active_tab, symbol, replay_date, replay_speed):
+    cache_key = (symbol, replay_date or "latest", "1 min")
+
+    if cache_key in replay_cache:
+        hist = replay_cache[cache_key]
+    else:
+        if replay_date:
+            start_dt = datetime.fromisoformat(replay_date)
+            end_dt = start_dt + timedelta(days=1)
+            hist = rt.load_history_range(symbol, "1 min", start_dt, end_dt)
+        else:
+            hist = rt.load_history(symbol, "1 min")
+        replay_cache[cache_key] = hist
+
+
     if active_tab != "watch":
         return no_update, no_update, no_update
 
@@ -532,15 +529,11 @@ def control_replay(play_clicks, pause_clicks, step_clicks, rewind_clicks, slider
     Input("ui-interval", "n_intervals"),
     State("main-tabs", "value"),
     State("watch-symbol-dropdown", "value"),
-    State("watch-symbol-dropdown", "search_value"),
     prevent_initial_call=True,
 )
-def render_watch_tab(_n, active_tab, symbol, watch_symbol_search_value):
+def render_watch_tab(_n, active_tab, symbol):
     if active_tab != "watch":
         return no_update, no_update, no_update, no_update, no_update, "watch-loading-overlay hidden"
-
-    if watch_symbol_search_value:
-        return no_update, no_update, no_update, no_update, no_update, no_update
 
     try:
         symbol = symbol or "MSFT"
@@ -562,9 +555,6 @@ def render_watch_tab(_n, active_tab, symbol, watch_symbol_search_value):
             return fig, 100, 1, [], [], "watch-loading-overlay"
 
         info = replay.info()
-
-        if not info["playing"] and ctx.triggered_id == "ui-interval":
-            return no_update, no_update, no_update, no_update, no_update, no_update
 
         fig = create_candlestick_figure(visible, symbol, "1 min")
         fig.update_layout(

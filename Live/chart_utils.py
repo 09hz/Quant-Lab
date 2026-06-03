@@ -146,21 +146,58 @@ def create_candlestick_figure(bars: pd.DataFrame, symbol: str, timeframe: str) -
                 low=df["low"],
                 close=df["close"],
                 name=f"{symbol} {timeframe}",
+                increasing_line_color="#22c55e",
+                increasing_fillcolor="#22c55e",
+                decreasing_line_color="#ef4444",
+                decreasing_fillcolor="#ef4444",
+                whiskerwidth=0.4,
             )
         )
 
+        last_price = float(df.iloc[-1]["close"])
+
+        fig.add_hline(
+            y=last_price,
+            line_width=1.2,
+            line_dash="dot",
+            line_color="#60a5fa",
+            opacity=0.95,
+            annotation_text=f"{last_price:,.2f}",
+            annotation_position="right",
+            annotation_font=dict(color="white", size=12),
+            annotation_bgcolor="#2563eb",
+            annotation_bordercolor="#60a5fa",
+        )
+
     fig.update_layout(
-        title=f"{symbol} · {timeframe}",
+        title=dict(
+            text=f"{symbol} · {timeframe}",
+            x=0.02,
+            xanchor="left",
+            font=dict(size=18, color="#f8fbff"),
+        ),
         template="plotly_dark",
-        paper_bgcolor="#0d1b4f",
-        plot_bgcolor="#0d1b4f",
-        font={"color": "#e8f1ff"},
-        margin=dict(l=20, r=20, t=50, b=20),
+        paper_bgcolor="#071224",
+        plot_bgcolor="#071224",
+        font={"color": "#dbe7ff"},
+        margin=dict(l=16, r=56, t=44, b=16),
         xaxis_rangeslider_visible=False,
         dragmode="pan",
+        hovermode="x unified",
     )
 
-    fig.update_xaxes(showgrid=True, gridcolor="rgba(255,255,255,0.06)")
-    fig.update_yaxes(showgrid=True, gridcolor="rgba(255,255,255,0.06)")
+    fig.update_xaxes(
+        showgrid=True,
+        gridcolor="rgba(255,255,255,0.05)",
+        zeroline=False,
+        showline=False,
+    )
+    fig.update_yaxes(
+        showgrid=True,
+        gridcolor="rgba(255,255,255,0.05)",
+        zeroline=False,
+        showline=False,
+        side="right",
+    )
 
     return fig
