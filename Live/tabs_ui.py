@@ -59,8 +59,6 @@ def build_dashboard_tab(symbol_options, timeframe_map, default_symbol, default_t
         ],
     )
 
-
-
 def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_index=100):
     return html.Div(
         className="tab-panel watch-tab-panel",
@@ -71,15 +69,15 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                     html.Div(
                         className="control-box control-symbol",
                         children=[
-                            html.Label("Watch Symbol / Company"),
+                            html.Label("Replay Symbol / Company"),
                             dcc.Dropdown(
                                 id="watch-symbol-dropdown",
                                 options=symbol_options,
                                 value=default_symbol,
-                                placeholder="Search ticker or company...",
                                 searchable=True,
                                 clearable=False,
                                 className="black-dropdown",
+                                placeholder="Search ticker or company...",
                             ),
                         ],
                     ),
@@ -116,6 +114,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                                     html.Button("Play", id="replay-play", n_clicks=0),
                                     html.Button("Pause", id="replay-pause", n_clicks=0),
                                     html.Button("Step", id="replay-step", n_clicks=0),
+                                    html.Button("Rewind", id="replay-rewind", n_clicks=0),
                                 ],
                                 style={"display": "flex", "gap": "8px"},
                             ),
@@ -140,11 +139,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
             html.Div(
                 className="chart-card",
                 children=[
-                    dcc.Graph(
-                        id="watch-chart",
-                        className="chart-graph",
-                        config={"displaylogo": False},
-                    ),
+                    dcc.Graph(id="watch-chart", className="chart-graph"),
                 ],
             ),
         ],

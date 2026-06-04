@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import plotly.graph_objects as go
-from dash import Dash, Input, Output, State, dcc, html, no_update
+from dash import Dash, Input, Output, State, dcc, html, no_update, ctx
 
 from RealTime import RealTimeIB, TIMEFRAME_MAP
 from chart_utils import create_candlestick_figure
@@ -11,6 +11,7 @@ from tabs_ui import (
     build_quotes_tab,
     build_charts_tab,
 )
+from ReplayModule import ReplayEngine
 
 
 DEFAULT_SYMBOL = "MSFT"
@@ -19,9 +20,10 @@ DEFAULT_TIMEFRAME = "1 min"
 rt = RealTimeIB(host="127.0.0.1", port=4001)
 rt.start(DEFAULT_SYMBOL, DEFAULT_TIMEFRAME)
 
+replay = ReplayEngine()
 SYMBOL_OPTIONS = rt.get_symbol_options()
 
-app = Dash(__name__)
+app = Dash(__name__, suppress_callback_exceptions=True)
 app.title = "Stock Visualizer"
 
 app.layout = html.Div(
@@ -45,29 +47,57 @@ app.layout = html.Div(
                     value="dashboard",
                     className="main-tab",
                     selected_className="main-tab-selected",
+                    children=[
+                        build_dashboard_tab(
+                            symbol_options=SYMBOL_OPTIONS,
+                            timeframe_map=TIMEFRAME_MAP,
+                            default_symbol=DEFAULT_SYMBOL,
+                            default_timeframe=DEFAULT_TIMEFRAME,
+                        )
+                    ],
                 ),
                 dcc.Tab(
                     label="Watch",
                     value="watch",
                     className="main-tab",
                     selected_className="main-tab-selected",
+                    children=[
+                        build_watch_tab(
+                            symbol_options=SYMBOL_OPTIONS,
+                            default_symbol="MSFT",
+                            default_speed=1,
+                            default_index=100,
+                        )
+                    ],
                 ),
                 dcc.Tab(
                     label="Quotes",
                     value="quotes",
                     className="main-tab",
                     selected_className="main-tab-selected",
+                    children=[
+                        build_quotes_tab(
+                            symbol_options=SYMBOL_OPTIONS,
+                            default_symbol=DEFAULT_SYMBOL,
+                        )
+                    ],
                 ),
                 dcc.Tab(
                     label="Charts",
                     value="charts",
                     className="main-tab",
                     selected_className="main-tab-selected",
+                    children=[
+                        build_charts_tab(
+                            symbol_options=SYMBOL_OPTIONS,
+                            timeframe_map=TIMEFRAME_MAP,
+                            default_symbol=DEFAULT_SYMBOL,
+                            default_timeframe=DEFAULT_TIMEFRAME,
+                        )
+                    ],
                 ),
             ],
         ),
-
-        html.Div(id="tab-content", className="tab-content"),
 
         dcc.Interval(id="ui-interval", interval=250, n_intervals=0),
         dcc.Store(id="zoom-state", data={}),
@@ -92,61 +122,45 @@ app.layout = html.Div(
 )
 
 
+# =========================
+# Shared callbacks
+# =========================
+
 @app.callback(
     Output("pair-title", "children"),
     Input("active-symbol", "data"),
+    Input("main-tabs", "value"),
+    State("watch-state", "data"),
+    State("dashboard-state", "data"),
 )
-def update_pair_title(symbol):
-    symbol = symbol or DEFAULT_SYMBOL
+def update_pair_title(active_symbol, active_tab, watch_state, dashboard_state):
+    if active_tab == "watch":
+        symbol = (watch_state or {}).get("symbol", "MSFT")
+    else:
+        symbol = active_symbol or (dashboard_state or {}).get("symbol", DEFAULT_SYMBOL)
+
     company = rt.get_company_name(symbol)
     return f"{symbol} / {company}"
 
 
+# =========================
+# Dashboard callbacks
+# =========================
+
 @app.callback(
-    Output("tab-content", "children"),
-    Input("main-tabs", "value"),
+    Output("dashboard-state", "data"),
+    Input("symbol-dropdown", "value"),
+    Input("timeframe-dropdown", "value"),
     State("dashboard-state", "data"),
-    State("watch-state", "data"),
+    prevent_initial_call=True,
 )
-def render_tab_content(active_tab, dashboard_state, watch_state):
-    dashboard_state = dashboard_state or {}
-    watch_state = watch_state or {}
-
-    dashboard_symbol = dashboard_state.get("symbol", DEFAULT_SYMBOL)
-    dashboard_timeframe = dashboard_state.get("timeframe", DEFAULT_TIMEFRAME)
-
-    watch_symbol = watch_state.get("symbol", "MSFT")
-    watch_speed = watch_state.get("replay_speed", 1)
-    watch_index = watch_state.get("replay_index", 100)
-
-    if active_tab == "watch":
-        return build_watch_tab(
-            symbol_options=SYMBOL_OPTIONS,
-            default_symbol=watch_symbol,
-            default_speed=watch_speed,
-            default_index=watch_index,
-        )
-
-    if active_tab == "quotes":
-        return build_quotes_tab(
-            symbol_options=SYMBOL_OPTIONS,
-            default_symbol=dashboard_symbol,
-        )
-
-    if active_tab == "charts":
-        return build_charts_tab(
-            symbol_options=SYMBOL_OPTIONS,
-            timeframe_map=TIMEFRAME_MAP,
-            default_symbol=dashboard_symbol,
-            default_timeframe=dashboard_timeframe,
-        )
-
-    return build_dashboard_tab(
-        symbol_options=SYMBOL_OPTIONS,
-        timeframe_map=TIMEFRAME_MAP,
-        default_symbol=dashboard_symbol,
-        default_timeframe=dashboard_timeframe,
-    )
+def save_dashboard_state(symbol, timeframe, current_state):
+    state = dict(current_state or {})
+    if symbol:
+        state["symbol"] = symbol
+    if timeframe:
+        state["timeframe"] = timeframe
+    return state
 
 
 @app.callback(
@@ -180,64 +194,12 @@ def capture_zoom(relayout_data, current_state):
 
 
 @app.callback(
-    Output("active-symbol", "data"),
-    Output("load-status", "data"),
-    Input("symbol-dropdown", "value"),
-    prevent_initial_call=True,
-)
-def auto_load_symbol(symbol):
-    if not symbol:
-        return no_update, "No symbol selected"
-
-    try:
-        symbol = rt._sanitize_symbol(symbol)
-        rt.request_symbol(symbol)
-        return symbol, f"Loading live data for {symbol}"
-    except Exception as exc:
-        return no_update, f"Error: {exc}"
-
-
-@app.callback(
     Output("load-status-text", "children"),
     Input("load-status", "data"),
     prevent_initial_call=True,
 )
 def show_load_status(status):
     return status
-
-@app.callback(
-    Output("dashboard-state", "data"),
-    Input("symbol-dropdown", "value"),
-    Input("timeframe-dropdown", "value"),
-    State("dashboard-state", "data"),
-    prevent_initial_call=True,
-)
-def save_dashboard_state(symbol, timeframe, current_state):
-    state = dict(current_state or {})
-    if symbol:
-        state["symbol"] = symbol
-    if timeframe:
-        state["timeframe"] = timeframe
-    return state
-
-
-@app.callback(
-    Output("watch-state", "data"),
-    Input("watch-symbol-dropdown", "value"),
-    Input("replay-speed", "value"),
-    Input("replay-slider", "value"),
-    State("watch-state", "data"),
-    prevent_initial_call=True,
-)
-def save_watch_state(symbol, replay_speed, replay_index, current_state):
-    state = dict(current_state or {})
-    if symbol:
-        state["symbol"] = symbol
-    if replay_speed is not None:
-        state["replay_speed"] = replay_speed
-    if replay_index is not None:
-        state["replay_index"] = replay_index
-    return state
 
 
 @app.callback(
@@ -302,27 +264,167 @@ def render_dashboard_chart(_n, active_symbol, timeframe, active_tab, zoom_state)
         return f"Loading dashboard... {exc}", fig
 
 
+# =========================
+# Watch callbacks
+# =========================
+
+@app.callback(
+    Output("watch-state", "data"),
+    Input("watch-symbol-dropdown", "value"),
+    Input("replay-speed", "value"),
+    Input("replay-slider", "value"),
+    State("watch-state", "data"),
+    prevent_initial_call=True,
+)
+def save_watch_state(symbol, replay_speed, replay_index, current_state):
+    state = dict(current_state or {})
+    if symbol:
+        state["symbol"] = symbol
+    if replay_speed is not None:
+        state["replay_speed"] = replay_speed
+    if replay_index is not None:
+        state["replay_index"] = replay_index
+    return state
+
+
 @app.callback(
     Output("watch-status", "children"),
-    Output("watch-chart", "figure"),
-    Input("ui-interval", "n_intervals"),
+    Input("main-tabs", "value"),
+    Input("watch-symbol-dropdown", "value"),
+    prevent_initial_call=True,
+)
+def load_watch_symbol(active_tab, symbol):
+    print(f"[CALLBACK] load_watch_symbol active_tab={active_tab} symbol={symbol}", flush=True)
+
+    if active_tab != "watch":
+        return no_update
+
+    symbol = symbol or "MSFT"
+
+    try:
+        symbol = rt._sanitize_symbol(symbol)
+        hist = rt.load_history(symbol, "1 min")
+
+        if hist is None or hist.empty:
+            print(f"[WATCH LOAD] no history for {symbol}", flush=True)
+            return f"Replay load error: no history returned for {symbol}"
+
+        replay.load_from_df(hist)
+        print(f"[WATCH LOAD] symbol={symbol} rows={len(hist)}", flush=True)
+        print(f"[WATCH LOAD] replay_info={replay.info()}", flush=True)
+        return f"Replay loaded for {symbol} ({len(hist)} bars)"
+    except Exception as exc:
+        print(f"[WATCH LOAD ERROR] {exc}", flush=True)
+        return f"Replay load error: {exc}"
+
+
+@app.callback(
+    Output("watch-status", "children", allow_duplicate=True),
+    Output("replay-slider", "value", allow_duplicate=True),
+    Input("replay-play", "n_clicks"),
+    Input("replay-pause", "n_clicks"),
+    Input("replay-step", "n_clicks"),
+    Input("replay-rewind", "n_clicks"),
+    Input("replay-slider", "value"),
     State("main-tabs", "value"),
     prevent_initial_call=True,
 )
-def render_watch_tab(_n, active_tab):
+def control_replay(play_clicks, pause_clicks, step_clicks, rewind_clicks, slider_value, active_tab):
+    print(f"[CALLBACK] control_replay trigger={ctx.triggered_id} active_tab={active_tab}", flush=True)
+
     if active_tab != "watch":
         return no_update, no_update
 
-    fig = go.Figure()
-    fig.update_layout(
-        title="Watch Tab",
-        template="plotly_dark",
-        paper_bgcolor="#0d1b4f",
-        plot_bgcolor="#0d1b4f",
-        font={"color": "#e8f1ff"},
-    )
-    return "Watch tab ready", fig
+    trigger = ctx.triggered_id
 
+    try:
+        if trigger == "replay-play":
+            replay.play()
+            return "Replay playing", max(1, replay.current_index)
+
+        if trigger == "replay-pause":
+            replay.pause()
+            return "Replay paused", max(1, replay.current_index)
+
+        if trigger == "replay-step":
+            replay.forward(1)
+            return f"Replay stepped to {replay.current_index}", max(1, replay.current_index)
+
+        if trigger == "replay-rewind":
+            replay.rewind(1)
+            return f"Replay rewound to {replay.current_index}", max(1, replay.current_index)
+
+        if trigger == "replay-slider":
+            replay.set_index(slider_value or 1)
+            return f"Replay moved to {replay.current_index}", max(1, replay.current_index)
+
+        return no_update, no_update
+
+    except Exception as exc:
+        print(f"[REPLAY CONTROL ERROR] {exc}", flush=True)
+        return f"Replay control error: {exc}", no_update
+
+
+@app.callback(
+    Output("watch-chart", "figure"),
+    Output("replay-slider", "max"),
+    Output("replay-slider", "value"),
+    Input("ui-interval", "n_intervals"),
+    Input("watch-symbol-dropdown", "value"),
+    State("main-tabs", "value"),
+    prevent_initial_call=True,
+)
+def render_watch_tab(_n, symbol, active_tab):
+    print(f"[CALLBACK] render_watch_tab active_tab={active_tab} symbol={symbol}", flush=True)
+
+    if active_tab != "watch":
+        return no_update, no_update, no_update
+
+    try:
+        symbol = symbol or "MSFT"
+
+        if replay.bars.empty:
+            hist = rt.load_history(symbol, "1 min")
+            replay.load_from_df(hist)
+            print(f"[WATCH FALLBACK LOAD] symbol={symbol} rows={len(hist)}", flush=True)
+
+        replay.tick()
+        visible = replay.visible_bars()
+
+        if visible.empty:
+            print("[WATCH RENDER] visible empty", flush=True)
+            fig = go.Figure()
+            fig.update_layout(
+                title=f"{symbol} | 1 min | No replay data loaded yet",
+                template="plotly_dark",
+                paper_bgcolor="#0d1b4f",
+                plot_bgcolor="#0d1b4f",
+                font={"color": "#e8f1ff"},
+            )
+            return fig, 100, 1
+
+        info = replay.info()
+        print(f"[WATCH RENDER] visible_rows={len(visible)} info={info}", flush=True)
+
+        fig = create_candlestick_figure(visible, symbol, "1 min")
+        return fig, max(1, info["max_index"]), max(1, info["current_index"])
+
+    except Exception as exc:
+        print(f"[WATCH RENDER ERROR] {exc}", flush=True)
+        fig = go.Figure()
+        fig.update_layout(
+            title=f"Replay loading... {exc}",
+            template="plotly_dark",
+            paper_bgcolor="#0d1b4f",
+            plot_bgcolor="#0d1b4f",
+            font={"color": "#e8f1ff"},
+        )
+        return fig, 100, 1
+
+
+# =========================
+# Quotes callbacks
+# =========================
 
 @app.callback(
     Output("quotes-status", "children"),
@@ -361,6 +463,11 @@ def render_quotes_tab(_n, symbol, active_tab):
 
     except Exception as exc:
         return f"Quotes error: {exc}", f"Unable to load quotes for {symbol or DEFAULT_SYMBOL}"
+
+
+# =========================
+# Charts callbacks
+# =========================
 
 @app.callback(
     Output("charts-status", "children"),
