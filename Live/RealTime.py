@@ -6,11 +6,12 @@ import queue
 import random
 import threading
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
+from dash import html
 from ib_async import IB, Stock, Ticker, util
 
 from chart_utils import apply_tick_to_bars, normalize_history_df, resample_bars
@@ -117,13 +118,21 @@ class RealTimeIB:
         symbol = self._sanitize_symbol(symbol)
         return self.company_names.get(symbol) or symbol
 
-    def get_symbol_options(self) -> list[dict[str, str]]:
-        options: list[dict[str, str]] = []
+    def get_symbol_options(self) -> list[dict[str, object]]:
+        options: list[dict[str, object]] = []
 
         for symbol in sorted(self.nasdaq_symbols):
             company = self.company_names.get(symbol, "")
-            label = f"{symbol} - {company}" if company else symbol
-            options.append({"label": label, "value": symbol})
+            label_text = f"{symbol} - {company}" if company else symbol
+            search_text = f"{symbol} {company}".strip()
+
+            options.append(
+                {
+                    "label": html.Span(label_text, style={"color": "black"}),
+                    "value": symbol,
+                    "search": search_text,
+                }
+            )
 
         return options
 
@@ -234,6 +243,76 @@ class RealTimeIB:
             self._states[key] = state
 
         return df
+
+    def load_history_at(self, symbol: str, timeframe: str, end_dt: datetime) -> pd.DataFrame:
+        symbol = self._sanitize_symbol(symbol)
+
+        if timeframe not in TIMEFRAME_MAP:
+            raise ValueError(f"Unsupported timeframe: {timeframe}")
+
+        contract = self.get_contract(symbol)
+        bar_size, duration = TIMEFRAME_MAP[timeframe]
+
+        bars = self.ib.reqHistoricalData(
+            contract,
+            endDateTime=end_dt.strftime("%Y%m%d %H:%M:%S"),
+            durationStr=duration,
+            barSizeSetting=bar_size,
+            whatToShow="TRADES",
+            useRTH=True,
+            formatDate=1,
+        )
+
+        df = util.df(bars)
+        df = normalize_history_df(df)
+        return df
+
+    def load_history_range(
+        self,
+        symbol: str,
+        timeframe: str,
+        start_dt: datetime,
+        end_dt: datetime,
+    ) -> pd.DataFrame:
+        if start_dt >= end_dt:
+            raise ValueError("start_dt must be before end_dt")
+
+        pieces: list[pd.DataFrame] = []
+        cursor = end_dt
+
+        step_map = {
+            "1 min": timedelta(days=1),
+            "5 mins": timedelta(days=2),
+            "15 mins": timedelta(days=5),
+            "1 hour": timedelta(days=30),
+            "1 day": timedelta(days=365),
+        }
+
+        if timeframe not in step_map:
+            raise ValueError(f"Unsupported timeframe: {timeframe}")
+
+        while cursor > start_dt:
+            chunk = self.load_history_at(symbol, timeframe, cursor)
+
+            if chunk is None or chunk.empty:
+                break
+
+            pieces.append(chunk)
+
+            oldest = pd.to_datetime(chunk["time"].min()).to_pydatetime()
+            if oldest <= start_dt:
+                break
+
+            cursor = oldest - timedelta(seconds=1)
+            self.ib.sleep(0.25)
+
+        if not pieces:
+            return pd.DataFrame(columns=["time", "open", "high", "low", "close", "volume"])
+
+        out = pd.concat(pieces, ignore_index=True)
+        out = out.drop_duplicates(subset="time").sort_values("time").reset_index(drop=True)
+        out = out[(out["time"] >= start_dt) & (out["time"] <= end_dt)].reset_index(drop=True)
+        return out
 
     def subscribe_live(self, symbol: str, timeframe: str = "1 min") -> None:
         symbol = self._sanitize_symbol(symbol)
