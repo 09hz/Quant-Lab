@@ -4,7 +4,7 @@ from dash import dcc, html
 def make_timeframe_options(timeframe_map):
     return [
         {
-            "label": html.Span(k, style={"color": "black"}),
+            "label": html.Span(k, style={"color": "#f4f7ff"}),
             "value": k,
             "search": k,
         }
@@ -14,11 +14,11 @@ def make_timeframe_options(timeframe_map):
 
 def make_replay_speed_options():
     return [
-        {"label": html.Span("0.25x", style={"color": "black"}), "value": 0.25, "search": "0.25x quarter slow"},
-        {"label": html.Span("0.5x", style={"color": "black"}), "value": 0.5, "search": "0.5x half slow"},
-        {"label": html.Span("1x", style={"color": "black"}), "value": 1, "search": "1x normal default"},
-        {"label": html.Span("2x", style={"color": "black"}), "value": 2, "search": "2x double fast"},
-        {"label": html.Span("5x", style={"color": "black"}), "value": 5, "search": "5x very fast"},
+        {"label": html.Span("0.25x", style={"color": "#f4f7ff"}), "value": 0.25, "search": "0.25x quarter slow"},
+        {"label": html.Span("0.5x", style={"color": "#f4f7ff"}), "value": 0.5, "search": "0.5x half slow"},
+        {"label": html.Span("1x", style={"color": "#f4f7ff"}), "value": 1, "search": "1x normal default"},
+        {"label": html.Span("2x", style={"color": "#f4f7ff"}), "value": 2, "search": "2x double fast"},
+        {"label": html.Span("5x", style={"color": "#f4f7ff"}), "value": 5, "search": "5x very fast"},
     ]
 
 

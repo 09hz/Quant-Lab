@@ -113,8 +113,8 @@ class ReplayEngine:
         elapsed = now - self.last_tick_time
         self.last_tick_time = now
 
-        # bars per second
-        bars_to_advance = elapsed * self.speed
+        base_bars_per_second = 4.0
+        bars_to_advance = elapsed * self.speed * base_bars_per_second
         self.progress += bars_to_advance
 
         step = int(self.progress)

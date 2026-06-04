@@ -14,7 +14,7 @@ import pandas as pd
 from dash import html
 from ib_async import IB, Stock, Ticker, util
 
-from Live.utils.chart_utils import apply_tick_to_bars, normalize_history_df, resample_bars
+from utils.chart_utils import apply_tick_to_bars, normalize_history_df, resample_bars
 
 
 TIMEFRAME_MAP: Dict[str, Tuple[str, str]] = {

@@ -2,31 +2,35 @@ from __future__ import annotations
 
 import sys
 import asyncio
+from datetime import datetime
+
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
 from dash import Dash, Input, Output, State, dcc, html, no_update, ctx
 
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-from Live.core.RealTime import RealTimeIB, TIMEFRAME_MAP
-from Live.utils.chart_utils import create_candlestick_figure
-from Live.ui.tabs_ui import (
+from core.RealTime import RealTimeIB, TIMEFRAME_MAP
+from core.ReplayModule import ReplayEngine
+from service.replay_service import ReplayService
+from ui.tabs_ui import (
     build_dashboard_tab,
     build_watch_tab,
     build_quotes_tab,
     build_charts_tab,
 )
-from Live.core.ReplayModule import ReplayEngine
+from utils.chart_utils import create_candlestick_figure
 
-replay_cache = {}
+
 DEFAULT_SYMBOL = "MSFT"
 DEFAULT_TIMEFRAME = "1 min"
 
 rt = RealTimeIB(host="127.0.0.1", port=4001)
 rt.start(DEFAULT_SYMBOL, DEFAULT_TIMEFRAME)
 
-replay = ReplayEngine()
+replay_engine = ReplayEngine()
+replay_service = ReplayService(rt, replay_engine)
+
 SYMBOL_OPTIONS = rt.get_symbol_options()
 
 app = Dash(__name__, suppress_callback_exceptions=True)
@@ -42,7 +46,6 @@ app.layout = html.Div(
                 html.Div(id="quote-strip", className="quote-strip"),
             ],
         ),
-
         dcc.Tabs(
             id="main-tabs",
             value="dashboard",
@@ -74,9 +77,7 @@ app.layout = html.Div(
                 ),
             ],
         ),
-
         html.Div(id="tab-content", className="tab-content"),
-
         dcc.Interval(id="ui-interval", interval=75, n_intervals=0),
         dcc.Store(id="zoom-state", data={}),
         dcc.Store(id="active-symbol", data=DEFAULT_SYMBOL),
@@ -95,6 +96,7 @@ app.layout = html.Div(
                 "replay_speed": 1,
                 "replay_index": 100,
                 "replay_date": None,
+                "replay_timeframe": "1 min",
             },
         ),
     ],
@@ -187,10 +189,6 @@ def update_pair_title(active_symbol, active_tab, watch_state, dashboard_state):
     return f"{symbol} / {company}"
 
 
-# =========================
-# Dashboard callbacks
-# =========================
-
 @app.callback(
     Output("tab-content", "children"),
     Input("main-tabs", "value"),
@@ -239,6 +237,10 @@ def render_tab_content(active_tab, dashboard_state, watch_state):
         default_timeframe=dashboard_timeframe,
     )
 
+
+# =========================
+# Dashboard callbacks
+# =========================
 
 @app.callback(
     Output("dashboard-state", "data"),
@@ -398,15 +400,27 @@ def render_dashboard_chart(
     Input("replay-slider", "value"),
     Input("replay-date", "date"),
     State("watch-state", "data"),
+    State("watch-symbol-dropdown", "search_value"),
+    State("replay-speed", "search_value"),
     prevent_initial_call=True,
 )
-def save_watch_state(symbol, replay_speed, replay_index, replay_date, current_state):
+def save_watch_state(
+    symbol,
+    replay_speed,
+    replay_index,
+    replay_date,
+    current_state,
+    symbol_search_value,
+    speed_search_value,
+):
+    if symbol_search_value or speed_search_value:
+        return no_update
+
     state = dict(current_state or {})
     if symbol:
         state["symbol"] = symbol
     if replay_speed is not None:
         state["replay_speed"] = replay_speed
-        replay.set_speed(replay_speed)
     if replay_index is not None:
         state["replay_index"] = replay_index
     state["replay_date"] = replay_date
@@ -421,55 +435,25 @@ def save_watch_state(symbol, replay_speed, replay_index, replay_date, current_st
     Input("watch-symbol-dropdown", "value"),
     Input("replay-date", "date"),
     Input("replay-speed", "value"),
+    State("watch-symbol-dropdown", "search_value"),
+    State("replay-speed", "search_value"),
     prevent_initial_call=True,
 )
-def load_watch_symbol(active_tab, symbol, replay_date, replay_speed):
-    cache_key = (symbol, replay_date or "latest", "1 min")
-
-    if cache_key in replay_cache:
-        hist = replay_cache[cache_key]
-    else:
-        if replay_date:
-            start_dt = datetime.fromisoformat(replay_date)
-            end_dt = start_dt + timedelta(days=1)
-            hist = rt.load_history_range(symbol, "1 min", start_dt, end_dt)
-        else:
-            hist = rt.load_history(symbol, "1 min")
-        replay_cache[cache_key] = hist
-
-
+def load_watch_symbol(active_tab, symbol, replay_date, replay_speed, symbol_search_value, speed_search_value):
     if active_tab != "watch":
         return no_update, no_update, no_update
 
-    symbol = symbol or "MSFT"
+    if symbol_search_value or speed_search_value:
+        return no_update, no_update, no_update
 
     try:
-        symbol = rt._sanitize_symbol(symbol)
-
-        if replay_speed is not None:
-            replay.set_speed(replay_speed)
-
-        replay.reset()
-
-        if replay_date:
-            start_dt = datetime.fromisoformat(replay_date)
-            end_dt = start_dt + timedelta(days=1)
-            hist = rt.load_history_range(symbol, "1 min", start_dt, end_dt)
-        else:
-            hist = rt.load_history(symbol, "1 min")
-
-        if hist is None or hist.empty:
-            return f"No replay history returned for {symbol}", 100, 1
-
-        replay.load_from_df(hist)
-        info = replay.info()
-
-        return (
-            f"Replay loaded for {symbol} ({len(hist)} bars)",
-            max(1, info["max_index"]),
-            max(1, info["current_index"]),
+        status, info = replay_service.load_replay(
+            symbol=symbol or "MSFT",
+            timeframe="1 min",
+            replay_date=replay_date,
+            speed=replay_speed,
         )
-
+        return status, max(1, info["max_index"]), max(1, info["current_index"])
     except Exception as exc:
         return f"Replay load error: {exc}", 100, 1
 
@@ -493,24 +477,24 @@ def control_replay(play_clicks, pause_clicks, step_clicks, rewind_clicks, slider
 
     try:
         if trigger == "replay-play":
-            replay.play()
-            return "Replay playing", max(1, replay.current_index)
+            replay_service.play()
+            return "Replay playing", max(1, replay_service.info()["current_index"])
 
         if trigger == "replay-pause":
-            replay.pause()
-            return "Replay paused", max(1, replay.current_index)
+            replay_service.pause()
+            return "Replay paused", max(1, replay_service.info()["current_index"])
 
         if trigger == "replay-step":
-            replay.forward(1)
-            return f"Replay stepped to {replay.current_index}", max(1, replay.current_index)
+            replay_service.forward(1)
+            return f"Replay stepped to {replay_service.info()['current_index']}", max(1, replay_service.info()["current_index"])
 
         if trigger == "replay-rewind":
-            replay.rewind(1)
-            return f"Replay rewound to {replay.current_index}", max(1, replay.current_index)
+            replay_service.rewind(1)
+            return f"Replay rewound to {replay_service.info()['current_index']}", max(1, replay_service.info()["current_index"])
 
         if trigger == "replay-slider":
-            replay.set_index(slider_value or 1)
-            return f"Replay moved to {replay.current_index}", max(1, replay.current_index)
+            replay_service.set_index(slider_value or 1)
+            return f"Replay moved to {replay_service.info()['current_index']}", max(1, replay_service.info()["current_index"])
 
         return no_update, no_update
 
@@ -529,17 +513,22 @@ def control_replay(play_clicks, pause_clicks, step_clicks, rewind_clicks, slider
     Input("ui-interval", "n_intervals"),
     State("main-tabs", "value"),
     State("watch-symbol-dropdown", "value"),
+    State("watch-symbol-dropdown", "search_value"),
+    State("replay-speed", "search_value"),
     prevent_initial_call=True,
 )
-def render_watch_tab(_n, active_tab, symbol):
+def render_watch_tab(_n, active_tab, symbol, symbol_search_value, speed_search_value):
     if active_tab != "watch":
         return no_update, no_update, no_update, no_update, no_update, "watch-loading-overlay hidden"
+
+    if symbol_search_value or speed_search_value:
+        return no_update, no_update, no_update, no_update, no_update, no_update
 
     try:
         symbol = symbol or "MSFT"
 
-        replay.tick()
-        visible = replay.visible_bars()
+        replay_service.tick()
+        visible = replay_service.visible_bars()
 
         if visible.empty:
             fig = go.Figure()
@@ -554,7 +543,7 @@ def render_watch_tab(_n, active_tab, symbol):
             )
             return fig, 100, 1, [], [], "watch-loading-overlay"
 
-        info = replay.info()
+        info = replay_service.info()
 
         fig = create_candlestick_figure(visible, symbol, "1 min")
         fig.update_layout(
