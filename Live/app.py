@@ -12,7 +12,7 @@ if sys.platform.startswith("win"):
 
 from core.RealTime import RealTimeIB, TIMEFRAME_MAP
 from core.ReplayModule import ReplayEngine
-from service.replay_service import ReplayService
+from services.replay_service import ReplayService
 from ui.tabs_ui import (
     build_dashboard_tab,
     build_watch_tab,
@@ -79,6 +79,7 @@ app.layout = html.Div(
         ),
         html.Div(id="tab-content", className="tab-content"),
         dcc.Interval(id="ui-interval", interval=75, n_intervals=0),
+        dcc.Store(id="search-focus-state", data={"active": False, "tab": None}),
         dcc.Store(id="zoom-state", data={}),
         dcc.Store(id="active-symbol", data=DEFAULT_SYMBOL),
         dcc.Store(id="load-status", data="Ready"),
@@ -239,6 +240,50 @@ def render_tab_content(active_tab, dashboard_state, watch_state):
 
 
 # =========================
+# Search focus handling
+# =========================
+
+@app.callback(
+    Output("search-focus-state", "data"),
+    Input("symbol-dropdown", "search_value"),
+    Input("timeframe-dropdown", "search_value"),
+    Input("watch-symbol-dropdown", "search_value"),
+    Input("quotes-symbol-dropdown", "search_value"),
+    Input("charts-symbol-dropdown", "search_value"),
+    Input("charts-timeframe-dropdown", "search_value"),
+    State("main-tabs", "value"),
+    prevent_initial_call=True,
+)
+def track_search_focus(
+    dashboard_symbol_search,
+    dashboard_timeframe_search,
+    watch_symbol_search,
+    quotes_symbol_search,
+    charts_symbol_search,
+    charts_timeframe_search,
+    active_tab,
+):
+    active = any([
+        bool(dashboard_symbol_search),
+        bool(dashboard_timeframe_search),
+        bool(watch_symbol_search),
+        bool(quotes_symbol_search),
+        bool(charts_symbol_search),
+        bool(charts_timeframe_search),
+    ])
+    return {"active": active, "tab": active_tab}
+
+
+@app.callback(
+    Output("ui-interval", "disabled"),
+    Input("search-focus-state", "data"),
+    prevent_initial_call=False,
+)
+def pause_interval_while_searching(search_focus_state):
+    return bool((search_focus_state or {}).get("active", False))
+
+
+# =========================
 # Dashboard callbacks
 # =========================
 
@@ -247,20 +292,9 @@ def render_tab_content(active_tab, dashboard_state, watch_state):
     Input("symbol-dropdown", "value"),
     Input("timeframe-dropdown", "value"),
     State("dashboard-state", "data"),
-    State("symbol-dropdown", "search_value"),
-    State("timeframe-dropdown", "search_value"),
     prevent_initial_call=True,
 )
-def save_dashboard_state(
-    symbol,
-    timeframe,
-    current_state,
-    symbol_search_value,
-    timeframe_search_value,
-):
-    if symbol_search_value or timeframe_search_value:
-        return no_update
-
+def save_dashboard_state(symbol, timeframe, current_state):
     state = dict(current_state or {})
     if symbol:
         state["symbol"] = symbol
@@ -273,14 +307,10 @@ def save_dashboard_state(
     Output("active-symbol", "data"),
     Output("load-status", "data"),
     Input("symbol-dropdown", "value"),
-    State("symbol-dropdown", "search_value"),
     State("active-symbol", "data"),
     prevent_initial_call=True,
 )
-def auto_load_symbol(symbol, symbol_search_value, current_active_symbol):
-    if symbol_search_value:
-        return no_update, no_update
-
+def auto_load_symbol(symbol, current_active_symbol):
     if not symbol:
         return no_update, "No symbol selected"
 
@@ -327,8 +357,7 @@ def show_load_status(status):
     Input("timeframe-dropdown", "value"),
     State("main-tabs", "value"),
     State("zoom-state", "data"),
-    State("symbol-dropdown", "search_value"),
-    State("timeframe-dropdown", "search_value"),
+    State("search-focus-state", "data"),
     prevent_initial_call=True,
 )
 def render_dashboard_chart(
@@ -337,13 +366,12 @@ def render_dashboard_chart(
     timeframe,
     active_tab,
     zoom_state,
-    symbol_search_value,
-    timeframe_search_value,
+    search_focus_state,
 ):
     if active_tab != "dashboard":
         return no_update, no_update, no_update, no_update
 
-    if symbol_search_value or timeframe_search_value:
+    if (search_focus_state or {}).get("active") and (search_focus_state or {}).get("tab") == "dashboard":
         return no_update, no_update, no_update, no_update
 
     try:
@@ -400,22 +428,9 @@ def render_dashboard_chart(
     Input("replay-slider", "value"),
     Input("replay-date", "date"),
     State("watch-state", "data"),
-    State("watch-symbol-dropdown", "search_value"),
-    State("replay-speed", "search_value"),
     prevent_initial_call=True,
 )
-def save_watch_state(
-    symbol,
-    replay_speed,
-    replay_index,
-    replay_date,
-    current_state,
-    symbol_search_value,
-    speed_search_value,
-):
-    if symbol_search_value or speed_search_value:
-        return no_update
-
+def save_watch_state(symbol, replay_speed, replay_index, replay_date, current_state):
     state = dict(current_state or {})
     if symbol:
         state["symbol"] = symbol
@@ -435,28 +450,30 @@ def save_watch_state(
     Input("watch-symbol-dropdown", "value"),
     Input("replay-date", "date"),
     Input("replay-speed", "value"),
-    State("watch-symbol-dropdown", "search_value"),
-    State("replay-speed", "search_value"),
     prevent_initial_call=True,
 )
-def load_watch_symbol(active_tab, symbol, replay_date, replay_speed, symbol_search_value, speed_search_value):
+def load_watch_symbol(active_tab, symbol, replay_date, replay_speed):
     if active_tab != "watch":
         return no_update, no_update, no_update
 
-    if symbol_search_value or speed_search_value:
-        return no_update, no_update, no_update
+    symbol = symbol or "MSFT"
 
     try:
         status, info = replay_service.load_replay(
-            symbol=symbol or "MSFT",
+            symbol=symbol,
             timeframe="1 min",
             replay_date=replay_date,
             speed=replay_speed,
         )
-        return status, max(1, info["max_index"]), max(1, info["current_index"])
+
+        return (
+            status,
+            max(1, info["max_index"]),
+            max(1, info["current_index"]),
+        )
+
     except Exception as exc:
         return f"Replay load error: {exc}", 100, 1
-
 
 @app.callback(
     Output("watch-status", "children", allow_duplicate=True),
@@ -513,15 +530,14 @@ def control_replay(play_clicks, pause_clicks, step_clicks, rewind_clicks, slider
     Input("ui-interval", "n_intervals"),
     State("main-tabs", "value"),
     State("watch-symbol-dropdown", "value"),
-    State("watch-symbol-dropdown", "search_value"),
-    State("replay-speed", "search_value"),
+    State("search-focus-state", "data"),
     prevent_initial_call=True,
 )
-def render_watch_tab(_n, active_tab, symbol, symbol_search_value, speed_search_value):
+def render_watch_tab(_n, active_tab, symbol, search_focus_state):
     if active_tab != "watch":
         return no_update, no_update, no_update, no_update, no_update, "watch-loading-overlay hidden"
 
-    if symbol_search_value or speed_search_value:
+    if (search_focus_state or {}).get("active") and (search_focus_state or {}).get("tab") == "watch":
         return no_update, no_update, no_update, no_update, no_update, no_update
 
     try:
@@ -592,10 +608,14 @@ def render_watch_tab(_n, active_tab, symbol, symbol_search_value, speed_search_v
     Input("ui-interval", "n_intervals"),
     Input("quotes-symbol-dropdown", "value"),
     State("main-tabs", "value"),
+    State("search-focus-state", "data"),
     prevent_initial_call=True,
 )
-def render_quotes_tab(_n, symbol, active_tab):
+def render_quotes_tab(_n, symbol, active_tab, search_focus_state):
     if active_tab != "quotes":
+        return no_update, no_update
+
+    if (search_focus_state or {}).get("active") and (search_focus_state or {}).get("tab") == "quotes":
         return no_update, no_update
 
     try:
@@ -636,10 +656,14 @@ def render_quotes_tab(_n, symbol, active_tab):
     Input("charts-symbol-dropdown", "value"),
     Input("charts-timeframe-dropdown", "value"),
     State("main-tabs", "value"),
+    State("search-focus-state", "data"),
     prevent_initial_call=True,
 )
-def render_charts_tab(_n, symbol, timeframe, active_tab):
+def render_charts_tab(_n, symbol, timeframe, active_tab, search_focus_state):
     if active_tab != "charts":
+        return no_update, no_update
+
+    if (search_focus_state or {}).get("active") and (search_focus_state or {}).get("tab") == "charts":
         return no_update, no_update
 
     try:

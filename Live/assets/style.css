@@ -1,11 +1,50 @@
 /* =========================
-   Global dark theme
+   Global theme
 ========================= */
+:root {
+    --bg-0: #060b16;
+    --bg-1: #0a1120;
+    --bg-2: #0f1728;
+    --bg-3: #131c31;
+    --panel: rgba(11, 18, 32, 0.92);
+    --panel-2: rgba(15, 23, 40, 0.96);
+    --card: linear-gradient(180deg, rgba(11, 18, 32, 0.96), rgba(8, 13, 24, 0.96));
+    --border: rgba(148, 163, 184, 0.12);
+    --border-strong: rgba(96, 165, 250, 0.28);
+    --text: #e6eefc;
+    --text-strong: #f8fbff;
+    --text-muted: #94a3b8;
+    --text-soft: #cbd5e1;
+    --blue: #2563eb;
+    --blue-2: #3b82f6;
+    --blue-3: #60a5fa;
+    --green: #22c55e;
+    --red: #ef4444;
+    --shadow-lg: 0 18px 40px rgba(0, 0, 0, 0.34);
+    --shadow-md: 0 10px 24px rgba(0, 0, 0, 0.28);
+    --radius-xl: 18px;
+    --radius-lg: 14px;
+    --radius-md: 10px;
+}
+
+* {
+    box-sizing: border-box;
+}
+
+html,
 body {
     margin: 0;
-    background: linear-gradient(135deg, #07111f 0%, #0a1630 45%, #130f2c 100%);
-    font-family: Arial, Helvetica, sans-serif;
-    color: #e6eefc;
+    min-height: 100%;
+    background:
+        radial-gradient(circle at top left, rgba(37, 99, 235, 0.10), transparent 22%),
+        radial-gradient(circle at top right, rgba(59, 130, 246, 0.08), transparent 18%),
+        linear-gradient(135deg, #060b16 0%, #09101d 42%, #0d1424 100%);
+    font-family: Inter, Arial, Helvetica, sans-serif;
+    color: var(--text);
+}
+
+body {
+    line-height: 1.4;
 }
 
 .app-shell {
@@ -15,29 +54,31 @@ body {
 
 
 /* =========================
-   Top header card
+   Top header
 ========================= */
 .topbar {
-    background: rgba(7, 17, 40, 0.92);
-    border: 1px solid rgba(108, 92, 231, 0.22);
-    border-radius: 16px;
+    background: linear-gradient(180deg, rgba(13, 19, 34, 0.94), rgba(8, 13, 24, 0.94));
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
     padding: 16px 18px;
     margin-bottom: 16px;
-    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.34);
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: blur(10px);
 }
 
 .pair-title {
     font-size: 30px;
-    font-weight: 700;
-    color: #f4f7ff;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    color: var(--text-strong);
     margin-bottom: 10px;
 }
 
 .quote-strip {
-    font-family: Consolas, "Courier New", monospace;
-    font-size: 14px;
-    color: #9ce6d1;
-    line-height: 1.5;
+    font-family: Consolas, "SFMono-Regular", Menlo, monospace;
+    font-size: 13px;
+    color: #98f1d4;
+    line-height: 1.55;
     word-break: break-word;
 }
 
@@ -50,69 +91,115 @@ body {
 }
 
 .main-tab {
-    min-width: 120px;
+    min-width: 124px;
     text-align: center;
-    background: rgba(10, 28, 80, 0.78) !important;
-    color: #eaf2ff !important;
-    border: 1px solid rgba(119, 170, 255, 0.18) !important;
+    background: linear-gradient(180deg, rgba(16, 24, 40, 0.94), rgba(11, 17, 30, 0.94)) !important;
+    color: #d8e4f6 !important;
+    border: 1px solid var(--border) !important;
     padding: 12px 18px !important;
     border-radius: 12px 12px 0 0 !important;
-    font-weight: 600 !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.2px;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
 .main-tab:hover {
-    background: rgba(30, 58, 138, 0.88) !important;
+    background: linear-gradient(180deg, rgba(21, 33, 56, 0.98), rgba(13, 22, 39, 0.98)) !important;
     color: #ffffff !important;
+    border-color: rgba(96, 165, 250, 0.20) !important;
 }
 
 .main-tab-selected {
-    background: rgba(24, 34, 78, 0.98) !important;
+    background: linear-gradient(180deg, rgba(28, 41, 70, 0.98), rgba(16, 26, 46, 0.98)) !important;
     color: #ffffff !important;
-    font-weight: 700 !important;
-    border-top: 3px solid #38bdf8 !important;
-    box-shadow: 0 8px 20px rgba(56, 189, 248, 0.16) !important;
+    font-weight: 800 !important;
+    border-top: 3px solid var(--blue-3) !important;
+    box-shadow: 0 8px 22px rgba(37, 99, 235, 0.16) !important;
 }
 
 
 /* =========================
-   Tab containers
+   Tab panels
 ========================= */
 .tab-panel {
     width: 100%;
+    overflow: visible !important;
 }
 
 .dashboard-tab-panel,
 .watch-tab-panel,
 .quotes-tab-panel,
 .charts-tab-panel {
-    background: linear-gradient(180deg, rgba(49, 19, 80, 0.22), rgba(9, 16, 46, 0.04));
+    background: linear-gradient(180deg, rgba(18, 25, 41, 0.18), rgba(10, 14, 24, 0.02));
     border-radius: 14px;
     padding-top: 4px;
+    overflow: visible !important;
 }
 
-.dashboard-tab-panel .status-text,
-.watch-tab-panel .status-text,
-.quotes-tab-panel .status-text,
-.charts-tab-panel .status-text {
-    color: #f7b1d9;
+/* =========================
+   Stacking fix for dropdown rows
+========================= */
+.watch-tab-panel,
+.dashboard-tab-panel,
+.charts-tab-panel,
+.quotes-tab-panel,
+.tab-panel {
+    position: relative;
+    overflow: visible !important;
+    isolation: isolate;
 }
 
-.dashboard-tab-panel .control-box,
-.watch-tab-panel .control-box,
-.quotes-tab-panel .control-box,
-.charts-tab-panel .control-box {
-    border: 1px solid rgba(236, 72, 153, 0.18);
-    box-shadow: 0 10px 22px rgba(41, 10, 44, 0.28);
+.controls-row {
+    position: relative;
+    overflow: visible !important;
 }
 
-.dashboard-tab-panel .chart-card,
-.watch-tab-panel .chart-card,
-.quotes-tab-panel .chart-card,
-.charts-tab-panel .chart-card {
-    border: 1px solid rgba(236, 72, 153, 0.20);
-    box-shadow: 0 14px 30px rgba(22, 7, 36, 0.30);
+.watch-tab-panel .controls-row:first-child {
+    margin-bottom: 170px !important;
+    z-index: 500 !important;
 }
 
+.watch-tab-panel .controls-row:nth-child(2) {
+    margin-top: -150px;
+    position: relative;
+    z-index: 100;
+}
+
+.controls-row-top {
+    z-index: 500;
+}
+
+.controls-row-bottom {
+    z-index: 100;
+}
+
+.control-box {
+    position: relative;
+    overflow: visible !important;
+}
+
+.black-dropdown {
+    position: relative;
+    z-index: 800;
+}
+
+.black-dropdown .Select-menu-outer,
+.black-dropdown .Select-menu,
+.black-dropdown .select__menu,
+.black-dropdown .select__menu-list,
+.black-dropdown [class*="menu"] {
+    position: absolute !important;
+    z-index: 99999 !important;
+}
+
+.chart-card,
+.watch-chart-wrap,
+.js-plotly-plot,
+.plot-container,
+.svg-container {
+    position: relative !important;
+    z-index: 1 !important;
+}
 
 /* =========================
    Controls
@@ -122,15 +209,24 @@ body {
     gap: 14px;
     align-items: flex-end;
     flex-wrap: wrap;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
+    position: relative;
+    z-index: 20;
+    overflow: visible !important;
 }
 
 .control-box {
-    background: rgba(11, 20, 48, 0.92);
-    border: 1px solid rgba(108, 92, 231, 0.16);
+    background: linear-gradient(180deg, #121a2b, #0c1322);
+    border: 1px solid rgba(96, 165, 250, 0.14);
     border-radius: 14px;
     padding: 12px 14px;
-    box-shadow: 0 10px 22px rgba(0, 0, 0, 0.26);
+    box-shadow:
+        0 10px 24px rgba(0, 0, 0, 0.28),
+        inset 0 1px 0 rgba(255, 255, 255, 0.03);
+    position: relative;
+    z-index: 30;
+    overflow: visible !important;
+    backdrop-filter: none !important;
 }
 
 .control-symbol {
@@ -138,42 +234,22 @@ body {
 }
 
 .control-timeframe {
-    min-width: 220px;
+    min-width: 160px;
 }
 
 .control-box label {
     display: block;
     margin-bottom: 8px;
-    font-size: 13px;
-    color: #f4f7ff;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    color: var(--text-muted);
 }
 
 
 /* =========================
-   Buttons
-========================= */
-button {
-    min-width: 90px;
-    height: 40px;
-    border: none;
-    border-radius: 10px;
-    background: linear-gradient(90deg, #7c3aed, #ec4899);
-    color: #f8f5ff;
-    font-weight: 700;
-    font-size: 14px;
-    cursor: pointer;
-    transition: transform 0.12s ease, filter 0.12s ease;
-    box-shadow: 0 8px 16px rgba(30, 10, 40, 0.30);
-}
-
-button:hover {
-    filter: brightness(1.08);
-    transform: translateY(-1px);
-}
-
-
-/* =========================
-   Status text
+   Status
 ========================= */
 .status-text {
     min-height: 20px;
@@ -184,65 +260,103 @@ button:hover {
 
 
 /* =========================
-   Chart card - darker revert
+   Cards and charts
 ========================= */
 .chart-card {
-    background: linear-gradient(180deg, rgba(9, 16, 30, 0.96), rgba(6, 12, 24, 0.96));
-    border: 1px solid rgba(96, 165, 250, 0.12);
-    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(10, 16, 30, 0.98), rgba(7, 11, 21, 0.98));
+    border: 1px solid var(--border);
+    border-radius: var(--radius-xl);
     padding: 12px;
-    box-shadow: 0 16px 34px rgba(0, 0, 0, 0.34);
+    box-shadow: var(--shadow-lg);
+    position: relative;
+    z-index: 1;
+    overflow: visible !important;
+    /* REMOVE backdrop-filter */
+    backdrop-filter: none !important;
+}
+.watch-chart-wrap,
+.controls-row,
+.tab-panel,
+.watch-tab-panel {
+    overflow: visible !important;
+    backdrop-filter: none !important;
 }
 
 .chart-graph {
-    border-radius: 12px;
+    border-radius: 14px;
     overflow: hidden;
 }
 
-.js-plotly-plot {
-    border-radius: 10px;
+.js-plotly-plot,
+.plot-container,
+.svg-container {
+    border-radius: 14px;
     overflow: hidden;
+    position: relative !important;
+    z-index: 1 !important;
 }
 
 
 /* =========================
-   Dropdown styling - dark background
+   Buttons
+========================= */
+button {
+    min-width: 92px;
+    height: 40px;
+    border: 1px solid rgba(96, 165, 250, 0.16);
+    border-radius: 10px;
+    background: linear-gradient(180deg, #162033, #0f1726);
+    color: #e8f0fd;
+    font-weight: 700;
+    font-size: 13px;
+    letter-spacing: 0.2px;
+    cursor: pointer;
+    transition:
+        background 0.15s ease,
+        border-color 0.15s ease,
+        transform 0.12s ease,
+        box-shadow 0.15s ease;
+    box-shadow:
+        0 8px 16px rgba(0, 0, 0, 0.22),
+        inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+button:hover {
+    background: linear-gradient(180deg, #1a2740, #111a2b);
+    border-color: rgba(96, 165, 250, 0.30);
+    color: #ffffff;
+    transform: translateY(-1px);
+}
+
+button:active {
+    transform: translateY(0);
+    background: linear-gradient(180deg, #10192b, #0c1321);
+}
+
+button:focus {
+    outline: none;
+    border-color: rgba(96, 165, 250, 0.36);
+    box-shadow:
+        0 0 0 3px rgba(59, 130, 246, 0.10),
+        0 8px 16px rgba(0, 0, 0, 0.22);
+}
+
+
+/* =========================
+   Dropdown layering fix
 ========================= */
 .black-dropdown {
-    color: #f4f7ff !important;
+    position: relative;
+    z-index: 40;
+    color: #e5edf9 !important;
 }
 
 .black-dropdown .Select,
+.black-dropdown .Select-control,
 .black-dropdown .select__control,
 .black-dropdown [class*="control"] {
-    background: rgba(8, 22, 70, 0.95) !important;
-    color: #f4f7ff !important;
-    border: 1px solid rgba(119, 170, 255, 0.28) !important;
-    border-radius: 10px !important;
-    box-shadow: none !important;
-}
-
-.black-dropdown .Select-value,
-.black-dropdown .Select-value-label,
-.black-dropdown .select__single-value,
-.black-dropdown [class*="singleValue"],
-.black-dropdown [class*="ValueContainer"] * {
-    color: #f4f7ff !important;
-}
-
-.black-dropdown .Select-placeholder,
-.black-dropdown .select__placeholder,
-.black-dropdown [class*="placeholder"] {
-    color: #cbd5e1 !important;
-    opacity: 1 !important;
-}
-
-.black-dropdown .Select-input > input,
-.black-dropdown .select__input-container,
-.black-dropdown .select__input-container input,
-.black-dropdown input {
-    color: #f4f7ff !important;
-    background: transparent !important;
+    position: relative;
+    z-index: 41;
 }
 
 .black-dropdown .Select-menu-outer,
@@ -250,102 +364,195 @@ button:hover {
 .black-dropdown .select__menu,
 .black-dropdown .select__menu-list,
 .black-dropdown [class*="menu"] {
-    background: rgba(8, 22, 70, 0.98) !important;
-    color: #f4f7ff !important;
-    border: 1px solid rgba(119, 170, 255, 0.24) !important;
+    position: absolute !important;
+    z-index: 99999 !important;
 }
 
+.black-dropdown .Select.is-open,
+.black-dropdown .is-open > .Select-control,
+.black-dropdown .select__control--menu-is-open,
+.black-dropdown [class*="control"][class*="menu-is-open"] {
+    z-index: 99999 !important;
+}
+
+
+/* =========================
+   Dropdowns - always styled
+========================= */
+.black-dropdown .Select-control,
+.black-dropdown .Select,
+.black-dropdown .select__control,
+.black-dropdown [class*="control"] {
+    background: linear-gradient(180deg, #162033, #0f1726) !important;
+    background-color: #162033 !important;
+    color: #f8fbff !important;
+    border: 1px solid rgba(96, 165, 250, 0.22) !important;
+    border-radius: 10px !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.03),
+        0 4px 10px rgba(0, 0, 0, 0.18) !important;
+    min-height: 40px !important;
+    opacity: 1 !important;
+}
+
+.black-dropdown .Select-control:hover,
+.black-dropdown .select__control:hover,
+.black-dropdown [class*="control"]:hover {
+    background: linear-gradient(180deg, #1a2740, #111a2b) !important;
+    border-color: rgba(96, 165, 250, 0.30) !important;
+}
+
+.black-dropdown .is-focused:not(.is-open) > .Select-control,
+.black-dropdown .select__control--is-focused,
+.black-dropdown [class*="control"][class*="focused"] {
+    background: linear-gradient(180deg, #1b2944, #121c30) !important;
+    border-color: rgba(96, 165, 250, 0.38) !important;
+    box-shadow:
+        0 0 0 3px rgba(59, 130, 246, 0.10),
+        0 4px 10px rgba(0, 0, 0, 0.18) !important;
+}
+
+/* selected value */
+.black-dropdown .Select-value,
+.black-dropdown .Select-value-label,
+.black-dropdown .select__single-value,
+.black-dropdown [class*="singleValue"],
+.black-dropdown [class*="ValueContainer"],
+.black-dropdown [class*="ValueContainer"] * {
+    color: #f8fbff !important;
+    background: transparent !important;
+    font-weight: 700 !important;
+}
+
+/* placeholder */
+.black-dropdown .Select-placeholder,
+.black-dropdown .select__placeholder,
+.black-dropdown [class*="placeholder"] {
+    color: #aab7cb !important;
+    opacity: 1 !important;
+}
+
+/* typing text */
+.black-dropdown .Select-input,
+.black-dropdown .Select-input > input,
+.black-dropdown .select__input-container,
+.black-dropdown .select__input-container input,
+.black-dropdown input {
+    color: #f8fbff !important;
+    background: transparent !important;
+}
+
+/* menu */
+.black-dropdown .Select-menu-outer,
+.black-dropdown .Select-menu,
+.black-dropdown .select__menu,
+.black-dropdown .select__menu-list,
+.black-dropdown [class*="menu"] {
+    background: #0b1220 !important;
+    background-color: #0b1220 !important;
+    color: #e5edf9 !important;
+    border: 1px solid rgba(148, 163, 184, 0.14) !important;
+    border-radius: 10px !important;
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.34) !important;
+    overflow: hidden !important;
+}
+
+/* options */
 .black-dropdown .VirtualizedSelectOption,
 .black-dropdown .VirtualizedSelectFocusedOption,
 .black-dropdown .Select-option,
 .black-dropdown .select__option,
 .black-dropdown [class*="option"] {
-    background: rgba(8, 22, 70, 0.98) !important;
-    color: #f4f7ff !important;
+    background: #0b1220 !important;
+    color: #dbe6f6 !important;
+    font-weight: 500 !important;
 }
 
+/* hovered option */
 .black-dropdown .VirtualizedSelectFocusedOption,
 .black-dropdown .Select-option.is-focused,
 .black-dropdown .select__option--is-focused,
 .black-dropdown [class*="option"]:hover {
-    background: rgba(30, 58, 138, 0.95) !important;
+    background: linear-gradient(90deg, rgba(29, 78, 216, 0.90), rgba(37, 99, 235, 0.90)) !important;
     color: #ffffff !important;
 }
 
+/* selected option */
 .black-dropdown .Select-option.is-selected,
 .black-dropdown .select__option--is-selected {
-    background: #4c1d95 !important;
+    background: linear-gradient(90deg, #1e40af, #1d4ed8) !important;
     color: #ffffff !important;
 }
 
+/* indicators */
 .black-dropdown .Select-arrow,
 .black-dropdown .select__indicator,
 .black-dropdown .select__dropdown-indicator,
 .black-dropdown [class*="indicator"] {
-    color: #f4f7ff !important;
-    border-top-color: #f4f7ff !important;
+    color: #cdd8ea !important;
+    border-top-color: #cdd8ea !important;
 }
 
 .black-dropdown .Select-clear-zone,
 .black-dropdown .Select-clear,
 .black-dropdown .select__clear-indicator {
-    color: #f4f7ff !important;
+    color: #cdd8ea !important;
 }
 
 .black-dropdown .select__indicator-separator {
-    background-color: rgba(255, 255, 255, 0.18) !important;
+    background-color: rgba(255, 255, 255, 0.12) !important;
 }
 
 
 /* =========================
-   Slider styling
+   Slider
 ========================= */
 .rc-slider-rail {
-    background-color: rgba(255, 255, 255, 0.22) !important;
+    background-color: rgba(255, 255, 255, 0.10) !important;
 }
 
 .rc-slider-track {
-    background-color: #a855f7 !important;
+    background: linear-gradient(90deg, #1d4ed8, #3b82f6) !important;
 }
 
 .rc-slider-handle {
-    border: 2px solid #f472b6 !important;
-    background-color: #f472b6 !important;
-    box-shadow: 0 0 0 4px rgba(244, 114, 182, 0.16) !important;
+    border: 2px solid #93c5fd !important;
+    background-color: #1d4ed8 !important;
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.14) !important;
     opacity: 1 !important;
 }
 
 .rc-slider-handle:hover,
 .rc-slider-handle:focus,
 .rc-slider-handle:active {
-    border-color: #f472b6 !important;
-    background-color: #f472b6 !important;
-    box-shadow: 0 0 0 6px rgba(244, 114, 182, 0.22) !important;
+    border-color: #bfdbfe !important;
+    background-color: #2563eb !important;
+    box-shadow: 0 0 0 6px rgba(59, 130, 246, 0.20) !important;
 }
 
 .rc-slider-dot {
-    border-color: rgba(255, 255, 255, 0.35) !important;
+    border-color: rgba(255, 255, 255, 0.22) !important;
     background-color: transparent !important;
 }
 
 .rc-slider-dot-active {
-    border-color: #f472b6 !important;
+    border-color: #60a5fa !important;
 }
 
 .rc-slider-mark-text {
-    color: #dbe6ff !important;
+    color: #b8c7dc !important;
 }
 
 
 /* =========================
-   Date picker dark styling
+   Date picker
 ========================= */
 .date-picker-dark .DateInput_input {
-    background: #0f172a !important;
+    background: linear-gradient(180deg, #162033, #0f1726) !important;
     color: #f4f7ff !important;
     border-radius: 8px !important;
     font-weight: 600 !important;
-    border: 1px solid rgba(236, 72, 153, 0.24) !important;
+    border: 1px solid rgba(96, 165, 250, 0.22) !important;
 }
 
 .date-picker-dark .DateInput {
@@ -353,14 +560,17 @@ button:hover {
 }
 
 .date-picker-dark .SingleDatePickerInput {
-    background: #0f172a !important;
+    background: linear-gradient(180deg, #162033, #0f1726) !important;
     border-radius: 10px !important;
     overflow: hidden;
-    border: 1px solid rgba(236, 72, 153, 0.22) !important;
+    border: 1px solid rgba(96, 165, 250, 0.22) !important;
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.02),
+        0 4px 10px rgba(0, 0, 0, 0.18) !important;
 }
 
 .date-picker-dark .SingleDatePicker_picker {
-    background: #0b1226 !important;
+    background: #0b1220 !important;
 }
 
 .DateRangePicker_picker,
@@ -369,37 +579,37 @@ button:hover {
 .CalendarMonth,
 .CalendarMonthGrid,
 .DayPicker_transitionContainer {
-    background: #0b1226 !important;
+    background: #0b1220 !important;
     color: #f4f7ff !important;
 }
 
 .CalendarDay {
-    background: #0f172a !important;
+    background: #0f1726 !important;
     color: #f4f7ff !important;
     border: 1px solid rgba(255, 255, 255, 0.04) !important;
 }
 
 .CalendarDay:hover {
-    background: #251a52 !important;
+    background: #162033 !important;
     color: #ffffff !important;
 }
 
 .CalendarDay__selected,
 .CalendarDay__selected:hover {
-    background: #4c1d95 !important;
-    border: 1px solid #a855f7 !important;
+    background: #1d4ed8 !important;
+    border: 1px solid #60a5fa !important;
     color: #ffffff !important;
 }
 
 .DayPickerNavigation_button {
-    background: #0f172a !important;
-    border: 1px solid rgba(236, 72, 153, 0.22) !important;
+    background: #0f1726 !important;
+    border: 1px solid rgba(148, 163, 184, 0.14) !important;
     color: #f4f7ff !important;
 }
 
 
 /* =========================
-   Market-style metrics + range + stats
+   Metrics strip
 ========================= */
 .metrics-strip {
     display: flex;
@@ -409,33 +619,38 @@ button:hover {
     margin: 6px 0 12px 0;
     padding: 12px 14px;
     border-radius: 14px;
-    background: rgba(8, 14, 30, 0.82);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: linear-gradient(180deg, rgba(12, 18, 32, 0.92), rgba(8, 13, 23, 0.92));
+    border: 1px solid rgba(148, 163, 184, 0.08);
+    box-shadow: var(--shadow-md);
 }
 
 .metric-price {
     font-size: 30px;
     font-weight: 800;
-    color: #f8fbff;
+    color: var(--text-strong);
 }
 
 .metric-positive {
-    color: #22c55e;
+    color: var(--green);
     font-weight: 700;
     font-size: 24px;
 }
 
 .metric-negative {
-    color: #ef4444;
+    color: var(--red);
     font-weight: 700;
     font-size: 24px;
 }
 
 .metric-muted {
-    color: #94a3b8;
+    color: var(--text-muted);
     font-size: 13px;
 }
 
+
+/* =========================
+   Range buttons
+========================= */
 .range-row {
     display: flex;
     gap: 10px;
@@ -447,27 +662,33 @@ button:hover {
     min-width: auto;
     height: 34px;
     padding: 0 14px;
-    background: rgba(22, 28, 45, 0.95);
-    color: #dbe6ff;
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 10px;
-    font-size: 13px;
+    background: linear-gradient(180deg, #162033, #0f1726);
+    color: #d6e2f4;
+    border: 1px solid rgba(96, 165, 250, 0.16);
+    border-radius: 9px;
+    font-size: 12px;
     font-weight: 700;
+    letter-spacing: 0.2px;
     box-shadow: none;
 }
 
 .range-btn:hover {
-    background: rgba(35, 42, 70, 0.98);
+    background: linear-gradient(180deg, #1a2740, #111a2b);
     color: #ffffff;
+    border-color: rgba(96, 165, 250, 0.30);
     transform: none;
 }
 
 .range-btn.active {
-    background: rgba(80, 64, 130, 0.95);
+    background: linear-gradient(180deg, #1d4ed8, #1e40af);
     color: #ffffff;
-    border-color: rgba(244, 114, 182, 0.40);
+    border-color: rgba(147, 197, 253, 0.42);
 }
 
+
+/* =========================
+   Stats cards
+========================= */
 .stats-grid {
     display: grid;
     grid-template-columns: repeat(3, minmax(220px, 1fr));
@@ -476,12 +697,12 @@ button:hover {
 }
 
 .stat-card {
-    background: linear-gradient(180deg, rgba(10, 18, 34, 0.96), rgba(7, 13, 26, 0.96));
-    border: 1px solid rgba(96, 165, 250, 0.12);
-    border-radius: 18px;
+    background: linear-gradient(180deg, rgba(13, 20, 35, 0.96), rgba(8, 13, 24, 0.96));
+    border: 1px solid var(--border);
+    border-radius: 16px;
     padding: 16px 18px;
     box-shadow:
-        0 10px 24px rgba(0, 0, 0, 0.28),
+        var(--shadow-md),
         inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
@@ -500,19 +721,20 @@ button:hover {
 }
 
 .stat-label {
-    color: #94a3b8;
+    color: var(--text-muted);
     font-size: 13px;
     font-weight: 500;
 }
 
 .stat-value {
-    color: #f8fbff;
+    color: var(--text-strong);
     font-weight: 700;
     font-size: 14px;
 }
 
+
 /* =========================
-   Watch chart loading overlay
+   Watch loading overlay
 ========================= */
 .watch-chart-wrap {
     position: relative;
@@ -525,7 +747,7 @@ button:hover {
     display: flex;
     align-items: center;
     justify-content: center;
-    background: rgba(5, 10, 25, 0.82);
+    background: rgba(4, 8, 18, 0.82);
     border-radius: 12px;
     backdrop-filter: blur(4px);
 }
@@ -540,14 +762,14 @@ button:hover {
     font-weight: 700;
     padding: 14px 18px;
     border-radius: 12px;
-    background: rgba(38, 18, 72, 0.90);
-    border: 1px solid rgba(236, 72, 153, 0.28);
+    background: rgba(20, 33, 61, 0.94);
+    border: 1px solid rgba(96, 165, 250, 0.24);
     box-shadow: 0 12px 28px rgba(0, 0, 0, 0.30);
 }
 
 
 /* =========================
-   Responsive layout
+   Responsive
 ========================= */
 @media (max-width: 1100px) {
     .control-symbol {
@@ -555,7 +777,7 @@ button:hover {
     }
 
     .stats-grid {
-        grid-template-columns: repeat(2, minmax(180px, 1fr));
+        grid-template-columns: repeat(2, minmax(220px, 1fr));
     }
 }
 

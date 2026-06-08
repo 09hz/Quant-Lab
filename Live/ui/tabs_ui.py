@@ -102,7 +102,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
         className="tab-panel watch-tab-panel",
         children=[
             html.Div(
-                className="controls-row",
+                className="controls-row controls-row-top",
                 children=[
                     html.Div(
                         className="control-box control-symbol",
@@ -151,7 +151,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                 className="controls-row",
                 children=[
                     html.Div(
-                        className="control-box",
+    className="controls-row controls-row-bottom",
                         children=[
                             html.Label("Replay Controls"),
                             html.Div(
