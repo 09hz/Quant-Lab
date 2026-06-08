@@ -5,12 +5,18 @@ from typing import Optional
 
 import pandas as pd
 
+from core.RealTime import RealTimeIB
+from core.ReplayModule import ReplayEngine
+
 
 class ReplayService:
-    def __init__(self, rt, engine):
+    def __init__(self, rt: RealTimeIB, engine: ReplayEngine):
         self.rt = rt
         self.engine = engine
         self.cache: dict[tuple[str, str, str], pd.DataFrame] = {}
+        self.current_symbol: Optional[str] = None
+        self.current_timeframe: str = "1 min"
+        self.current_replay_date: Optional[str] = None
 
     def _make_cache_key(self, symbol: str, timeframe: str, replay_date: Optional[str]) -> tuple[str, str, str]:
         return (symbol, timeframe, replay_date or "latest")
@@ -20,17 +26,24 @@ class ReplayService:
 
     def clear_symbol_cache(self, symbol: str) -> None:
         symbol = self.rt._sanitize_symbol(symbol)
-        keys_to_remove = [k for k in self.cache if k[0] == symbol]
-        for k in keys_to_remove:
-            del self.cache[k]
+        keys_to_remove = [key for key in self.cache if key[0] == symbol]
+        for key in keys_to_remove:
+            del self.cache[key]
 
-    def load_replay(self, symbol: str, timeframe: str = "1 min", replay_date: Optional[str] = None, speed: Optional[float] = None):
+    def load_replay(
+        self,
+        symbol: str,
+        timeframe: str = "1 min",
+        replay_date: Optional[str] = None,
+        speed: Optional[float] = None,
+        force_reload: bool = False,
+    ) -> tuple[str, dict]:
         symbol = self.rt._sanitize_symbol(symbol)
         timeframe = timeframe or "1 min"
 
         cache_key = self._make_cache_key(symbol, timeframe, replay_date)
 
-        if cache_key in self.cache:
+        if not force_reload and cache_key in self.cache:
             hist = self.cache[cache_key]
         else:
             if replay_date:
@@ -42,11 +55,17 @@ class ReplayService:
 
             self.cache[cache_key] = hist
 
+        self.current_symbol = symbol
+        self.current_timeframe = timeframe
+        self.current_replay_date = replay_date
+
         if hist is None or hist.empty:
             self.engine.reset()
+            if speed is not None:
+                self.engine.set_speed(speed)
             return f"No replay history returned for {symbol}", {
                 "playing": False,
-                "speed": speed or 1.0,
+                "speed": self.engine.speed,
                 "current_index": 1,
                 "max_index": 0,
             }
@@ -59,32 +78,35 @@ class ReplayService:
 
         return f"Replay loaded for {symbol} ({timeframe}, {len(hist)} bars)", self.engine.info()
 
-    def play(self):
+    def play(self) -> None:
         self.engine.play()
 
-    def pause(self):
+    def pause(self) -> None:
         self.engine.pause()
 
-    def rewind(self, steps: int = 1):
+    def rewind(self, steps: int = 1) -> None:
         self.engine.rewind(steps)
 
-    def forward(self, steps: int = 1):
+    def forward(self, steps: int = 1) -> None:
         self.engine.forward(steps)
 
-    def set_index(self, index: int):
+    def set_index(self, index: int) -> None:
         self.engine.set_index(index)
 
-    def set_speed(self, speed: float):
+    def set_speed(self, speed: float) -> None:
         self.engine.set_speed(speed)
 
-    def tick(self):
+    def tick(self) -> None:
         self.engine.tick()
 
-    def visible_bars(self):
+    def visible_bars(self) -> pd.DataFrame:
         return self.engine.visible_bars()
 
-    def info(self):
+    def current_bar(self):
+        return self.engine.current_bar()
+
+    def info(self) -> dict:
         return self.engine.info()
 
-    def reset(self):
+    def reset(self) -> None:
         self.engine.reset()

@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
-from dash import html
 from ib_async import IB, Stock, Ticker, util
 
 from utils.chart_utils import apply_tick_to_bars, normalize_history_df, resample_bars
@@ -74,25 +73,13 @@ class RealTimeIB:
         self.company_file = data_dir / "nasdaq_symbol_names_filled.csv"
         self.company_names = self._load_company_names(self.company_file)
 
-        print(f"[NASDAQ FILE] {self.nasdaq_file}", flush=True)
-        print(f"[NASDAQ COUNT] {len(self.nasdaq_symbols)}", flush=True)
-        print(f"[HAS MSFT] {'MSFT' in self.nasdaq_symbols}", flush=True)
-
-        print(f"[COMPANY FILE] {self.company_file}", flush=True)
-        print(f"[COMPANY COUNT] {len(self.company_names)}", flush=True)
-        print(f"[MSFT NAME] {self.company_names.get('MSFT', 'MISSING')}", flush=True)
-
     def _load_nasdaq_symbols(self, file_path: Path) -> set[str]:
         if not file_path.exists():
             print(f"[WARN] NASDAQ file not found: {file_path}", flush=True)
             return set()
 
         with open(file_path, "r", encoding="utf-8") as f:
-            return {
-                line.strip().upper()
-                for line in f
-                if line.strip()
-            }
+            return {line.strip().upper() for line in f if line.strip()}
 
     def _load_company_names(self, file_path: Path) -> dict[str, str]:
         if not file_path.exists():
@@ -100,7 +87,6 @@ class RealTimeIB:
             return {}
 
         company_map: dict[str, str] = {}
-
         with open(file_path, "r", encoding="utf-8", newline="") as f:
             reader = csv.DictReader(f)
             for row in reader:
@@ -129,7 +115,7 @@ class RealTimeIB:
 
             options.append(
                 {
-                    "label": html.Span(label_text, style={"color": "black"}),
+                    "label": label_text,
                     "value": symbol,
                     "search": search_text,
                 }
@@ -189,9 +175,7 @@ class RealTimeIB:
 
                 if kind == "symbol":
                     symbol = str(req[1])
-                    print(f"[REQUEST] loading live symbol {symbol}", flush=True)
                     self.ensure_symbol_ready(symbol, "1 min")
-                    print(f"[REQUEST] loaded live symbol {symbol}", flush=True)
 
             except Exception as exc:
                 print(f"[REQUEST ERROR] {req}: {exc}", flush=True)
@@ -241,6 +225,8 @@ class RealTimeIB:
             state = self._states.get(key, SymbolState(symbol=symbol, timeframe=timeframe))
             state.bars = df
             state.updated_at = datetime.now()
+            if not df.empty:
+                state.last = float(df.iloc[-1]["close"])
             self._states[key] = state
 
         return df
@@ -265,8 +251,7 @@ class RealTimeIB:
         )
 
         df = util.df(bars)
-        df = normalize_history_df(df)
-        return df
+        return normalize_history_df(df)
 
     def load_history_range(
         self,

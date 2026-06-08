@@ -132,7 +132,12 @@ def resample_bars(bars: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     return resampled
 
 
-def create_candlestick_figure(bars: pd.DataFrame, symbol: str, timeframe: str) -> go.Figure:
+def create_candlestick_figure(
+    bars: pd.DataFrame,
+    symbol: str,
+    timeframe: str,
+    current_price: Optional[float] = None,
+) -> go.Figure:
     df = normalize_history_df(bars)
 
     fig = go.Figure()
@@ -154,15 +159,15 @@ def create_candlestick_figure(bars: pd.DataFrame, symbol: str, timeframe: str) -
             )
         )
 
-        last_price = float(df.iloc[-1]["close"])
+        price_for_line = float(current_price) if current_price is not None else float(df.iloc[-1]["close"])
 
         fig.add_hline(
-            y=last_price,
+            y=price_for_line,
             line_width=1.2,
             line_dash="dot",
             line_color="#60a5fa",
             opacity=0.95,
-            annotation_text=f"{last_price:,.2f}",
+            annotation_text=f"{price_for_line:,.2f}",
             annotation_position="right",
             annotation_font=dict(color="white", size=12),
             annotation_bgcolor="#2563eb",
