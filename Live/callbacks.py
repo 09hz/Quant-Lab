@@ -301,8 +301,8 @@ def register_callbacks(app, rt, replay_service, symbol_options, timeframe_map):
                 snap.bars,
                 symbol,
                 timeframe,
-                current_price=snap.last,
-            )
+                current_price=snap.last,)
+
             fig.update_layout(
                 uirevision=f"dashboard-{symbol}-{timeframe}",
                 dragmode="pan",

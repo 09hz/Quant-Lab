@@ -111,7 +111,7 @@ app.layout = html.Div(
                 ),
             ],
         ),
-        dcc.Interval(id="ui-interval", interval=UI_INTERVAL_MS, n_intervals=0),
+        dcc.Interval(id="ui-interval", interval=150, n_intervals=0),
         dcc.Store(id="watch-loading-state", data=False),
         dcc.Store(id="zoom-state", data={}),
         dcc.Store(id="active-symbol", data=DEFAULT_SYMBOL),

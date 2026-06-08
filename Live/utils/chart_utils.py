@@ -6,6 +6,14 @@ from typing import Optional
 import pandas as pd
 import plotly.graph_objects as go
 
+def _to_tz_naive_timestamp(value) -> pd.Timestamp:
+    ts = pd.Timestamp(value)
+
+    if ts.tzinfo is not None:
+        ts = ts.tz_localize(None)
+
+    return ts
+
 
 def normalize_history_df(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
@@ -35,7 +43,10 @@ def normalize_history_df(df: pd.DataFrame) -> pd.DataFrame:
                 raise ValueError(f"Missing required column: {col}")
 
     out = out[required].copy()
-    out["time"] = pd.to_datetime(out["time"], errors="coerce")
+
+    # Important: normalize every historical bar timestamp to tz-naive.
+    out["time"] = out["time"].apply(_to_tz_naive_timestamp)
+
     out["open"] = pd.to_numeric(out["open"], errors="coerce")
     out["high"] = pd.to_numeric(out["high"], errors="coerce")
     out["low"] = pd.to_numeric(out["low"], errors="coerce")
@@ -49,7 +60,7 @@ def normalize_history_df(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _floor_time_to_minute(ts: datetime) -> pd.Timestamp:
-    return pd.Timestamp(ts).floor("min")
+    return _to_tz_naive_timestamp(ts).floor("min")
 
 
 def apply_tick_to_bars(
@@ -69,39 +80,37 @@ def apply_tick_to_bars(
             [
                 {
                     "time": bar_time,
-                    "open": price,
-                    "high": price,
-                    "low": price,
-                    "close": price,
-                    "volume": size,
+                    "open": float(price),
+                    "high": float(price),
+                    "low": float(price),
+                    "close": float(price),
+                    "volume": float(size or 0),
                 }
             ]
         )
 
     last_idx = out.index[-1]
-    last_bar_time = pd.Timestamp(out.loc[last_idx, "time"]).floor("min")
+    last_bar_time = _floor_time_to_minute(out.loc[last_idx, "time"])
 
     if bar_time > last_bar_time:
         new_row = {
             "time": bar_time,
-            "open": price,
-            "high": price,
-            "low": price,
-            "close": price,
-            "volume": size,
+            "open": float(price),
+            "high": float(price),
+            "low": float(price),
+            "close": float(price),
+            "volume": float(size or 0),
         }
-        out = pd.concat([out, pd.DataFrame([new_row])], ignore_index=True)
-        return out
+        return pd.concat([out, pd.DataFrame([new_row])], ignore_index=True)
 
-    if bar_time == last_bar_time:
-        out.loc[last_idx, "high"] = max(float(out.loc[last_idx, "high"]), price)
-        out.loc[last_idx, "low"] = min(float(out.loc[last_idx, "low"]), price)
-        out.loc[last_idx, "close"] = price
-        out.loc[last_idx, "volume"] = float(out.loc[last_idx, "volume"]) + size
-        return out
+    # Same minute, or timestamp mismatch behind latest bar:
+    # always patch the newest candle so the visible candle updates.
+    out.loc[last_idx, "high"] = max(float(out.loc[last_idx, "high"]), float(price))
+    out.loc[last_idx, "low"] = min(float(out.loc[last_idx, "low"]), float(price))
+    out.loc[last_idx, "close"] = float(price)
+    out.loc[last_idx, "volume"] = float(out.loc[last_idx, "volume"]) + float(size or 0)
 
     return out
-
 
 def resample_bars(bars: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     out = normalize_history_df(bars)

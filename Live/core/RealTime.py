@@ -358,23 +358,48 @@ class RealTimeIB:
         with self._lock:
             state = self._states.get(key)
 
-        if state is None:
-            raise ValueError(f"No loaded state for {symbol} 1 min")
+            if state is None:
+                raise ValueError(f"No loaded state for {symbol} 1 min")
 
-        bars = state.bars.copy()
+            bars = state.bars.copy()
+
+
+            if state.last is not None:
+                try:
+                    bars = apply_tick_to_bars(
+                        bars,
+                        price=float(state.last),
+                        size=float(state.last_size or 0),
+                        tick_time=datetime.now(),
+                    )
+
+
+                    state.bars = bars.copy()
+                    self._states[key] = state
+
+                except Exception as exc:
+                    print(f"[SNAPSHOT BAR PATCH ERROR] {symbol}: {exc}", flush=True)
+
+            bid = state.bid
+            ask = state.ask
+            last = state.last
+            last_size = state.last_size
+            updated_at = state.updated_at
+            tick_count = state.tick_count
+
         if timeframe != "1 min":
             bars = resample_bars(bars, timeframe)
 
         return SymbolState(
-            symbol=state.symbol,
+            symbol=symbol,
             timeframe=timeframe,
             bars=bars,
-            bid=state.bid,
-            ask=state.ask,
-            last=state.last,
-            last_size=state.last_size,
-            updated_at=state.updated_at,
-            tick_count=state.tick_count,
+            bid=bid,
+            ask=ask,
+            last=last,
+            last_size=last_size,
+            updated_at=updated_at,
+            tick_count=tick_count,
         )
 
     def ensure_symbol_ready(self, symbol: str, timeframe: str) -> None:
