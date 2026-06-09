@@ -14,7 +14,7 @@ import pandas as pd
 from dash import html
 from ib_async import IB, Stock, Ticker, util
 
-from chart_utils import apply_tick_to_bars, normalize_history_df, resample_bars
+from Live.utils.chart_utils import apply_tick_to_bars, normalize_history_df, resample_bars
 
 
 TIMEFRAME_MAP: Dict[str, Tuple[str, str]] = {
@@ -65,12 +65,13 @@ class RealTimeIB:
 
         self._requests: queue.Queue[tuple[Any, ...]] = queue.Queue()
 
-        base_dir = Path(__file__).resolve().parent
+        project_root = Path(__file__).resolve().parent.parent
+        data_dir = project_root / "data"
 
-        self.nasdaq_file = base_dir / "nasdaq_tickers_simple.txt"
+        self.nasdaq_file = data_dir / "nasdaq_tickers_simple.txt"
         self.nasdaq_symbols = self._load_nasdaq_symbols(self.nasdaq_file)
 
-        self.company_file = base_dir / "nasdaq_symbol_names_filled.csv"
+        self.company_file = data_dir / "nasdaq_symbol_names_filled.csv"
         self.company_names = self._load_company_names(self.company_file)
 
         print(f"[NASDAQ FILE] {self.nasdaq_file}", flush=True)

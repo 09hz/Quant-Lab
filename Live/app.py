@@ -9,15 +9,15 @@ from dash import Dash, Input, Output, State, dcc, html, no_update, ctx
 if sys.platform.startswith("win"):
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-from RealTime import RealTimeIB, TIMEFRAME_MAP
-from chart_utils import create_candlestick_figure
-from tabs_ui import (
+from Live.core.RealTime import RealTimeIB, TIMEFRAME_MAP
+from Live.utils.chart_utils import create_candlestick_figure
+from Live.ui.tabs_ui import (
     build_dashboard_tab,
     build_watch_tab,
     build_quotes_tab,
     build_charts_tab,
 )
-from ReplayModule import ReplayEngine
+from Live.core.ReplayModule import ReplayEngine
 
 replay_cache = {}
 DEFAULT_SYMBOL = "MSFT"
