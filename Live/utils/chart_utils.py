@@ -6,6 +6,10 @@ from typing import Optional
 import pandas as pd
 import plotly.graph_objects as go
 
+
+OHLCV_COLUMNS = ["time", "open", "high", "low", "close", "volume"]
+
+
 def _to_tz_naive_timestamp(value) -> pd.Timestamp:
     ts = pd.Timestamp(value)
 
@@ -17,7 +21,7 @@ def _to_tz_naive_timestamp(value) -> pd.Timestamp:
 
 def normalize_history_df(df: pd.DataFrame) -> pd.DataFrame:
     if df is None or df.empty:
-        return pd.DataFrame(columns=["time", "open", "high", "low", "close", "volume"])
+        return pd.DataFrame(columns=OHLCV_COLUMNS)
 
     out = df.copy()
 
@@ -34,19 +38,16 @@ def normalize_history_df(df: pd.DataFrame) -> pd.DataFrame:
     if rename_map:
         out = out.rename(columns=rename_map)
 
-    required = ["time", "open", "high", "low", "close", "volume"]
-    for col in required:
+    for col in OHLCV_COLUMNS:
         if col not in out.columns:
             if col == "volume":
                 out[col] = 0
             else:
                 raise ValueError(f"Missing required column: {col}")
 
-    out = out[required].copy()
+    out = out[OHLCV_COLUMNS].copy()
 
-    # Important: normalize every historical bar timestamp to tz-naive.
     out["time"] = out["time"].apply(_to_tz_naive_timestamp)
-
     out["open"] = pd.to_numeric(out["open"], errors="coerce")
     out["high"] = pd.to_numeric(out["high"], errors="coerce")
     out["low"] = pd.to_numeric(out["low"], errors="coerce")
@@ -69,22 +70,31 @@ def apply_tick_to_bars(
     size: float,
     tick_time: Optional[datetime] = None,
 ) -> pd.DataFrame:
+    """
+    Patch one live tick into the latest OHLCV bar.
+
+    If the tick timestamp is behind the latest historical candle because of an
+    IB/local timezone mismatch, the newest visible candle is still patched. This
+    keeps candle shapes moving whenever the live price updates.
+    """
     if tick_time is None:
         tick_time = datetime.now()
 
     out = normalize_history_df(bars)
     bar_time = _floor_time_to_minute(tick_time)
+    price = float(price)
+    size = float(size or 0)
 
     if out.empty:
         return pd.DataFrame(
             [
                 {
                     "time": bar_time,
-                    "open": float(price),
-                    "high": float(price),
-                    "low": float(price),
-                    "close": float(price),
-                    "volume": float(size or 0),
+                    "open": price,
+                    "high": price,
+                    "low": price,
+                    "close": price,
+                    "volume": size,
                 }
             ]
         )
@@ -95,22 +105,22 @@ def apply_tick_to_bars(
     if bar_time > last_bar_time:
         new_row = {
             "time": bar_time,
-            "open": float(price),
-            "high": float(price),
-            "low": float(price),
-            "close": float(price),
-            "volume": float(size or 0),
+            "open": price,
+            "high": price,
+            "low": price,
+            "close": price,
+            "volume": size,
         }
         return pd.concat([out, pd.DataFrame([new_row])], ignore_index=True)
 
-    # Same minute, or timestamp mismatch behind latest bar:
-    # always patch the newest candle so the visible candle updates.
-    out.loc[last_idx, "high"] = max(float(out.loc[last_idx, "high"]), float(price))
-    out.loc[last_idx, "low"] = min(float(out.loc[last_idx, "low"]), float(price))
-    out.loc[last_idx, "close"] = float(price)
-    out.loc[last_idx, "volume"] = float(out.loc[last_idx, "volume"]) + float(size or 0)
+    # Same minute or timestamp mismatch: update latest visible candle.
+    out.loc[last_idx, "high"] = max(float(out.loc[last_idx, "high"]), price)
+    out.loc[last_idx, "low"] = min(float(out.loc[last_idx, "low"]), price)
+    out.loc[last_idx, "close"] = price
+    out.loc[last_idx, "volume"] = float(out.loc[last_idx, "volume"]) + size
 
     return out
+
 
 def resample_bars(bars: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     out = normalize_history_df(bars)
@@ -149,6 +159,11 @@ def create_candlestick_figure(
 ) -> go.Figure:
     df = normalize_history_df(bars)
 
+    # Prevent startup or very large datasets from causing unreadable initial
+    # candle widths. The callbacks still control the actual visible range.
+    if not df.empty:
+        df = df.tail(1500).copy()
+
     fig = go.Figure()
 
     if not df.empty:
@@ -168,15 +183,17 @@ def create_candlestick_figure(
             )
         )
 
-        price_for_line = float(current_price) if current_price is not None else float(df.iloc[-1]["close"])
+        price_for_line = current_price
+        if price_for_line is None:
+            price_for_line = float(df.iloc[-1]["close"])
 
         fig.add_hline(
-            y=price_for_line,
+            y=float(price_for_line),
             line_width=1.2,
             line_dash="dot",
             line_color="#60a5fa",
             opacity=0.95,
-            annotation_text=f"{price_for_line:,.2f}",
+            annotation_text=f"{float(price_for_line):,.2f}",
             annotation_position="right",
             annotation_font=dict(color="white", size=12),
             annotation_bgcolor="#2563eb",
@@ -205,6 +222,8 @@ def create_candlestick_figure(
         gridcolor="rgba(255,255,255,0.05)",
         zeroline=False,
         showline=False,
+        rangeslider_visible=False,
+        fixedrange=False,
     )
     fig.update_yaxes(
         showgrid=True,
@@ -212,6 +231,7 @@ def create_candlestick_figure(
         zeroline=False,
         showline=False,
         side="right",
+        fixedrange=False,
     )
 
     return fig

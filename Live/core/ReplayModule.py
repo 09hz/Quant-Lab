@@ -70,7 +70,8 @@ class ReplayEngine:
             raise ValueError("Replay data became empty after cleaning.")
 
         self.bars = out
-        self.current_index = max(1, min(100, len(out)))
+        self.current_index = len(out)
+        self.speed = 1.0
         self.playing = False
         self.progress = 0.0
         self.last_tick_time = None

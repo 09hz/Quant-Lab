@@ -1,18 +1,23 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
+import pandas as pd
 import plotly.graph_objects as go
 from dash import Input, Output, State, html, no_update, ctx
 
 from config import DEFAULT_SYMBOL, DEFAULT_TIMEFRAME
-from ui.tabs_ui import (
-    build_dashboard_tab,
-    build_watch_tab,
-    build_quotes_tab,
-    build_charts_tab,
-)
 from utils.chart_utils import create_candlestick_figure
+
+
+RANGE_DAYS = {
+    "1D": 1,
+    "1W": 7,
+    "1M": 30,
+    "3M": 90,
+    "1Y": 365,
+    "5Y": 365 * 5,
+}
 
 
 def _build_metrics_strip(symbol: str, company: str, last, open_, updated_at, prefix: str = "USD"):
@@ -55,7 +60,7 @@ def _build_stats_grid_from_bars(df):
     close_v = float(last["close"])
     volume_v = float(df["volume"].sum())
 
-    cards = [
+    return [
         html.Div(
             className="stat-card",
             children=[
@@ -81,7 +86,197 @@ def _build_stats_grid_from_bars(df):
             ],
         ),
     ]
-    return cards
+
+
+def _empty_figure(title: str) -> go.Figure:
+    fig = go.Figure()
+    fig.update_layout(
+        title=title,
+        template="plotly_dark",
+        paper_bgcolor="#0d1b4f",
+        plot_bgcolor="#0d1b4f",
+        font={"color": "#e8f1ff"},
+        dragmode="pan",
+        hovermode="x unified",
+    )
+    fig.update_xaxes(fixedrange=False, rangeslider_visible=False)
+    fig.update_yaxes(fixedrange=False)
+    return fig
+
+
+def _safe_range_key(value, default="1D") -> str:
+    value = str(value or default).upper()
+    if value in {"1D", "1W", "1M", "3M", "1Y", "5Y", "MAX"}:
+        return value
+    return default
+
+
+def _range_key_from_button(trigger_id: str | None, prefix: str, default="1D") -> str:
+    if not trigger_id:
+        return default
+
+    raw = trigger_id.replace(prefix, "").lower()
+    mapping = {
+        "1d": "1D",
+        "1w": "1W",
+        "1m": "1M",
+        "3m": "3M",
+        "1y": "1Y",
+        "5y": "5Y",
+        "max": "MAX",
+    }
+    return mapping.get(raw, default)
+
+
+def _clean_relayout_range(relayout_data):
+    """
+    Extract user-driven Plotly x/y ranges.
+
+    Double-click reset/autorange returns live mode.
+    Initial noise is ignored.
+    """
+    if not relayout_data:
+        return no_update
+
+    if (
+        relayout_data.get("xaxis.autorange") is True
+        or relayout_data.get("yaxis.autorange") is True
+        or relayout_data.get("autosize") is True
+    ):
+        return {
+            "mode": "live",
+            "x_range": None,
+            "y_range": None,
+        }
+
+    x0 = relayout_data.get("xaxis.range[0]")
+    x1 = relayout_data.get("xaxis.range[1]")
+    y0 = relayout_data.get("yaxis.range[0]")
+    y1 = relayout_data.get("yaxis.range[1]")
+
+    if x0 is not None and x1 is not None:
+        return {
+            "mode": "manual",
+            "x_range": [x0, x1],
+            "y_range": [y0, y1] if y0 is not None and y1 is not None else None,
+        }
+
+    if y0 is not None and y1 is not None:
+        return {
+            "mode": "manual",
+            "x_range": None,
+            "y_range": [y0, y1],
+        }
+
+    return no_update
+
+
+def _clean_bars_for_view(bars: pd.DataFrame) -> pd.DataFrame:
+    if bars is None or bars.empty:
+        return pd.DataFrame(columns=["time", "open", "high", "low", "close", "volume"])
+
+    df = bars.copy()
+    df["time"] = pd.to_datetime(df["time"], errors="coerce")
+    df = df.dropna(subset=["time", "high", "low"])
+
+    return df
+
+
+def _visible_window_from_bars(bars: pd.DataFrame, range_key: str):
+    df = _clean_bars_for_view(bars)
+    if df.empty:
+        return None
+
+    range_key = _safe_range_key(range_key)
+    end_time = df["time"].max()
+
+    if range_key == "MAX":
+        start_time = df["time"].min()
+    else:
+        days = RANGE_DAYS.get(range_key, 1)
+        start_time = end_time - timedelta(days=days)
+        start_time = max(start_time, df["time"].min())
+
+    return [start_time, end_time]
+
+
+def _fit_y_axis_to_visible_bars(fig, bars: pd.DataFrame, x_range=None):
+    """
+    Fit y-axis only to visible candles. This prevents candles from becoming
+    long, flat, or unreadable when Plotly preserves a bad y-axis range.
+    """
+    df = _clean_bars_for_view(bars)
+    if df.empty:
+        return fig
+
+    visible = df
+    if x_range:
+        x0 = pd.to_datetime(x_range[0], errors="coerce")
+        x1 = pd.to_datetime(x_range[1], errors="coerce")
+
+        if pd.notna(x0) and pd.notna(x1):
+            visible = df[(df["time"] >= x0) & (df["time"] <= x1)]
+
+    if visible.empty:
+        visible = df.tail(100)
+
+    high = float(visible["high"].max())
+    low = float(visible["low"].min())
+
+    if high <= low:
+        pad = max(abs(high) * 0.005, 0.01)
+    else:
+        pad = (high - low) * 0.08
+
+    fig.update_yaxes(range=[low - pad, high + pad], fixedrange=False)
+    return fig
+
+
+def _apply_chart_view(fig, bars: pd.DataFrame, chart_state: dict | None, default_range="1D"):
+    """
+    Chart view controller.
+
+    live mode:
+        follows the latest bars and auto-fits y-axis to visible candles
+
+    manual mode:
+        preserves user pan/zoom ranges until Live or Reset is clicked
+    """
+    state = chart_state or {}
+    mode = state.get("mode", "live")
+    range_key = _safe_range_key(state.get("range_key"), default_range)
+
+    if bars is None or bars.empty:
+        return fig
+
+    if mode == "manual":
+        x_range = state.get("x_range")
+        y_range = state.get("y_range")
+
+        if x_range:
+            fig.update_xaxes(range=x_range, fixedrange=False)
+            fig = _fit_y_axis_to_visible_bars(fig, bars, x_range)
+
+        if y_range:
+            fig.update_yaxes(range=y_range, fixedrange=False)
+
+        return fig
+
+    x_range = _visible_window_from_bars(bars, range_key)
+    if x_range:
+        fig.update_xaxes(range=x_range, fixedrange=False)
+
+    fig = _fit_y_axis_to_visible_bars(fig, bars, x_range)
+    return fig
+
+
+def _default_chart_state(range_key="1D"):
+    return {
+        "mode": "live",
+        "range_key": range_key,
+        "x_range": None,
+        "y_range": None,
+    }
 
 
 def register_callbacks(app, rt, replay_service, symbol_options, timeframe_map):
@@ -107,16 +302,6 @@ def register_callbacks(app, rt, replay_service, symbol_options, timeframe_map):
     )
     def show_load_status(status):
         return status
-
-    @app.callback(
-        Output("watch-loading-overlay", "className"),
-        Input("watch-loading-state", "data"),
-        State("main-tabs", "value"),
-    )
-    def toggle_watch_loading_overlay(is_loading, active_tab):
-        if active_tab != "watch":
-            return "watch-loading-overlay hidden"
-        return "watch-loading-overlay" if is_loading else "watch-loading-overlay hidden"
 
     @app.callback(
         Output("dashboard-state", "data"),
@@ -175,56 +360,186 @@ def register_callbacks(app, rt, replay_service, symbol_options, timeframe_map):
         except Exception as exc:
             return no_update, f"Error: {exc}"
 
+    # ------------------------------------------------------------
+    # Dashboard chart interaction state
+    # ------------------------------------------------------------
     @app.callback(
-        Output("zoom-state", "data"),
+        Output("dashboard-chart-state", "data"),
+        Input("dashboard-live-mode", "n_clicks"),
+        Input("dashboard-reset-view", "n_clicks"),
+        Input("dashboard-range-1d", "n_clicks"),
+        Input("dashboard-range-1w", "n_clicks"),
+        Input("dashboard-range-1m", "n_clicks"),
+        Input("dashboard-range-3m", "n_clicks"),
+        Input("dashboard-range-1y", "n_clicks"),
+        Input("dashboard-range-5y", "n_clicks"),
+        Input("dashboard-range-max", "n_clicks"),
         Input("live-chart", "relayoutData"),
-        State("zoom-state", "data"),
+        State("dashboard-chart-state", "data"),
         prevent_initial_call=True,
     )
-    def capture_zoom(relayout_data, current_state):
-        if relayout_data is None:
-            return current_state
-        return relayout_data
+    def update_dashboard_chart_state(*args):
+        current_state = dict(args[-1] or _default_chart_state())
+        relayout_data = args[-2]
+        trigger_id = ctx.triggered_id
 
+        if trigger_id in {"dashboard-live-mode", "dashboard-reset-view"}:
+            return _default_chart_state(current_state.get("range_key", "1D"))
+
+        if isinstance(trigger_id, str) and trigger_id.startswith("dashboard-range-"):
+            range_key = _range_key_from_button(trigger_id, "dashboard-range-", "1D")
+            return _default_chart_state(range_key)
+
+        if trigger_id == "live-chart":
+            parsed = _clean_relayout_range(relayout_data)
+            if parsed is no_update:
+                return no_update
+
+            new_state = dict(current_state)
+            new_state.update(parsed)
+            new_state["range_key"] = current_state.get("range_key", "1D")
+            return new_state
+
+        return no_update
+
+    # ------------------------------------------------------------
+    # Watch chart interaction state
+    # ------------------------------------------------------------
     @app.callback(
-        Output("watch-loading-state", "data", allow_duplicate=True),
+        Output("watch-chart-state", "data"),
+        Input("watch-live-mode", "n_clicks"),
+        Input("watch-reset-view", "n_clicks"),
+        Input("watch-range-1d", "n_clicks"),
+        Input("watch-range-1w", "n_clicks"),
+        Input("watch-range-1m", "n_clicks"),
+        Input("watch-range-3m", "n_clicks"),
+        Input("watch-range-1y", "n_clicks"),
+        Input("watch-range-5y", "n_clicks"),
+        Input("watch-range-max", "n_clicks"),
+        Input("watch-chart", "relayoutData"),
+        State("watch-chart-state", "data"),
+        prevent_initial_call=True,
+    )
+    def update_watch_chart_state(*args):
+        current_state = dict(args[-1] or _default_chart_state())
+        relayout_data = args[-2]
+        trigger_id = ctx.triggered_id
+
+        if trigger_id in {"watch-live-mode", "watch-reset-view"}:
+            return _default_chart_state(current_state.get("range_key", "1D"))
+
+        if isinstance(trigger_id, str) and trigger_id.startswith("watch-range-"):
+            range_key = _range_key_from_button(trigger_id, "watch-range-", "1D")
+            return _default_chart_state(range_key)
+
+        if trigger_id == "watch-chart":
+            parsed = _clean_relayout_range(relayout_data)
+            if parsed is no_update:
+                return no_update
+
+            new_state = dict(current_state)
+            new_state.update(parsed)
+            new_state["range_key"] = current_state.get("range_key", "1D")
+            return new_state
+
+        return no_update
+
+    # ------------------------------------------------------------
+    # Watch replay loading overlay
+    # ------------------------------------------------------------
+    app.clientside_callback(
+        """
+        function(activeTab, symbol, replayDate, currentRequest) {
+            if (activeTab !== "watch") {
+                return [
+                    dash_clientside.no_update,
+                    dash_clientside.no_update
+                ];
+            }
+
+            const req = currentRequest || {};
+            const nonce = (req.nonce || 0) + 1;
+
+            return [
+                "watch-loading-overlay",
+                {
+                    nonce: nonce,
+                    symbol: symbol || "MSFT",
+                    replay_date: replayDate || null,
+                    timeframe: "1 min"
+                }
+            ];
+        }
+        """,
+        Output("watch-loading-overlay", "className", allow_duplicate=True),
+        Output("watch-load-request", "data", allow_duplicate=True),
         Input("main-tabs", "value"),
         Input("watch-symbol-dropdown", "value"),
         Input("replay-date", "date"),
+        State("watch-load-request", "data"),
         prevent_initial_call=True,
     )
-    def start_watch_loading(active_tab, symbol, replay_date):
-        if active_tab != "watch":
-            return no_update
-        if not symbol:
-            return no_update
-        return True
 
     @app.callback(
-        Output("watch-status", "children"),
+        Output("watch-status", "children", allow_duplicate=True),
         Output("replay-slider", "max", allow_duplicate=True),
         Output("replay-slider", "value", allow_duplicate=True),
-        Output("watch-loading-state", "data"),
-        Input("main-tabs", "value"),
-        Input("watch-symbol-dropdown", "value"),
-        Input("replay-date", "date"),
-        Input("replay-speed", "value"),
+        Output("watch-loading-overlay", "className", allow_duplicate=True),
+        Input("watch-load-request", "data"),
+        State("replay-speed", "value"),
+        State("main-tabs", "value"),
         prevent_initial_call=True,
     )
-    def load_watch_symbol(active_tab, symbol, replay_date, replay_speed):
+    def load_watch_symbol_from_request(load_request, replay_speed, active_tab):
         if active_tab != "watch":
             return no_update, no_update, no_update, no_update
 
+        if not load_request:
+            return no_update, no_update, no_update, no_update
+
+        symbol = load_request.get("symbol") or DEFAULT_SYMBOL
+        replay_date = load_request.get("replay_date")
+        timeframe = load_request.get("timeframe") or "1 min"
+
         try:
             status, info = replay_service.load_replay(
-                symbol=symbol or DEFAULT_SYMBOL,
-                timeframe="1 min",
+                symbol=symbol,
+                timeframe=timeframe,
                 replay_date=replay_date,
-                speed=replay_speed,
+                speed=replay_speed or 1,
             )
-            return status, max(1, info["max_index"]), max(1, info["current_index"]), False
+
+            return (
+                status,
+                max(1, int(info.get("max_index", 1))),
+                max(1, int(info.get("current_index", 1))),
+                "watch-loading-overlay hidden",
+            )
+
         except Exception as exc:
-            return f"Replay load error: {exc}", 100, 1, False
+            print(f"[REPLAY LOAD ERROR] {exc}", flush=True)
+            return (
+                f"Replay load error: {exc}",
+                100,
+                1,
+                "watch-loading-overlay hidden",
+            )
+
+    @app.callback(
+        Output("watch-status", "children", allow_duplicate=True),
+        Input("replay-speed", "value"),
+        State("main-tabs", "value"),
+        prevent_initial_call=True,
+    )
+    def update_replay_speed(speed, active_tab):
+        if active_tab != "watch":
+            return no_update
+
+        try:
+            replay_service.set_speed(speed or 1)
+            return f"Replay speed set to {speed or 1}x"
+        except Exception as exc:
+            return f"Replay speed error: {exc}"
 
     @app.callback(
         Output("watch-status", "children", allow_duplicate=True),
@@ -275,6 +590,9 @@ def register_callbacks(app, rt, replay_service, symbol_options, timeframe_map):
             print(f"[REPLAY CONTROL ERROR] {exc}", flush=True)
             return f"Replay control error: {exc}", no_update
 
+    # ------------------------------------------------------------
+    # Dashboard
+    # ------------------------------------------------------------
     @app.callback(
         Output("quote-strip", "children"),
         Output("live-chart", "figure"),
@@ -283,11 +601,11 @@ def register_callbacks(app, rt, replay_service, symbol_options, timeframe_map):
         Input("ui-interval", "n_intervals"),
         Input("active-symbol", "data"),
         Input("timeframe-dropdown", "value"),
+        Input("dashboard-chart-state", "data"),
         State("main-tabs", "value"),
-        State("zoom-state", "data"),
-        prevent_initial_call=True,
+        prevent_initial_call=False,
     )
-    def render_dashboard_chart(_n, active_symbol, timeframe, active_tab, zoom_state):
+    def render_dashboard_chart(_n, active_symbol, timeframe, dashboard_chart_state, active_tab):
         if active_tab != "dashboard":
             return no_update, no_update, no_update, no_update
 
@@ -301,21 +619,26 @@ def register_callbacks(app, rt, replay_service, symbol_options, timeframe_map):
                 snap.bars,
                 symbol,
                 timeframe,
-                current_price=snap.last,)
+                current_price=snap.last,
+            )
 
+            fig = _apply_chart_view(
+                fig,
+                snap.bars,
+                dashboard_chart_state,
+                default_range="1D",
+            )
+
+            state = dashboard_chart_state or {}
+            range_key = _safe_range_key(state.get("range_key"), "1D")
+            mode = state.get("mode", "live")
             fig.update_layout(
-                uirevision=f"dashboard-{symbol}-{timeframe}",
+                uirevision=f"dashboard-{symbol}-{timeframe}-{mode}-{range_key}",
                 dragmode="pan",
             )
 
             updated = snap.updated_at.strftime("%H:%M:%S") if snap.updated_at else "--:--:--"
             quote_text = f"LIVE · {company_name} ({symbol}) · Updated {updated}"
-
-            if zoom_state:
-                if "xaxis.range[0]" in zoom_state and "xaxis.range[1]" in zoom_state:
-                    fig.update_xaxes(range=[zoom_state["xaxis.range[0]"], zoom_state["xaxis.range[1]"]])
-                if "yaxis.range[0]" in zoom_state and "yaxis.range[1]" in zoom_state:
-                    fig.update_yaxes(range=[zoom_state["yaxis.range[0]"], zoom_state["yaxis.range[1]"]])
 
             open_val = None if snap.bars.empty else float(snap.bars.iloc[0]["open"])
             metrics = _build_metrics_strip(symbol, company_name, snap.last, open_val, snap.updated_at)
@@ -324,28 +647,26 @@ def register_callbacks(app, rt, replay_service, symbol_options, timeframe_map):
             return quote_text, fig, metrics, stats
 
         except Exception as exc:
-            fig = go.Figure()
-            fig.update_layout(
-                title="Loading dashboard...",
-                template="plotly_dark",
-                paper_bgcolor="#0d1b4f",
-                plot_bgcolor="#0d1b4f",
-                font={"color": "#e8f1ff"},
-            )
+            fig = _empty_figure(f"Loading dashboard... {exc}")
             return f"Loading dashboard... {exc}", fig, [], []
 
+    # ------------------------------------------------------------
+    # Watch chart render
+    # ------------------------------------------------------------
     @app.callback(
         Output("watch-chart", "figure"),
         Output("replay-slider", "max", allow_duplicate=True),
         Output("replay-slider", "value", allow_duplicate=True),
         Output("watch-metrics-strip", "children"),
         Output("watch-stats-grid", "children"),
-        State("main-tabs", "value"),
         Input("ui-interval", "n_intervals"),
+        Input("watch-load-request", "data"),
+        Input("watch-chart-state", "data"),
+        State("main-tabs", "value"),
         State("watch-symbol-dropdown", "value"),
         prevent_initial_call=True,
     )
-    def render_watch_tab(active_tab, _n, symbol):
+    def render_watch_tab(_n, _load_request, watch_chart_state, active_tab, symbol):
         if active_tab != "watch":
             return no_update, no_update, no_update, no_update, no_update
 
@@ -356,16 +677,8 @@ def register_callbacks(app, rt, replay_service, symbol_options, timeframe_map):
             visible = replay_service.visible_bars()
 
             if visible.empty:
-                fig = go.Figure()
-                fig.update_layout(
-                    title=f"{symbol} | 1 min | No replay data loaded yet",
-                    template="plotly_dark",
-                    paper_bgcolor="#0d1b4f",
-                    plot_bgcolor="#0d1b4f",
-                    font={"color": "#e8f1ff"},
-                    uirevision=f"watch-{symbol}",
-                    dragmode="pan",
-                )
+                fig = _empty_figure(f"{symbol} | 1 min | Loading replay data...")
+                fig.update_layout(uirevision=f"watch-{symbol}-empty")
                 return fig, 100, 1, [], []
 
             info = replay_service.info()
@@ -377,8 +690,19 @@ def register_callbacks(app, rt, replay_service, symbol_options, timeframe_map):
                 "1 min",
                 current_price=current_price,
             )
+
+            fig = _apply_chart_view(
+                fig,
+                visible,
+                watch_chart_state,
+                default_range="1D",
+            )
+
+            state = watch_chart_state or {}
+            range_key = _safe_range_key(state.get("range_key"), "1D")
+            mode = state.get("mode", "live")
             fig.update_layout(
-                uirevision=f"watch-{symbol}",
+                uirevision=f"watch-{symbol}-{mode}-{range_key}",
                 dragmode="pan",
             )
 
@@ -390,33 +714,28 @@ def register_callbacks(app, rt, replay_service, symbol_options, timeframe_map):
 
             return (
                 fig,
-                max(1, info["max_index"]),
-                max(1, info["current_index"]),
+                max(1, int(info["max_index"])),
+                max(1, int(info["current_index"])),
                 metrics,
                 stats,
             )
 
         except Exception as exc:
             print(f"[WATCH RENDER ERROR] {exc}", flush=True)
-            fig = go.Figure()
-            fig.update_layout(
-                title=f"Replay loading... {exc}",
-                template="plotly_dark",
-                paper_bgcolor="#0d1b4f",
-                plot_bgcolor="#0d1b4f",
-                font={"color": "#e8f1ff"},
-                uirevision=f"watch-{symbol or DEFAULT_SYMBOL}",
-                dragmode="pan",
-            )
+            fig = _empty_figure(f"Replay loading... {exc}")
+            fig.update_layout(uirevision=f"watch-{symbol or DEFAULT_SYMBOL}-error")
             return fig, 100, 1, [], []
 
+    # ------------------------------------------------------------
+    # Quotes
+    # ------------------------------------------------------------
     @app.callback(
         Output("quotes-status", "children"),
         Output("quotes-panel", "children"),
         Input("ui-interval", "n_intervals"),
         Input("quotes-symbol-dropdown", "value"),
         State("main-tabs", "value"),
-        prevent_initial_call=True,
+        prevent_initial_call=False,
     )
     def render_quotes_tab(_n, symbol, active_tab):
         if active_tab != "quotes":
@@ -448,6 +767,9 @@ def register_callbacks(app, rt, replay_service, symbol_options, timeframe_map):
         except Exception as exc:
             return f"Quotes error: {exc}", f"Unable to load quotes for {symbol or DEFAULT_SYMBOL}"
 
+    # ------------------------------------------------------------
+    # Charts
+    # ------------------------------------------------------------
     @app.callback(
         Output("charts-status", "children"),
         Output("charts-main-graph", "figure"),
@@ -455,7 +777,7 @@ def register_callbacks(app, rt, replay_service, symbol_options, timeframe_map):
         Input("charts-symbol-dropdown", "value"),
         Input("charts-timeframe-dropdown", "value"),
         State("main-tabs", "value"),
-        prevent_initial_call=True,
+        prevent_initial_call=False,
     )
     def render_charts_tab(_n, symbol, timeframe, active_tab):
         if active_tab != "charts":
@@ -472,6 +794,7 @@ def register_callbacks(app, rt, replay_service, symbol_options, timeframe_map):
                 timeframe,
                 current_price=snap.last,
             )
+            fig = _apply_chart_view(fig, snap.bars, {"mode": "live", "range_key": "1D"}, default_range="1D")
             fig.update_layout(uirevision=f"charts-{symbol}-{timeframe}", dragmode="pan")
 
             return f"Charts loaded for {symbol}", fig

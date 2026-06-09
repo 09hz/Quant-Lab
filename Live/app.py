@@ -111,8 +111,46 @@ app.layout = html.Div(
                 ),
             ],
         ),
-        dcc.Interval(id="ui-interval", interval=150, n_intervals=0),
+
+        # Keep this interval always enabled. Individual callbacks decide whether
+        # they should update for the active tab.
+        dcc.Interval(id="ui-interval", interval=UI_INTERVAL_MS, n_intervals=0),
+
+        # Legacy/loading state store. Kept so older references do not break.
         dcc.Store(id="watch-loading-state", data=False),
+
+        # New two-step replay load request store:
+        # 1) clientside callback shows overlay and writes this request
+        # 2) server callback loads replay data and hides overlay
+        dcc.Store(
+            id="watch-load-request",
+            data={
+                "nonce": 0,
+                "symbol": DEFAULT_SYMBOL,
+                "replay_date": None,
+                "timeframe": "1 min",
+            },
+        ),
+
+        dcc.Store(
+            id="dashboard-chart-state",
+            data={
+                "mode": "live",
+                "range_key": "1D",
+                "x_range": None,
+                "y_range": None,
+            },
+        ),
+        dcc.Store(
+            id="watch-chart-state",
+            data={
+                "mode": "live",
+                "range_key": "1D",
+                "x_range": None,
+                "y_range": None,
+            },
+        ),
+
         dcc.Store(id="zoom-state", data={}),
         dcc.Store(id="active-symbol", data=DEFAULT_SYMBOL),
         dcc.Store(id="load-status", data="Ready"),

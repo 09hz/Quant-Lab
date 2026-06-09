@@ -1,6 +1,18 @@
 from dash import dcc, html
 
 
+CHART_CONFIG = {
+    "displaylogo": False,
+    "scrollZoom": False,
+    "doubleClick": "reset",
+    "modeBarButtonsToRemove": [
+        "lasso2d",
+        "select2d",
+        "autoScale2d",
+    ],
+}
+
+
 def make_timeframe_options(timeframe_map):
     return [
         {
@@ -19,6 +31,20 @@ def make_replay_speed_options():
         {"label": "1x", "value": 1, "search": "1x normal default"},
         {"label": "2x", "value": 2, "search": "2x double fast"},
         {"label": "5x", "value": 5, "search": "5x very fast"},
+    ]
+
+
+def make_chart_control_buttons(prefix: str):
+    return [
+        html.Button("Live", id=f"{prefix}-live-mode", n_clicks=0, className="range-btn active"),
+        html.Button("1D", id=f"{prefix}-range-1d", n_clicks=0, className="range-btn"),
+        html.Button("1W", id=f"{prefix}-range-1w", n_clicks=0, className="range-btn"),
+        html.Button("1M", id=f"{prefix}-range-1m", n_clicks=0, className="range-btn"),
+        html.Button("3M", id=f"{prefix}-range-3m", n_clicks=0, className="range-btn"),
+        html.Button("1Y", id=f"{prefix}-range-1y", n_clicks=0, className="range-btn"),
+        html.Button("5Y", id=f"{prefix}-range-5y", n_clicks=0, className="range-btn"),
+        html.Button("Max", id=f"{prefix}-range-max", n_clicks=0, className="range-btn"),
+        html.Button("Reset", id=f"{prefix}-reset-view", n_clicks=0, className="range-btn"),
     ]
 
 
@@ -63,16 +89,8 @@ def build_dashboard_tab(symbol_options, timeframe_map, default_symbol, default_t
             html.Div(id="load-status-text", className="status-text"),
             html.Div(id="dashboard-metrics-strip", className="metrics-strip"),
             html.Div(
-                className="range-row",
-                children=[
-                    html.Button("1D", id="dashboard-range-1d", n_clicks=0, className="range-btn"),
-                    html.Button("5D", id="dashboard-range-5d", n_clicks=0, className="range-btn"),
-                    html.Button("1M", id="dashboard-range-1m", n_clicks=0, className="range-btn"),
-                    html.Button("YTD", id="dashboard-range-ytd", n_clicks=0, className="range-btn"),
-                    html.Button("1Y", id="dashboard-range-1y", n_clicks=0, className="range-btn"),
-                    html.Button("5Y", id="dashboard-range-5y", n_clicks=0, className="range-btn"),
-                    html.Button("Max", id="dashboard-range-max", n_clicks=0, className="range-btn"),
-                ],
+                className="range-row chart-control-row",
+                children=make_chart_control_buttons("dashboard"),
             ),
             html.Div(
                 className="chart-card",
@@ -80,15 +98,7 @@ def build_dashboard_tab(symbol_options, timeframe_map, default_symbol, default_t
                     dcc.Graph(
                         id="live-chart",
                         className="chart-graph",
-                        config={
-                            "displaylogo": False,
-                            "scrollZoom": True,
-                            "modeBarButtonsToRemove": [
-                                "lasso2d",
-                                "select2d",
-                                "autoScale2d",
-                            ],
-                        },
+                        config=CHART_CONFIG,
                     ),
                 ],
             ),
@@ -183,23 +193,15 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
             html.Div(id="watch-status", className="status-text"),
             html.Div(id="watch-metrics-strip", className="metrics-strip"),
             html.Div(
-                className="range-row",
-                children=[
-                    html.Button("1D", id="watch-range-1d", n_clicks=0, className="range-btn"),
-                    html.Button("5D", id="watch-range-5d", n_clicks=0, className="range-btn"),
-                    html.Button("1M", id="watch-range-1m", n_clicks=0, className="range-btn"),
-                    html.Button("YTD", id="watch-range-ytd", n_clicks=0, className="range-btn"),
-                    html.Button("1Y", id="watch-range-1y", n_clicks=0, className="range-btn"),
-                    html.Button("5Y", id="watch-range-5y", n_clicks=0, className="range-btn active"),
-                    html.Button("Max", id="watch-range-max", n_clicks=0, className="range-btn"),
-                ],
+                className="range-row chart-control-row",
+                children=make_chart_control_buttons("watch"),
             ),
             html.Div(
                 className="chart-card watch-chart-wrap",
                 children=[
                     html.Div(
                         id="watch-loading-overlay",
-                        className="watch-loading-overlay hidden",
+                        className="watch-loading-overlay",
                         children=[
                             html.Div("Preparing replay data...", className="watch-loading-text"),
                         ],
@@ -207,10 +209,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                     dcc.Graph(
                         id="watch-chart",
                         className="chart-graph",
-                        config={
-                            "displaylogo": False,
-                            "scrollZoom": True,
-                        },
+                        config=CHART_CONFIG,
                     ),
                 ],
             ),
@@ -303,10 +302,7 @@ def build_charts_tab(symbol_options, timeframe_map, default_symbol, default_time
                     dcc.Graph(
                         id="charts-main-graph",
                         className="chart-graph",
-                        config={
-                            "displaylogo": False,
-                            "scrollZoom": True,
-                        },
+                        config=CHART_CONFIG,
                     ),
                 ],
             ),
