@@ -27,12 +27,32 @@ from ui.tabs_ui import (
     build_charts_tab,
 )
 
+from services.paper_trading_service import PaperTradingService
+from core.PaperBroker import PaperBroker
+from core.RiskGuard import RiskGuard
+
+
 
 rt = RealTimeIB(host="127.0.0.1", port=4001)
 rt.start(DEFAULT_SYMBOL, DEFAULT_TIMEFRAME)
 
 replay_engine = ReplayEngine()
 replay_service = ReplayService(rt, replay_engine)
+
+paper_trading_service = PaperTradingService(
+    broker=PaperBroker(
+        starting_cash=100_000,
+        commission_per_order=0.0,
+        slippage_bps=1.0,
+    ),
+    risk_guard=RiskGuard(
+        allowed_symbols=None,
+        max_quantity=1_000,
+        max_notional=25_000,
+        allow_short=False,
+        live_trading_enabled=False,
+    ),
+)
 
 SYMBOL_OPTIONS = rt.get_symbol_options()
 
@@ -173,7 +193,14 @@ app.layout = html.Div(
     ],
 )
 
-register_callbacks(app, rt, replay_service, SYMBOL_OPTIONS, TIMEFRAME_MAP)
+register_callbacks(
+    app,
+    rt,
+    replay_service,
+    SYMBOL_OPTIONS,
+    TIMEFRAME_MAP,
+    paper_trading_service=paper_trading_service,
+)
 
 if __name__ == "__main__":
     app.run(debug=False)

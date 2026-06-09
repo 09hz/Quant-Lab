@@ -278,8 +278,14 @@ def _default_chart_state(range_key="1D"):
         "y_range": None,
     }
 
-
-def register_callbacks(app, rt, replay_service, symbol_options, timeframe_map):
+def register_callbacks(
+        app,
+        rt,
+        replay_service,
+        symbol_options,
+        timeframe_map,
+        paper_trading_service=None,
+):
     @app.callback(
         Output("pair-title", "children"),
         Input("active-symbol", "data"),
