@@ -17,6 +17,7 @@ class ReplayEngine:
     speed: float = 1.0
     progress: float = 0.0
     last_tick_time: Optional[float] = None
+    base_bars_per_second: float = 4.0
 
     def reset(self) -> None:
         self.bars = pd.DataFrame(
@@ -69,13 +70,15 @@ class ReplayEngine:
             raise ValueError("Replay data became empty after cleaning.")
 
         self.bars = out
-        self.current_index = max(1, min(100, len(out)))
-        self.playing = False
+        self.current_index = len(out)
         self.speed = 1.0
+        self.playing = False
         self.progress = 0.0
         self.last_tick_time = None
 
     def play(self) -> None:
+        if self.bars.empty:
+            return
         self.playing = True
         self.last_tick_time = time.perf_counter()
 
@@ -84,17 +87,26 @@ class ReplayEngine:
         self.last_tick_time = None
 
     def rewind(self, steps: int = 1) -> None:
-        self.current_index = max(1, self.current_index - max(1, steps))
+        if self.bars.empty:
+            return
+        self.current_index = max(1, self.current_index - max(1, int(steps)))
+        self.progress = 0.0
         self.last_tick_time = time.perf_counter() if self.playing else None
 
     def forward(self, steps: int = 1) -> None:
-        self.current_index = min(len(self.bars), self.current_index + max(1, steps))
+        if self.bars.empty:
+            return
+        self.current_index = min(len(self.bars), self.current_index + max(1, int(steps)))
+        self.progress = 0.0
         self.last_tick_time = time.perf_counter() if self.playing else None
+        if self.current_index >= len(self.bars):
+            self.pause()
 
     def set_index(self, index: int) -> None:
         if self.bars.empty:
             return
         self.current_index = max(1, min(int(index), len(self.bars)))
+        self.progress = 0.0
         self.last_tick_time = time.perf_counter() if self.playing else None
 
     def set_speed(self, speed: float) -> None:
@@ -105,7 +117,6 @@ class ReplayEngine:
             return
 
         now = time.perf_counter()
-
         if self.last_tick_time is None:
             self.last_tick_time = now
             return
@@ -113,10 +124,7 @@ class ReplayEngine:
         elapsed = now - self.last_tick_time
         self.last_tick_time = now
 
-        # bars per second
-        bars_to_advance = elapsed * self.speed
-        self.progress += bars_to_advance
-
+        self.progress += elapsed * self.speed * self.base_bars_per_second
         step = int(self.progress)
         if step < 1:
             return
@@ -125,8 +133,7 @@ class ReplayEngine:
         self.current_index = min(len(self.bars), self.current_index + step)
 
         if self.current_index >= len(self.bars):
-            self.playing = False
-            self.last_tick_time = None
+            self.pause()
 
     def visible_bars(self) -> pd.DataFrame:
         if self.bars.empty:
