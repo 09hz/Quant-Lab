@@ -27,10 +27,15 @@ from ui.tabs_ui import (
     build_charts_tab,
 )
 
-from services.paper_trading_service import PaperTradingService
-from core.PaperBroker import PaperBroker
-from core.RiskGuard import RiskGuard
-
+# Paper-trading imports are optional. The replay fix does not depend on them.
+try:
+    from services.paper_trading_service import PaperTradingService
+    from core.PaperBroker import PaperBroker
+    from core.RiskGuard import RiskGuard
+except Exception:
+    PaperTradingService = None
+    PaperBroker = None
+    RiskGuard = None
 
 
 rt = RealTimeIB(host="127.0.0.1", port=4001)
@@ -39,20 +44,22 @@ rt.start(DEFAULT_SYMBOL, DEFAULT_TIMEFRAME)
 replay_engine = ReplayEngine()
 replay_service = ReplayService(rt, replay_engine)
 
-paper_trading_service = PaperTradingService(
-    broker=PaperBroker(
-        starting_cash=100_000,
-        commission_per_order=0.0,
-        slippage_bps=1.0,
-    ),
-    risk_guard=RiskGuard(
-        allowed_symbols=None,
-        max_quantity=1_000,
-        max_notional=25_000,
-        allow_short=False,
-        live_trading_enabled=False,
-    ),
-)
+paper_trading_service = None
+if PaperTradingService and PaperBroker and RiskGuard:
+    paper_trading_service = PaperTradingService(
+        broker=PaperBroker(
+            starting_cash=100_000,
+            commission_per_order=0.0,
+            slippage_bps=1.0,
+        ),
+        risk_guard=RiskGuard(
+            allowed_symbols=None,
+            max_quantity=1_000,
+            max_notional=25_000,
+            allow_short=False,
+            live_trading_enabled=False,
+        ),
+    )
 
 SYMBOL_OPTIONS = rt.get_symbol_options()
 
@@ -132,16 +139,17 @@ app.layout = html.Div(
             ],
         ),
 
-        # Keep this interval always enabled. Individual callbacks decide whether
-        # they should update for the active tab.
+        # General UI/live refresh.
         dcc.Interval(id="ui-interval", interval=UI_INTERVAL_MS, n_intervals=0),
 
-        # Legacy/loading state store. Kept so older references do not break.
-        dcc.Store(id="watch-loading-state", data=False),
+        # Dedicated replay heartbeat. This drives Play/Pause independently
+        # from the general UI interval.
+        dcc.Interval(id="replay-clock", interval=250, n_intervals=0),
 
-        # New two-step replay load request store:
-        # 1) clientside callback shows overlay and writes this request
-        # 2) server callback loads replay data and hides overlay
+        # Replay render trigger. Buttons/clock bump this store so the Watch chart
+        # redraws without the slider callback fighting the clock.
+        dcc.Store(id="replay-render-trigger", data=0),
+
         dcc.Store(
             id="watch-load-request",
             data={

@@ -233,15 +233,6 @@ def _fit_y_axis_to_visible_bars(fig, bars: pd.DataFrame, x_range=None):
 
 
 def _apply_chart_view(fig, bars: pd.DataFrame, chart_state: dict | None, default_range="1D"):
-    """
-    Chart view controller.
-
-    live mode:
-        follows the latest bars and auto-fits y-axis to visible candles
-
-    manual mode:
-        preserves user pan/zoom ranges until Live or Reset is clicked
-    """
     state = chart_state or {}
     mode = state.get("mode", "live")
     range_key = _safe_range_key(state.get("range_key"), default_range)
@@ -365,6 +356,7 @@ def register_callbacks(
             return symbol, f"Loading live data for {symbol}"
         except Exception as exc:
             return no_update, f"Error: {exc}"
+
 
     # ------------------------------------------------------------
     # Dashboard chart interaction state
@@ -491,17 +483,19 @@ def register_callbacks(
         Output("replay-slider", "max", allow_duplicate=True),
         Output("replay-slider", "value", allow_duplicate=True),
         Output("watch-loading-overlay", "className", allow_duplicate=True),
+        Output("replay-render-trigger", "data", allow_duplicate=True),
         Input("watch-load-request", "data"),
         State("replay-speed", "value"),
         State("main-tabs", "value"),
+        State("replay-render-trigger", "data"),
         prevent_initial_call=True,
     )
-    def load_watch_symbol_from_request(load_request, replay_speed, active_tab):
+    def load_watch_symbol_from_request(load_request, replay_speed, active_tab, render_trigger):
         if active_tab != "watch":
-            return no_update, no_update, no_update, no_update
+            return no_update, no_update, no_update, no_update, no_update
 
         if not load_request:
-            return no_update, no_update, no_update, no_update
+            return no_update, no_update, no_update, no_update, no_update
 
         symbol = load_request.get("symbol") or DEFAULT_SYMBOL
         replay_date = load_request.get("replay_date")
@@ -515,20 +509,28 @@ def register_callbacks(
                 speed=replay_speed or 1,
             )
 
+            max_idx = max(1, int(info.get("max_index", 1)))
+            idx = max(1, int(info.get("current_index", 1)))
+            render_trigger = int(render_trigger or 0) + 1
+
             return (
                 status,
-                max(1, int(info.get("max_index", 1))),
-                max(1, int(info.get("current_index", 1))),
+                max_idx,
+                idx,
                 "watch-loading-overlay hidden",
+                render_trigger,
             )
 
         except Exception as exc:
             print(f"[REPLAY LOAD ERROR] {exc}", flush=True)
+            render_trigger = int(render_trigger or 0) + 1
+
             return (
                 f"Replay load error: {exc}",
                 100,
                 1,
                 "watch-loading-overlay hidden",
+                render_trigger,
             )
 
     @app.callback(
@@ -549,52 +551,106 @@ def register_callbacks(
 
     @app.callback(
         Output("watch-status", "children", allow_duplicate=True),
-        Output("replay-slider", "value", allow_duplicate=True),
+        Output("replay-render-trigger", "data", allow_duplicate=True),
         Input("replay-play", "n_clicks"),
         Input("replay-pause", "n_clicks"),
         Input("replay-step", "n_clicks"),
         Input("replay-rewind", "n_clicks"),
         Input("replay-slider", "value"),
+        State("replay-render-trigger", "data"),
         State("main-tabs", "value"),
         prevent_initial_call=True,
     )
-    def control_replay(play_clicks, pause_clicks, step_clicks, rewind_clicks, slider_value, active_tab):
+    def control_replay(
+            play_clicks,
+            pause_clicks,
+            step_clicks,
+            rewind_clicks,
+            slider_value,
+            render_trigger,
+            active_tab,
+    ):
         if active_tab != "watch":
             return no_update, no_update
 
         trigger = ctx.triggered_id
+        render_trigger = int(render_trigger or 0)
 
         try:
+            info = replay_service.info()
+            max_index = max(1, int(info.get("max_index", 1)))
+
+            if max_index <= 1:
+                return "No replay data loaded.", no_update
+
             if trigger == "replay-play":
                 replay_service.play()
-                idx = replay_service.info()["current_index"]
-                return "Replay playing", max(1, idx)
+                return "Replay playing", render_trigger + 1
 
             if trigger == "replay-pause":
                 replay_service.pause()
-                idx = replay_service.info()["current_index"]
-                return "Replay paused", max(1, idx)
+                return "Replay paused", render_trigger + 1
 
             if trigger == "replay-step":
                 replay_service.forward(1)
-                idx = replay_service.info()["current_index"]
-                return f"Replay stepped to {idx}", max(1, idx)
+                idx = max(1, int(replay_service.info().get("current_index", 1)))
+                return f"Replay stepped to {idx}", render_trigger + 1
 
             if trigger == "replay-rewind":
                 replay_service.rewind(1)
-                idx = replay_service.info()["current_index"]
-                return f"Replay rewound to {idx}", max(1, idx)
+                idx = max(1, int(replay_service.info().get("current_index", 1)))
+                return f"Replay rewound to {idx}", render_trigger + 1
 
             if trigger == "replay-slider":
-                replay_service.set_index(slider_value or 1)
-                idx = replay_service.info()["current_index"]
-                return f"Replay moved to {idx}", max(1, idx)
+                idx = max(1, min(int(slider_value or 1), max_index))
+                current_idx = max(1, int(replay_service.info().get("current_index", 1)))
+
+                # Ignore programmatic slider updates from render_watch_tab.
+                # Only treat it as user input when the value actually changes.
+                if idx == current_idx:
+                    return no_update, no_update
+
+                replay_service.set_index(idx)
+                return f"Replay moved to {idx}", render_trigger + 1
 
             return no_update, no_update
 
         except Exception as exc:
             print(f"[REPLAY CONTROL ERROR] {exc}", flush=True)
             return f"Replay control error: {exc}", no_update
+
+    @app.callback(
+        Output("replay-render-trigger", "data", allow_duplicate=True),
+        Input("replay-clock", "n_intervals"),
+        State("replay-render-trigger", "data"),
+        State("main-tabs", "value"),
+        prevent_initial_call=True,
+    )
+    def advance_replay_clock(_n, render_trigger, active_tab):
+        if active_tab != "watch":
+            return no_update
+
+        try:
+            info_before = replay_service.info()
+
+            if not info_before.get("playing"):
+                return no_update
+
+            before_idx = int(info_before.get("current_index", 1))
+
+            replay_service.tick()
+
+            info_after = replay_service.info()
+            after_idx = int(info_after.get("current_index", 1))
+
+            if after_idx != before_idx:
+                return int(render_trigger or 0) + 1
+
+            return no_update
+
+        except Exception as exc:
+            print(f"[REPLAY CLOCK ERROR] {exc}", flush=True)
+            return no_update
 
     # ------------------------------------------------------------
     # Dashboard
@@ -665,21 +721,22 @@ def register_callbacks(
         Output("replay-slider", "value", allow_duplicate=True),
         Output("watch-metrics-strip", "children"),
         Output("watch-stats-grid", "children"),
-        Input("ui-interval", "n_intervals"),
+        Input("replay-render-trigger", "data"),
         Input("watch-load-request", "data"),
         Input("watch-chart-state", "data"),
         State("main-tabs", "value"),
         State("watch-symbol-dropdown", "value"),
         prevent_initial_call=True,
     )
-    def render_watch_tab(_n, _load_request, watch_chart_state, active_tab, symbol):
+    def render_watch_tab(_render_trigger, _load_request, watch_chart_state, active_tab, symbol):
         if active_tab != "watch":
             return no_update, no_update, no_update, no_update, no_update
 
         try:
             symbol = symbol or DEFAULT_SYMBOL
 
-            replay_service.tick()
+            # Do NOT call replay_service.tick() here.
+            # The dedicated replay-clock callback owns playback ticking.
             visible = replay_service.visible_bars()
 
             if visible.empty:
@@ -688,6 +745,9 @@ def register_callbacks(
                 return fig, 100, 1, [], []
 
             info = replay_service.info()
+            max_idx = max(1, int(info.get("max_index", 1)))
+            idx = max(1, int(info.get("current_index", 1)))
+
             current_price = float(visible.iloc[-1]["close"]) if not visible.empty else None
 
             fig = create_candlestick_figure(
@@ -707,6 +767,7 @@ def register_callbacks(
             state = watch_chart_state or {}
             range_key = _safe_range_key(state.get("range_key"), "1D")
             mode = state.get("mode", "live")
+
             fig.update_layout(
                 uirevision=f"watch-{symbol}-{mode}-{range_key}",
                 dragmode="pan",
@@ -715,13 +776,20 @@ def register_callbacks(
             company = rt.get_company_name(symbol)
             open_val = float(visible.iloc[0]["open"]) if not visible.empty else None
 
-            metrics = _build_metrics_strip(symbol, company, current_price, open_val, datetime.now())
+            metrics = _build_metrics_strip(
+                symbol,
+                company,
+                current_price,
+                open_val,
+                datetime.now(),
+            )
+
             stats = _build_stats_grid_from_bars(visible)
 
             return (
                 fig,
-                max(1, int(info["max_index"])),
-                max(1, int(info["current_index"])),
+                max_idx,
+                idx,
                 metrics,
                 stats,
             )
@@ -731,7 +799,6 @@ def register_callbacks(
             fig = _empty_figure(f"Replay loading... {exc}")
             fig.update_layout(uirevision=f"watch-{symbol or DEFAULT_SYMBOL}-error")
             return fig, 100, 1, [], []
-
     # ------------------------------------------------------------
     # Quotes
     # ------------------------------------------------------------

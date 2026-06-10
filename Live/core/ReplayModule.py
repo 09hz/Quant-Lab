@@ -70,7 +70,11 @@ class ReplayEngine:
             raise ValueError("Replay data became empty after cleaning.")
 
         self.bars = out
-        self.current_index = len(out)
+
+        # Start replay at the beginning. The Watch chart can still show whatever
+        # view you choose, but Play needs room to advance.
+        self.current_index = 1
+
         self.speed = 1.0
         self.playing = False
         self.progress = 0.0
@@ -79,6 +83,12 @@ class ReplayEngine:
     def play(self) -> None:
         if self.bars.empty:
             return
+
+        # If replay is already at the final candle, restart from the beginning
+        # so Play always does something useful.
+        if self.current_index >= len(self.bars):
+            self.current_index = 1
+
         self.playing = True
         self.last_tick_time = time.perf_counter()
 
@@ -110,7 +120,7 @@ class ReplayEngine:
         self.last_tick_time = time.perf_counter() if self.playing else None
 
     def set_speed(self, speed: float) -> None:
-        self.speed = max(0.25, float(speed))
+        self.speed = max(0.25, float(speed or 1.0))
 
     def tick(self) -> None:
         if not self.playing or self.bars.empty:

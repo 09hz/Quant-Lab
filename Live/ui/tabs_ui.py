@@ -190,6 +190,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                     ),
                 ],
             ),
+
             html.Div(id="watch-status", className="status-text"),
             html.Div(id="watch-metrics-strip", className="metrics-strip"),
             html.Div(
