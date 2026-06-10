@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import asyncio
+from datetime import date
 
 from dash import Dash, dcc, html
 
@@ -27,7 +28,7 @@ from ui.tabs_ui import (
     build_charts_tab,
 )
 
-# Paper-trading imports are optional. The replay fix does not depend on them.
+
 try:
     from services.paper_trading_service import PaperTradingService
     from core.PaperBroker import PaperBroker
@@ -106,7 +107,7 @@ app.layout = html.Div(
                             default_symbol=DEFAULT_SYMBOL,
                             default_speed=DEFAULT_REPLAY_SPEED,
                             default_index=DEFAULT_REPLAY_INDEX,
-                            default_date=None,
+                            default_date=date.today().isoformat(),
                         )
                     ],
                 ),
@@ -179,6 +180,7 @@ app.layout = html.Div(
             },
         ),
 
+        dcc.Store(id="paper-trade-trigger", data=0),
         dcc.Store(id="zoom-state", data={}),
         dcc.Store(id="active-symbol", data=DEFAULT_SYMBOL),
         dcc.Store(id="load-status", data="Ready"),

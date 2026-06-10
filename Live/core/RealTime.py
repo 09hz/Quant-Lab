@@ -210,7 +210,7 @@ class RealTimeIB:
         bars = self.ib.reqHistoricalData(
             contract,
             endDateTime="",
-            durationStr=duration,
+            durationStr= "1 D",
             barSizeSetting=bar_size,
             whatToShow="TRADES",
             useRTH=True,

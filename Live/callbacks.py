@@ -1,4 +1,5 @@
 from __future__ import annotations
+from core.RiskGuard import TradeIntent
 
 from datetime import datetime, timedelta
 
@@ -651,6 +652,227 @@ def register_callbacks(
         except Exception as exc:
             print(f"[REPLAY CLOCK ERROR] {exc}", flush=True)
             return no_update
+    def _paper_current_price_and_time(symbol: str):
+        """
+        Prefer replay cursor price on Watch tab.
+        Fallback to live snapshot if replay is empty.
+        """
+        symbol = symbol or DEFAULT_SYMBOL
+
+        try:
+            bar = replay_service.current_bar()
+            if bar is not None:
+                return float(bar["close"]), bar.get("time", datetime.now())
+        except Exception:
+            pass
+
+        snap = rt.get_snapshot(symbol, "1 min")
+        if snap.last is None:
+            return None, datetime.now()
+
+        return float(snap.last), snap.updated_at or datetime.now()
+
+    @app.callback(
+        Output("paper-trade-status", "children"),
+        Output("paper-trade-trigger", "data"),
+        Input("paper-buy", "n_clicks"),
+        Input("paper-sell", "n_clicks"),
+        Input("paper-reset", "n_clicks"),
+        State("paper-order-qty", "value"),
+        State("watch-symbol-dropdown", "value"),
+        State("paper-trade-trigger", "data"),
+        State("main-tabs", "value"),
+        prevent_initial_call=True,
+    )
+    def handle_manual_paper_trade(
+        buy_clicks,
+        sell_clicks,
+        reset_clicks,
+        quantity,
+        symbol,
+        paper_trigger,
+        active_tab,
+    ):
+        if active_tab != "watch":
+            return no_update, no_update
+
+        if paper_trading_service is None:
+            return "Paper trading service is not enabled.", no_update
+
+        trigger = ctx.triggered_id
+        paper_trigger = int(paper_trigger or 0)
+
+        try:
+            if trigger == "paper-reset":
+                paper_trading_service.reset()
+                return "Paper account reset to starting cash.", paper_trigger + 1
+
+            symbol = (symbol or DEFAULT_SYMBOL).upper().strip()
+
+            try:
+                quantity = float(quantity or 0)
+            except Exception:
+                return "Quantity must be numeric.", no_update
+
+            if quantity <= 0:
+                return "Quantity must be greater than zero.", no_update
+
+            last_price, timestamp = _paper_current_price_and_time(symbol)
+
+            if last_price is None:
+                return f"No current price available for {symbol}.", no_update
+
+            if trigger == "paper-buy":
+                intent = TradeIntent(
+                    symbol=symbol,
+                    side="BUY",
+                    quantity=quantity,
+                    order_type="MARKET",
+                    reason="Manual paper buy",
+                    source="manual",
+                )
+
+            elif trigger == "paper-sell":
+                intent = TradeIntent(
+                    symbol=symbol,
+                    side="SELL",
+                    quantity=quantity,
+                    order_type="MARKET",
+                    reason="Manual paper sell",
+                    source="manual",
+                )
+
+            else:
+                return no_update, no_update
+
+            decision, order = paper_trading_service.submit_intent(
+                intent=intent,
+                last_price=last_price,
+                timestamp=timestamp,
+                mode="simulated",
+            )
+
+            if not decision.approved:
+                return f"Risk rejected: {decision.message}", paper_trigger + 1
+
+            if order is None:
+                return "Order was approved but no order object was returned.", paper_trigger + 1
+
+            fill_text = (
+                f"{order.side} {order.quantity:g} {order.symbol} "
+                f"@ {order.fill_price:,.2f}"
+                if order.fill_price is not None
+                else f"{order.side} {order.quantity:g} {order.symbol}"
+            )
+
+            return f"Paper order {order.status}: {fill_text}", paper_trigger + 1
+
+        except Exception as exc:
+            print(f"[PAPER TRADE ERROR] {exc}", flush=True)
+            return f"Paper trade error: {exc}", paper_trigger + 1
+
+    def _paper_df_view(df, empty_message: str, max_rows: int = 8):
+        if df is None or df.empty:
+            return html.Div(empty_message, className="paper-empty")
+
+        view = df.tail(max_rows).copy()
+
+        for col in view.columns:
+            if "time" in col.lower() or "at" in col.lower() or "timestamp" in col.lower():
+                try:
+                    view[col] = pd.to_datetime(view[col]).dt.strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    pass
+
+        return html.Pre(
+            view.to_string(index=False),
+            className="paper-table",
+        )
+
+    @app.callback(
+        Output("paper-summary-panel", "children"),
+        Output("paper-positions-panel", "children"),
+        Output("paper-orders-panel", "children"),
+        Output("paper-fills-panel", "children"),
+        Input("paper-trade-trigger", "data"),
+        Input("replay-render-trigger", "data"),
+        State("watch-symbol-dropdown", "value"),
+        State("main-tabs", "value"),
+        prevent_initial_call=False,
+    )
+    def render_paper_trading_panels(_paper_trigger, _replay_trigger, symbol, active_tab):
+        if active_tab != "watch":
+            return no_update, no_update, no_update, no_update
+
+        if paper_trading_service is None:
+            disabled = html.Div("Paper trading service is disabled.", className="paper-empty")
+            return disabled, disabled, disabled, disabled
+
+        symbol = (symbol or DEFAULT_SYMBOL).upper().strip()
+
+        prices = {}
+        try:
+            price, _timestamp = _paper_current_price_and_time(symbol)
+            if price is not None:
+                prices[symbol] = float(price)
+        except Exception:
+            pass
+
+        summary = paper_trading_service.summary(prices=prices)
+
+        summary_cards = html.Div(
+            className="paper-summary-cards",
+            children=[
+                html.Div(
+                    className="paper-summary-card",
+                    children=[
+                        html.Div("Cash", className="paper-summary-label"),
+                        html.Div(f"${summary.get('cash', 0):,.2f}", className="paper-summary-value"),
+                    ],
+                ),
+                html.Div(
+                    className="paper-summary-card",
+                    children=[
+                        html.Div("Equity", className="paper-summary-label"),
+                        html.Div(f"${summary.get('equity', 0):,.2f}", className="paper-summary-value"),
+                    ],
+                ),
+                html.Div(
+                    className="paper-summary-card",
+                    children=[
+                        html.Div("Open Positions", className="paper-summary-label"),
+                        html.Div(f"{summary.get('open_positions', 0)}", className="paper-summary-value"),
+                    ],
+                ),
+                html.Div(
+                    className="paper-summary-card",
+                    children=[
+                        html.Div("Orders / Fills", className="paper-summary-label"),
+                        html.Div(
+                            f"{summary.get('orders', 0)} / {summary.get('fills', 0)}",
+                            className="paper-summary-value",
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        positions = _paper_df_view(
+            paper_trading_service.positions_df(),
+            "No open positions.",
+        )
+
+        orders = _paper_df_view(
+            paper_trading_service.orders_df(),
+            "No orders yet.",
+        )
+
+        fills = _paper_df_view(
+            paper_trading_service.fills_df(),
+            "No fills yet.",
+        )
+
+        return summary_cards, positions, orders, fills
 
     # ------------------------------------------------------------
     # Dashboard

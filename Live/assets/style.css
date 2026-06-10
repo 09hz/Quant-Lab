@@ -1076,3 +1076,208 @@ button:focus {
     letter-spacing: 0.4px;
     box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
 }
+/* =========================================================
+   PAPER TRADING PANEL
+   Stacked below Watch chart/stats. No overlap with replay UI.
+========================================================= */
+
+.paper-trading-panel {
+    margin-top: 22px;
+    padding: 20px;
+    border-radius: var(--radius-xl);
+    border: 1px solid var(--border);
+    background: var(--card);
+    box-shadow: var(--shadow-md);
+    position: relative;
+    z-index: 5;
+    overflow: visible;
+}
+
+.paper-panel-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+}
+
+.paper-panel-title {
+    font-family: 'IBM Plex Serif', serif;
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--text-strong);
+}
+
+.paper-panel-subtitle {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--gold);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.paper-controls-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 16px;
+    flex-wrap: wrap;
+    margin-bottom: 14px;
+}
+
+.control-qty {
+    min-width: 140px;
+    max-width: 180px;
+}
+
+.paper-input {
+    width: 100%;
+    min-height: 42px;
+    padding: 8px 10px;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border);
+    background: linear-gradient(135deg, rgba(35, 35, 47, 0.9), rgba(26, 26, 40, 0.9));
+    color: var(--text-strong);
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    outline: none;
+}
+
+.paper-input:focus {
+    border-color: var(--emerald);
+    box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.12);
+}
+
+.paper-button-group {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.paper-buy-btn {
+    border-color: rgba(16, 185, 129, 0.4) !important;
+    color: var(--emerald-light) !important;
+}
+
+.paper-sell-btn {
+    border-color: rgba(255, 107, 107, 0.4) !important;
+    color: var(--coral) !important;
+}
+
+.paper-reset-btn {
+    border-color: rgba(251, 191, 36, 0.35) !important;
+    color: var(--gold) !important;
+}
+
+.paper-trade-status {
+    min-height: 22px;
+    margin: 10px 0 16px 0;
+    color: var(--emerald-light);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+}
+
+.paper-summary-grid {
+    margin-bottom: 18px;
+}
+
+.paper-summary-cards {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(150px, 1fr));
+    gap: 12px;
+}
+
+.paper-summary-card {
+    padding: 14px 16px;
+    border-radius: var(--radius-lg);
+    background: linear-gradient(135deg, rgba(35, 35, 47, 0.72), rgba(26, 26, 40, 0.86));
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+}
+
+.paper-summary-label {
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.7px;
+    margin-bottom: 6px;
+}
+
+.paper-summary-value {
+    color: var(--text-strong);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 18px;
+    font-weight: 800;
+}
+
+.paper-table-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(240px, 1fr));
+    gap: 14px;
+}
+
+.paper-table-card {
+    min-width: 0;
+    padding: 14px;
+    border-radius: var(--radius-lg);
+    background: linear-gradient(135deg, rgba(35, 35, 47, 0.62), rgba(26, 26, 40, 0.82));
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+}
+
+.paper-table-title {
+    color: var(--text-strong);
+    font-weight: 800;
+    font-size: 13px;
+    margin-bottom: 10px;
+}
+
+.paper-table {
+    width: 100%;
+    max-height: 220px;
+    overflow: auto;
+    white-space: pre;
+    padding: 12px;
+    border-radius: var(--radius-md);
+    background: rgba(15, 15, 26, 0.72);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    color: var(--text-soft);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    line-height: 1.55;
+}
+
+.paper-empty {
+    padding: 12px;
+    border-radius: var(--radius-md);
+    background: rgba(15, 15, 26, 0.48);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+@media (max-width: 1100px) {
+    .paper-summary-cards,
+    .paper-table-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .paper-controls-row {
+        align-items: stretch;
+    }
+
+    .control-qty {
+        min-width: 100%;
+        max-width: 100%;
+    }
+
+    .paper-button-group {
+        width: 100%;
+    }
+
+    .paper-button-group button {
+        flex: 1 1 auto;
+    }
+}

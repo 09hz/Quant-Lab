@@ -1,5 +1,5 @@
 from dash import dcc, html
-
+from datetime import date
 
 CHART_CONFIG = {
     "displaylogo": False,
@@ -151,6 +151,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                                 id="replay-date",
                                 date=default_date,
                                 display_format="MM/DD/YYYY",
+                                max_date_allowed=date.today(),
                                 className="date-picker-dark",
                             ),
                         ],
@@ -215,6 +216,91 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                 ],
             ),
             html.Div(id="watch-stats-grid", className="stats-grid"),
+            html.Div(
+                className="paper-trading-panel",
+                children=[
+                    html.Div(
+                        className="paper-panel-header",
+                        children=[
+                            html.Div("Paper Trading", className="paper-panel-title"),
+                            html.Div(
+                                "Simulated only · No IBKR live orders",
+                                className="paper-panel-subtitle",
+                            ),
+                        ],
+                    ),
+
+                    html.Div(
+                        className="paper-controls-row",
+                        children=[
+                            html.Div(
+                                className="control-box control-qty",
+                                children=[
+                                    html.Label("Quantity"),
+                                    dcc.Input(
+                                        id="paper-order-qty",
+                                        type="number",
+                                        min=1,
+                                        step=1,
+                                        value=1,
+                                        className="paper-input",
+                                        debounce=True,
+                                    ),
+                                ],
+                            ),
+                            html.Div(
+                                className="paper-button-group",
+                                children=[
+                                    html.Button("Buy", id="paper-buy", n_clicks=0, className="paper-buy-btn"),
+                                    html.Button("Sell", id="paper-sell", n_clicks=0, className="paper-sell-btn"),
+                                    html.Button("Reset Paper", id="paper-reset", n_clicks=0,
+                                                className="paper-reset-btn"),
+                                ],
+                            ),
+                        ],
+                    ),
+
+                    html.Div(
+                        id="paper-trade-status",
+                        className="paper-trade-status",
+                        children="Paper account ready.",
+                    ),
+
+                    html.Div(
+                        className="paper-summary-grid",
+                        children=[
+                            html.Div(id="paper-summary-panel", className="paper-summary-panel"),
+                        ],
+                    ),
+
+                    html.Div(
+                        className="paper-table-grid",
+                        children=[
+                            html.Div(
+                                className="paper-table-card",
+                                children=[
+                                    html.Div("Positions", className="paper-table-title"),
+                                    html.Div(id="paper-positions-panel"),
+                                ],
+                            ),
+                            html.Div(
+                                className="paper-table-card",
+                                children=[
+                                    html.Div("Orders", className="paper-table-title"),
+                                    html.Div(id="paper-orders-panel"),
+                                ],
+                            ),
+                            html.Div(
+                                className="paper-table-card",
+                                children=[
+                                    html.Div("Fills", className="paper-table-title"),
+                                    html.Div(id="paper-fills-panel"),
+                                ],
+                            ),
+                        ],
+                    ),
+                ],
+            ),
         ],
     )
 

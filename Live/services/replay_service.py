@@ -72,7 +72,13 @@ class ReplayService:
     ) -> pd.DataFrame:
         if replay_date:
             start_dt = datetime.fromisoformat(replay_date)
+
+            today = datetime.now().date()
+            if start_dt.date() > today:
+                raise ValueError("Replay date cannot be in the future.")
+
             end_dt = start_dt + timedelta(days=1)
+
             return self.rt.load_history_range(symbol, timeframe, start_dt, end_dt)
 
         # If the live app already has bars for this symbol, use them.
