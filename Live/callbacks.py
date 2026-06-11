@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Input, Output, State, html, no_update, ctx
+from dash import Input, Output, State, html, dcc, no_update, ctx
 
 from config import DEFAULT_SYMBOL, DEFAULT_TIMEFRAME
 from utils.chart_utils import create_candlestick_figure
@@ -293,6 +293,7 @@ def register_callbacks(
         symbol_options,
         timeframe_map,
         paper_trading_service=None,
+        paper_state_cache=None,
 ):
     @app.callback(
         Output("pair-title", "children"),
@@ -1082,17 +1083,15 @@ def register_callbacks(
         try:
             if trigger == "paper-reset":
                 paper_trading_service.reset()
+
+                try:
+                    if paper_state_cache is not None:
+                        paper_state_cache.clear()
+                        paper_state_cache.save_from_service(paper_trading_service)
+                except Exception as cache_exc:
+                    print(f"[PAPER CACHE RESET ERROR] {cache_exc}", flush=True)
+
                 return "Paper account reset to starting cash.", paper_trigger + 1
-
-            symbol = (symbol or DEFAULT_SYMBOL).upper().strip()
-
-            try:
-                quantity = float(quantity or 0)
-            except Exception:
-                return "Quantity must be numeric.", no_update
-
-            if quantity <= 0:
-                return "Quantity must be greater than zero.", no_update
 
             allow_short = str(position_mode or "long_only") == "allow_shorts"
 
@@ -1142,6 +1141,14 @@ def register_callbacks(
                 mode="simulated",
                 allow_short=allow_short,
             )
+            try:
+                if paper_state_cache is not None:
+                    paper_state_cache.save_from_service(
+                        paper_trading_service,
+                        prices={symbol: float(last_price)},
+                    )
+            except Exception as cache_exc:
+                print(f"[PAPER CACHE SAVE ERROR] {cache_exc}", flush=True)
 
             if not decision.approved:
                 return f"Risk rejected: {decision.message}", paper_trigger + 1
@@ -1197,6 +1204,307 @@ def register_callbacks(
         return html.Pre(
             view.to_string(index=False),
             className="paper-table",
+        )
+
+    @app.callback(
+        Output("trade-analytics-drawer", "className"),
+        Input("trade-analytics-open", "n_clicks"),
+        Input("trade-analytics-close", "n_clicks"),
+        State("main-tabs", "value"),
+        prevent_initial_call=True,
+    )
+    def toggle_trade_analytics_drawer(open_clicks, close_clicks, active_tab):
+        if active_tab != "watch":
+            return no_update
+
+        trigger = ctx.triggered_id
+
+        if trigger == "trade-analytics-open":
+            return "trade-analytics-drawer"
+
+        if trigger == "trade-analytics-close":
+            return "trade-analytics-drawer hidden"
+
+        return no_update
+
+    @app.callback(
+        Output("trade-analytics-content", "children"),
+        Input("trade-analytics-open", "n_clicks"),
+        Input("paper-trade-trigger", "data"),
+        Input("ui-interval", "n_intervals"),
+        State("watch-symbol-dropdown", "value"),
+        State("main-tabs", "value"),
+        prevent_initial_call=False,
+    )
+    def render_trade_analytics_content(_open_clicks, _paper_trigger, _n, symbol, active_tab):
+        if active_tab != "watch":
+            return no_update
+
+        symbol = (symbol or DEFAULT_SYMBOL).upper().strip()
+
+        if paper_trading_service is None:
+            return html.Div("Paper trading service is disabled.", className="paper-empty")
+
+        try:
+            positions = paper_trading_service.positions_df()
+        except Exception:
+            positions = pd.DataFrame()
+
+        try:
+            orders = paper_trading_service.orders_df()
+        except Exception:
+            orders = pd.DataFrame()
+
+        try:
+            fills = paper_trading_service.fills_df()
+        except Exception:
+            fills = pd.DataFrame()
+
+        try:
+            if paper_state_cache is not None:
+                paper_state_cache.save_from_service(paper_trading_service)
+        except Exception as cache_exc:
+            print(f"[ANALYTICS CACHE SAVE ERROR] {cache_exc}", flush=True)
+
+        if fills is None:
+            fills = pd.DataFrame()
+
+        if not fills.empty and "symbol" in fills.columns:
+            fills = fills[fills["symbol"].astype(str).str.upper() == symbol]
+
+        total_fills = int(len(fills)) if fills is not None else 0
+
+        realized_pnl = 0.0
+        if fills is not None and not fills.empty and "realized_pnl" in fills.columns:
+            realized_pnl = float(
+                pd.to_numeric(fills["realized_pnl"], errors="coerce")
+                .fillna(0.0)
+                .sum()
+            )
+
+        buy_count = 0
+        sell_count = 0
+        long_short_text = "No fills yet"
+
+        if fills is not None and not fills.empty and "side" in fills.columns:
+            sides = fills["side"].astype(str).str.upper()
+            buy_count = int((sides == "BUY").sum())
+            sell_count = int((sides == "SELL").sum())
+            long_short_text = f"BUY fills: {buy_count} · SELL fills: {sell_count}"
+
+        pnl_class = "analytics-value analytics-positive" if realized_pnl >= 0 else "analytics-value analytics-negative"
+
+        cards = html.Div(
+            className="analytics-card-grid",
+            children=[
+                html.Div(
+                    className="analytics-card",
+                    children=[
+                        html.Div("Symbol", className="analytics-label"),
+                        html.Div(symbol, className="analytics-value"),
+                    ],
+                ),
+                html.Div(
+                    className="analytics-card",
+                    children=[
+                        html.Div("Total Fills", className="analytics-label"),
+                        html.Div(f"{total_fills}", className="analytics-value"),
+                    ],
+                ),
+                html.Div(
+                    className="analytics-card",
+                    children=[
+                        html.Div("Realized PnL", className="analytics-label"),
+                        html.Div(f"${realized_pnl:,.2f}", className=pnl_class),
+                    ],
+                ),
+                html.Div(
+                    className="analytics-card",
+                    children=[
+                        html.Div("Fill Sides", className="analytics-label"),
+                        html.Div(long_short_text, className="analytics-value"),
+                    ],
+                ),
+            ],
+        )
+
+        fills_view = fills.tail(12).copy() if fills is not None and not fills.empty else pd.DataFrame()
+        orders_view = orders.tail(12).copy() if orders is not None and not orders.empty else pd.DataFrame()
+        positions_view = positions.copy() if positions is not None and not positions.empty else pd.DataFrame()
+
+        def _pre_from_df(df, empty_text):
+            if df is None or df.empty:
+                return html.Div(empty_text, className="paper-empty")
+
+            view = df.copy()
+
+            for col in view.columns:
+                if str(col).lower() in {"timestamp", "submitted_at", "filled_at"}:
+                    try:
+                        view[col] = pd.to_datetime(
+                            view[col],
+                            errors="coerce",
+                            format="mixed",
+                        ).dt.strftime("%Y-%m-%d %H:%M:%S")
+                        view[col] = view[col].fillna("")
+                    except Exception:
+                        pass
+
+            return html.Pre(view.to_string(index=False), className="analytics-table")
+
+        return html.Div(
+            children=[
+                cards,
+
+                html.Div("PnL Curve", className="analytics-section-title"),
+                _build_pnl_chart(fills),
+
+                html.Div("Open Positions", className="analytics-section-title"),
+                _pre_from_df(positions_view, "No open positions."),
+
+                html.Div("Recent Orders", className="analytics-section-title"),
+                _pre_from_df(orders_view, "No orders yet."),
+
+                html.Div("Recent Fills", className="analytics-section-title"),
+                _pre_from_df(fills_view, "No fills yet."),
+            ]
+        )
+
+    def _build_pnl_chart(fills_df):
+        if fills_df is None or fills_df.empty:
+            fig = go.Figure()
+            fig.update_layout(
+                title="Realized PnL",
+                template="plotly_dark",
+                paper_bgcolor="#0f172a",
+                plot_bgcolor="#020617",
+                font={"color": "#dbeafe"},
+                height=260,
+                margin=dict(l=35, r=20, t=45, b=35),
+            )
+            return dcc.Graph(
+                figure=fig,
+                config={"displayModeBar": False},
+                className="analytics-pnl-chart",
+            )
+
+        if "realized_pnl" not in fills_df.columns:
+            fig = go.Figure()
+            fig.update_layout(
+                title="Realized PnL unavailable",
+                template="plotly_dark",
+                paper_bgcolor="#0f172a",
+                plot_bgcolor="#020617",
+                font={"color": "#dbeafe"},
+                height=260,
+                margin=dict(l=35, r=20, t=45, b=35),
+            )
+            return dcc.Graph(
+                figure=fig,
+                config={"displayModeBar": False},
+                className="analytics-pnl-chart",
+            )
+
+        df = fills_df.copy()
+
+        time_col = None
+        for candidate in ["timestamp", "filled_at", "submitted_at"]:
+            if candidate in df.columns:
+                time_col = candidate
+                break
+
+        if time_col is None:
+            df["_time"] = range(len(df))
+            time_col = "_time"
+        else:
+            df[time_col] = pd.to_datetime(
+                df[time_col],
+                errors="coerce",
+                format="mixed",
+            )
+            df = df.dropna(subset=[time_col]).copy()
+
+        if df.empty:
+            fig = go.Figure()
+            fig.update_layout(
+                title="Realized PnL",
+                template="plotly_dark",
+                paper_bgcolor="#0f172a",
+                plot_bgcolor="#020617",
+                font={"color": "#dbeafe"},
+                height=260,
+                margin=dict(l=35, r=20, t=45, b=35),
+            )
+            return dcc.Graph(
+                figure=fig,
+                config={"displayModeBar": False},
+                className="analytics-pnl-chart",
+            )
+
+        df["realized_pnl"] = pd.to_numeric(
+            df["realized_pnl"],
+            errors="coerce",
+        ).fillna(0.0)
+
+        df = df.sort_values(time_col).copy()
+        df["cumulative_pnl"] = df["realized_pnl"].cumsum()
+
+        final_pnl = float(df["cumulative_pnl"].iloc[-1])
+        line_color = "#22c55e" if final_pnl >= 0 else "#ef4444"
+
+        fig = go.Figure()
+
+        fig.add_trace(
+            go.Scatter(
+                x=df[time_col],
+                y=df["cumulative_pnl"],
+                mode="lines+markers",
+                line=dict(width=3, color=line_color),
+                marker=dict(size=6, color=line_color),
+                name="Cumulative Realized PnL",
+                hovertemplate=(
+                    "Time: %{x}<br>"
+                    "Cumulative PnL: $%{y:,.2f}"
+                    "<extra></extra>"
+                ),
+            )
+        )
+
+        fig.add_hline(
+            y=0,
+            line_width=1,
+            line_dash="dot",
+            line_color="rgba(148, 163, 184, 0.7)",
+        )
+
+        fig.update_layout(
+            title=f"Cumulative Realized PnL: ${final_pnl:,.2f}",
+            template="plotly_dark",
+            paper_bgcolor="#0f172a",
+            plot_bgcolor="#020617",
+            font={"color": "#dbeafe"},
+            height=260,
+            margin=dict(l=35, r=20, t=45, b=35),
+            hovermode="x unified",
+            showlegend=False,
+        )
+
+        fig.update_xaxes(
+            showgrid=True,
+            gridcolor="rgba(148, 163, 184, 0.12)",
+        )
+
+        fig.update_yaxes(
+            title="PnL $",
+            showgrid=True,
+            gridcolor="rgba(148, 163, 184, 0.12)",
+            zeroline=False,
+        )
+
+        return dcc.Graph(
+            figure=fig,
+            config={"displayModeBar": False, "responsive": True},
+            className="analytics-pnl-chart",
         )
 
     @app.callback(

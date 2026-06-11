@@ -20,6 +20,7 @@ from config import (
 from core.RealTime import RealTimeIB, TIMEFRAME_MAP
 from core.ReplayModule import ReplayEngine
 from services.replay_service import ReplayService
+from services.paper_cache import PaperStateCache
 from ui.tabs_ui import (
     build_dashboard_tab,
     build_watch_tab,
@@ -45,6 +46,8 @@ replay_engine = ReplayEngine()
 replay_service = ReplayService(rt, replay_engine)
 
 paper_trading_service = None
+paper_state_cache = PaperStateCache(cache_dir="cache/paper")
+
 if PaperTradingService and PaperBroker and RiskGuard:
     paper_trading_service = PaperTradingService(
         broker=PaperBroker(
@@ -211,6 +214,7 @@ register_callbacks(
     SYMBOL_OPTIONS,
     TIMEFRAME_MAP,
     paper_trading_service=paper_trading_service,
+    paper_state_cache=paper_state_cache,
 )
 
 if __name__ == "__main__":
