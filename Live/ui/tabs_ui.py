@@ -1,5 +1,7 @@
-from dash import dcc, html
 from datetime import date
+
+from dash import dcc, html
+
 
 CHART_CONFIG = {
     "displaylogo": False,
@@ -229,10 +231,43 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                             ),
                         ],
                     ),
-
                     html.Div(
                         className="paper-controls-row",
                         children=[
+                            html.Div(
+                                className="control-box control-timeframe",
+                                children=[
+                                    html.Label("Price Source"),
+                                    dcc.Dropdown(
+                                        id="paper-price-source",
+                                        options=[
+                                            {"label": "Replay Cursor", "value": "replay", "search": "replay historical cursor"},
+                                            {"label": "Live Market", "value": "live", "search": "live realtime market"},
+                                        ],
+                                        value="replay",
+                                        clearable=False,
+                                        searchable=False,
+                                        className="black-dropdown",
+                                    ),
+                                ],
+                            ),
+                            html.Div(
+                                className="control-box control-timeframe",
+                                children=[
+                                    html.Label("Position Mode"),
+                                    dcc.Dropdown(
+                                        id="paper-position-mode",
+                                        options=[
+                                            {"label": "Long Only", "value": "long_only", "search": "long only no shorts"},
+                                            {"label": "Allow Shorts", "value": "allow_shorts", "search": "short selling bearish"},
+                                        ],
+                                        value="long_only",
+                                        clearable=False,
+                                        searchable=False,
+                                        className="black-dropdown",
+                                    ),
+                                ],
+                            ),
                             html.Div(
                                 className="control-box control-qty",
                                 children=[
@@ -253,26 +288,22 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                                 children=[
                                     html.Button("Buy", id="paper-buy", n_clicks=0, className="paper-buy-btn"),
                                     html.Button("Sell", id="paper-sell", n_clicks=0, className="paper-sell-btn"),
-                                    html.Button("Reset Paper", id="paper-reset", n_clicks=0,
-                                                className="paper-reset-btn"),
+                                    html.Button("Reset Paper", id="paper-reset", n_clicks=0, className="paper-reset-btn"),
                                 ],
                             ),
                         ],
                     ),
-
                     html.Div(
                         id="paper-trade-status",
                         className="paper-trade-status",
                         children="Paper account ready.",
                     ),
-
                     html.Div(
                         className="paper-summary-grid",
                         children=[
                             html.Div(id="paper-summary-panel", className="paper-summary-panel"),
                         ],
                     ),
-
                     html.Div(
                         className="paper-table-grid",
                         children=[

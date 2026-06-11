@@ -364,17 +364,19 @@ class RealTimeIB:
             bars = state.bars.copy()
 
 
-            if state.last is not None:
+            if state.last is not None and state.bars is not None and not state.bars.empty:
                 try:
-                    bars = apply_tick_to_bars(
-                        bars,
+                    from datetime import datetime
+                    from utils.chart_utils import apply_tick_to_bars
+
+                    patched_bars = apply_tick_to_bars(
+                        state.bars.copy(),
                         price=float(state.last),
                         size=float(state.last_size or 0),
                         tick_time=datetime.now(),
                     )
 
-
-                    state.bars = bars.copy()
+                    state.bars = patched_bars.copy()
                     self._states[key] = state
 
                 except Exception as exc:

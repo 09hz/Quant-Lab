@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import sys
 import asyncio
-from datetime import date
 
 from dash import Dash, dcc, html
 
@@ -28,7 +27,7 @@ from ui.tabs_ui import (
     build_charts_tab,
 )
 
-
+# Paper-trading imports are optional. The replay fix does not depend on them.
 try:
     from services.paper_trading_service import PaperTradingService
     from core.PaperBroker import PaperBroker
@@ -107,7 +106,7 @@ app.layout = html.Div(
                             default_symbol=DEFAULT_SYMBOL,
                             default_speed=DEFAULT_REPLAY_SPEED,
                             default_index=DEFAULT_REPLAY_INDEX,
-                            default_date=date.today().isoformat(),
+                            default_date=None,
                         )
                     ],
                 ),
@@ -143,13 +142,16 @@ app.layout = html.Div(
         # General UI/live refresh.
         dcc.Interval(id="ui-interval", interval=UI_INTERVAL_MS, n_intervals=0),
 
-        # Dedicated replay heartbeat. This drives Play/Pause independently
-        # from the general UI interval.
+        # Dedicated replay heartbeat. This is what makes Play keep advancing.
         dcc.Interval(id="replay-clock", interval=250, n_intervals=0),
 
-        # Replay render trigger. Buttons/clock bump this store so the Watch chart
-        # redraws without the slider callback fighting the clock.
+        # Bumped by replay buttons/clock so Watch redraws without slider feedback loops.
         dcc.Store(id="replay-render-trigger", data=0),
+
+        # Bumped by paper orders so the account panel and chart overlays redraw.
+        dcc.Store(id="paper-trade-trigger", data=0),
+
+        dcc.Store(id="watch-loading-state", data=False),
 
         dcc.Store(
             id="watch-load-request",
@@ -180,7 +182,6 @@ app.layout = html.Div(
             },
         ),
 
-        dcc.Store(id="paper-trade-trigger", data=0),
         dcc.Store(id="zoom-state", data={}),
         dcc.Store(id="active-symbol", data=DEFAULT_SYMBOL),
         dcc.Store(id="load-status", data="Ready"),

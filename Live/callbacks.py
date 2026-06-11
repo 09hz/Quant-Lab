@@ -1,5 +1,4 @@
 from __future__ import annotations
-from core.RiskGuard import TradeIntent
 
 from datetime import datetime, timedelta
 
@@ -9,6 +8,7 @@ from dash import Input, Output, State, html, no_update, ctx
 
 from config import DEFAULT_SYMBOL, DEFAULT_TIMEFRAME
 from utils.chart_utils import create_candlestick_figure
+from core.RiskGuard import TradeIntent
 
 
 RANGE_DAYS = {
@@ -261,6 +261,22 @@ def _apply_chart_view(fig, bars: pd.DataFrame, chart_state: dict | None, default
     fig = _fit_y_axis_to_visible_bars(fig, bars, x_range)
     return fig
 
+def _is_today_or_latest_replay_date(replay_date) -> bool:
+    """
+    Live market paper trading should only be available when the Watch tab
+    is using today's date or no date/latest mode.
+    """
+    if not replay_date:
+        return True
+
+    try:
+        selected = pd.to_datetime(replay_date, errors="coerce")
+        if pd.isna(selected):
+            return False
+
+        return selected.date() == datetime.now().date()
+    except Exception:
+        return False
 
 def _default_chart_state(range_key="1D"):
     return {
@@ -512,26 +528,23 @@ def register_callbacks(
 
             max_idx = max(1, int(info.get("max_index", 1)))
             idx = max(1, int(info.get("current_index", 1)))
-            render_trigger = int(render_trigger or 0) + 1
 
             return (
                 status,
                 max_idx,
                 idx,
                 "watch-loading-overlay hidden",
-                render_trigger,
+                int(render_trigger or 0) + 1,
             )
 
         except Exception as exc:
             print(f"[REPLAY LOAD ERROR] {exc}", flush=True)
-            render_trigger = int(render_trigger or 0) + 1
-
             return (
                 f"Replay load error: {exc}",
                 100,
                 1,
                 "watch-loading-overlay hidden",
-                render_trigger,
+                int(render_trigger or 0) + 1,
             )
 
     @app.callback(
@@ -563,14 +576,21 @@ def register_callbacks(
         prevent_initial_call=True,
     )
     def control_replay(
-            play_clicks,
-            pause_clicks,
-            step_clicks,
-            rewind_clicks,
-            slider_value,
-            render_trigger,
-            active_tab,
+        play_clicks,
+        pause_clicks,
+        step_clicks,
+        rewind_clicks,
+        slider_value,
+        render_trigger,
+        active_tab,
     ):
+        """
+        User replay controls.
+
+        This callback does not output replay-slider.value. It only changes the
+        replay engine and bumps replay-render-trigger. That prevents programmatic
+        slider updates from re-triggering "Replay moved to n" while Play is active.
+        """
         if active_tab != "watch":
             return no_update, no_update
 
@@ -582,7 +602,7 @@ def register_callbacks(
             max_index = max(1, int(info.get("max_index", 1)))
 
             if max_index <= 1:
-                return "No replay data loaded.", no_update
+                return "No replay data loaded yet.", no_update
 
             if trigger == "replay-play":
                 replay_service.play()
@@ -606,8 +626,6 @@ def register_callbacks(
                 idx = max(1, min(int(slider_value or 1), max_index))
                 current_idx = max(1, int(replay_service.info().get("current_index", 1)))
 
-                # Ignore programmatic slider updates from render_watch_tab.
-                # Only treat it as user input when the value actually changes.
                 if idx == current_idx:
                     return no_update, no_update
 
@@ -628,6 +646,12 @@ def register_callbacks(
         prevent_initial_call=True,
     )
     def advance_replay_clock(_n, render_trigger, active_tab):
+        """
+        Dedicated replay heartbeat.
+
+        The clock advances the engine and bumps the render trigger. It does not
+        directly write to replay-slider.value.
+        """
         if active_tab != "watch":
             return no_update
 
@@ -652,25 +676,372 @@ def register_callbacks(
         except Exception as exc:
             print(f"[REPLAY CLOCK ERROR] {exc}", flush=True)
             return no_update
-    def _paper_current_price_and_time(symbol: str):
-        """
-        Prefer replay cursor price on Watch tab.
-        Fallback to live snapshot if replay is empty.
-        """
-        symbol = symbol or DEFAULT_SYMBOL
+
+    @app.callback(
+        Output("load-status", "data", allow_duplicate=True),
+        Input("watch-symbol-dropdown", "value"),
+        Input("paper-price-source", "value"),
+        Input("replay-date", "date"),
+        State("main-tabs", "value"),
+        prevent_initial_call=True,
+    )
+    def request_watch_live_symbol(symbol, price_source, replay_date, active_tab):
+        if active_tab != "watch":
+            return no_update
+
+        if not symbol:
+            return no_update
+
+        if price_source != "live":
+            return no_update
+
+        if not _is_today_or_latest_replay_date(replay_date):
+            return no_update
 
         try:
-            bar = replay_service.current_bar()
-            if bar is not None:
-                return float(bar["close"]), bar.get("time", datetime.now())
-        except Exception:
-            pass
+            symbol = rt._sanitize_symbol(symbol)
+            rt.request_symbol(symbol)
+            return f"Requested live Watch data for {symbol}"
+        except Exception as exc:
+            print(f"[WATCH LIVE SYMBOL ERROR] {exc}", flush=True)
+            return f"Watch live symbol error: {exc}"
 
-        snap = rt.get_snapshot(symbol, "1 min")
-        if snap.last is None:
-            return None, datetime.now()
+    # ------------------------------------------------------------
+    # Dashboard
+    # ------------------------------------------------------------
+    @app.callback(
+        Output("quote-strip", "children"),
+        Output("live-chart", "figure"),
+        Output("dashboard-metrics-strip", "children"),
+        Output("dashboard-stats-grid", "children"),
+        Input("ui-interval", "n_intervals"),
+        Input("active-symbol", "data"),
+        Input("timeframe-dropdown", "value"),
+        Input("dashboard-chart-state", "data"),
+        State("main-tabs", "value"),
+        prevent_initial_call=False,
+    )
+    def render_dashboard_chart(
+            _n,
+            active_symbol,
+            timeframe,
+            dashboard_chart_state,
+            active_tab,
+    ):
+        """
+        Dashboard-only live renderer.
 
-        return float(snap.last), snap.updated_at or datetime.now()
+        This intentionally does NOT touch Watch/replay/paper callbacks.
+        It uses a changing datarevision and avoids uirevision during the
+        diagnostic period so Plotly cannot preserve a stale candlestick trace.
+        """
+        if active_tab != "dashboard":
+            return no_update, no_update, no_update, no_update
+
+        try:
+            symbol = (active_symbol or DEFAULT_SYMBOL).upper().strip()
+            timeframe = timeframe or DEFAULT_TIMEFRAME
+            company_name = rt.get_company_name(symbol)
+
+            # Make sure the dashboard symbol has an active live subscription.
+            # This is cheap if already subscribed and prevents a stale symbol state.
+            try:
+                rt.request_symbol(symbol)
+            except Exception as req_exc:
+                print(f"[DASHBOARD REQUEST WARNING] {symbol}: {req_exc}", flush=True)
+
+            snap = rt.get_snapshot(symbol, timeframe)
+
+            bars = snap.bars.copy() if snap.bars is not None else pd.DataFrame()
+
+            if bars is not None and not bars.empty:
+                bars["time"] = pd.to_datetime(bars["time"], errors="coerce")
+                bars = bars.dropna(subset=["time", "open", "high", "low", "close"]).copy()
+
+            if bars is None or bars.empty:
+                fig = _empty_figure(f"{symbol} | Waiting for live candles...")
+                quote_text = f"LIVE · {company_name} ({symbol}) · Waiting for candles"
+                return quote_text, fig, [], []
+
+            latest_time = str(bars.iloc[-1]["time"])
+            latest_open = float(bars.iloc[-1]["open"])
+            latest_high = float(bars.iloc[-1]["high"])
+            latest_low = float(bars.iloc[-1]["low"])
+            latest_close = float(bars.iloc[-1]["close"])
+            current_price = float(snap.last) if snap.last is not None else latest_close
+
+            fig = create_candlestick_figure(
+                bars,
+                symbol,
+                timeframe,
+                current_price=current_price,
+            )
+
+            # Keep your dashboard range buttons and manual pan/zoom behavior.
+            fig = _apply_chart_view(
+                fig,
+                bars,
+                dashboard_chart_state,
+                default_range="1D",
+            )
+
+            state = dashboard_chart_state or {}
+            range_key = _safe_range_key(state.get("range_key"), "1D")
+            mode = state.get("mode", "live")
+
+            # Force trace arrays into plain Python lists. This avoids some cases
+            # where the front end does not notice a DataFrame/Series-backed change.
+            try:
+                if fig.data:
+                    for trace in fig.data:
+                        if hasattr(trace, "x") and trace.x is not None:
+                            trace.x = list(trace.x)
+                        if hasattr(trace, "open") and trace.open is not None:
+                            trace.open = [float(x) for x in trace.open]
+                        if hasattr(trace, "high") and trace.high is not None:
+                            trace.high = [float(x) for x in trace.high]
+                        if hasattr(trace, "low") and trace.low is not None:
+                            trace.low = [float(x) for x in trace.low]
+                        if hasattr(trace, "close") and trace.close is not None:
+                            trace.close = [float(x) for x in trace.close]
+            except Exception as trace_exc:
+                print(f"[DASHBOARD TRACE NORMALIZE WARNING] {trace_exc}", flush=True)
+
+            # Diagnostic redraw key. Keep uirevision disabled for now.
+            # Once confirmed working, we can re-enable a stable uirevision.
+            redraw_key = (
+                f"{symbol}-{timeframe}-{mode}-{range_key}-"
+                f"{latest_time}-{latest_open}-{latest_high}-{latest_low}-{latest_close}-"
+                f"{current_price}-{_n}"
+            )
+
+            fig.update_layout(
+                uirevision=None,
+                datarevision=redraw_key,
+                dragmode="pan",
+                title={
+                    "text": f"{symbol} · {timeframe} · Last {current_price:,.2f} · tick {_n}",
+                    "x": 0.02,
+                    "xanchor": "left",
+                },
+            )
+
+            updated = snap.updated_at.strftime("%H:%M:%S") if snap.updated_at else "--:--:--"
+            quote_text = (
+                f"LIVE · {company_name} ({symbol}) · Updated {updated} · "
+                f"Last {current_price:,.2f}"
+            )
+
+            open_val = float(bars.iloc[0]["open"])
+
+            metrics = _build_metrics_strip(
+                symbol,
+                company_name,
+                current_price,
+                open_val,
+                snap.updated_at,
+            )
+
+            stats = _build_stats_grid_from_bars(bars)
+
+            return quote_text, fig, metrics, stats
+
+        except Exception as exc:
+            print(f"[DASHBOARD RENDER ERROR] {exc}", flush=True)
+            fig = _empty_figure(f"Loading dashboard... {exc}")
+            return f"Loading dashboard... {exc}", fig, [], []
+    # ------------------------------------------------------------
+    # Watch chart render
+    # ------------------------------------------------------------
+    @app.callback(
+        Output("watch-chart", "figure"),
+        Output("replay-slider", "max", allow_duplicate=True),
+        Output("replay-slider", "value", allow_duplicate=True),
+        Output("watch-metrics-strip", "children"),
+        Output("watch-stats-grid", "children"),
+        Input("replay-render-trigger", "data"),
+        Input("watch-load-request", "data"),
+        Input("watch-chart-state", "data"),
+        Input("paper-trade-trigger", "data"),
+        Input("ui-interval", "n_intervals"),
+        State("main-tabs", "value"),
+        State("watch-symbol-dropdown", "value"),
+        State("paper-price-source", "value"),
+        State("replay-date", "date"),
+        prevent_initial_call=True,
+    )
+    def render_watch_tab(
+            _render_trigger,
+            _load_request,
+            watch_chart_state,
+            _paper_trade_trigger,
+            _ui_n,
+            active_tab,
+            symbol,
+            price_source,
+            replay_date,
+    ):
+        if active_tab != "watch":
+            return no_update, no_update, no_update, no_update, no_update
+
+        try:
+            symbol = (symbol or DEFAULT_SYMBOL).upper().strip()
+            price_source = str(price_source or "replay").lower().strip()
+
+            use_live_watch_data = (
+                    price_source == "live"
+                    and _is_today_or_latest_replay_date(replay_date)
+            )
+
+            info = replay_service.info()
+            max_idx = max(1, int(info.get("max_index", 1)))
+            idx = max(1, int(info.get("current_index", 1)))
+
+            if use_live_watch_data:
+                try:
+                    rt.request_symbol(symbol)
+                except Exception:
+                    pass
+
+                snap = rt.get_snapshot(symbol, "1 min")
+                visible = snap.bars.copy() if snap.bars is not None else pd.DataFrame()
+
+                # Keep the chart dynamic by using the latest live tick price.
+                current_price = snap.last
+                updated_at = snap.updated_at or datetime.now()
+                chart_label = "Live Market"
+
+            else:
+                visible = replay_service.visible_bars()
+
+                current_price = (
+                    float(visible.iloc[-1]["close"])
+                    if visible is not None and not visible.empty
+                    else None
+                )
+                updated_at = datetime.now()
+                chart_label = "Replay Cursor"
+
+            if visible is None or visible.empty:
+                fig = _empty_figure(f"{symbol} | 1 min | Loading {chart_label} data...")
+                fig.update_layout(uirevision=f"watch-{symbol}-empty")
+                return fig, max_idx, idx, [], []
+
+            # In live mode, prefer snap.last. If it is missing, fall back to
+            # the latest candle close.
+            if current_price is None:
+                current_price = float(visible.iloc[-1]["close"])
+
+            fig = create_candlestick_figure(
+                visible,
+                symbol,
+                "1 min",
+                current_price=current_price,
+            )
+
+            # Paper trade markers only belong on the Watch tab.
+            if paper_trading_service is not None:
+                try:
+                    fills_df = paper_trading_service.fills_df()
+
+                    if fills_df is not None and not fills_df.empty:
+                        fills_df = fills_df[
+                            fills_df["symbol"].astype(str).str.upper() == symbol.upper()
+                            ]
+
+                    fig = _add_trade_markers_to_fig(fig, visible, fills_df)
+
+                except Exception as exc:
+                    print(f"[WATCH TRADE MARKER ERROR] {exc}", flush=True)
+
+            fig = _apply_chart_view(
+                fig,
+                visible,
+                watch_chart_state,
+                default_range="1D",
+            )
+
+            state = watch_chart_state or {}
+            range_key = _safe_range_key(state.get("range_key"), "1D")
+            mode = state.get("mode", "live")
+
+            source_label = "live" if use_live_watch_data else "replay"
+
+            fig.update_layout(
+                uirevision=f"watch-{symbol}-{source_label}-{mode}-{range_key}",
+                dragmode="pan",
+            )
+
+            company = rt.get_company_name(symbol)
+            open_val = float(visible.iloc[0]["open"]) if not visible.empty else None
+
+            metrics = _build_metrics_strip(
+                symbol,
+                company,
+                current_price,
+                open_val,
+                updated_at,
+            )
+
+            stats = _build_stats_grid_from_bars(visible)
+
+            return (
+                fig,
+                max_idx,
+                idx,
+                metrics,
+                stats,
+            )
+
+        except Exception as exc:
+            print(f"[WATCH RENDER ERROR] {exc}", flush=True)
+            fig = _empty_figure(f"Replay loading... {exc}")
+            fig.update_layout(uirevision=f"watch-{symbol or DEFAULT_SYMBOL}-error")
+            return fig, 100, 1, [], []
+
+
+    # ------------------------------------------------------------
+    # Paper trading
+    # ------------------------------------------------------------
+    def _paper_current_price_and_time(
+            symbol: str,
+            source: str = "replay",
+            replay_date=None,
+    ):
+        symbol = (symbol or DEFAULT_SYMBOL).upper().strip()
+        source = str(source or "replay").lower().strip()
+
+        if source == "replay":
+            try:
+                bar = replay_service.current_bar()
+                if bar is not None:
+                    return float(bar["close"]), bar.get("time", datetime.now()), "Replay Cursor"
+            except Exception:
+                pass
+
+            return None, datetime.now(), "Replay Cursor"
+
+        if source == "live":
+            if not _is_today_or_latest_replay_date(replay_date):
+                return (
+                    None,
+                    datetime.now(),
+                    "Live Market unavailable for historical dates",
+                )
+
+            try:
+                rt.request_symbol(symbol)
+            except Exception:
+                pass
+
+            snap = rt.get_snapshot(symbol, "1 min")
+
+            if snap.last is None:
+                return None, snap.updated_at or datetime.now(), "Live Market"
+
+            return float(snap.last), snap.updated_at or datetime.now(), "Live Market"
+
+        return None, datetime.now(), source
 
     @app.callback(
         Output("paper-trade-status", "children"),
@@ -680,18 +1051,24 @@ def register_callbacks(
         Input("paper-reset", "n_clicks"),
         State("paper-order-qty", "value"),
         State("watch-symbol-dropdown", "value"),
+        State("paper-price-source", "value"),
+        State("paper-position-mode", "value"),
+        State("replay-date", "date"),
         State("paper-trade-trigger", "data"),
         State("main-tabs", "value"),
         prevent_initial_call=True,
     )
     def handle_manual_paper_trade(
-        buy_clicks,
-        sell_clicks,
-        reset_clicks,
-        quantity,
-        symbol,
-        paper_trigger,
-        active_tab,
+            buy_clicks,
+            sell_clicks,
+            reset_clicks,
+            quantity,
+            symbol,
+            price_source,
+            position_mode,
+            replay_date,
+            paper_trigger,
+            active_tab,
     ):
         if active_tab != "watch":
             return no_update, no_update
@@ -717,10 +1094,16 @@ def register_callbacks(
             if quantity <= 0:
                 return "Quantity must be greater than zero.", no_update
 
-            last_price, timestamp = _paper_current_price_and_time(symbol)
+            allow_short = str(position_mode or "long_only") == "allow_shorts"
+
+            last_price, timestamp, source_label = _paper_current_price_and_time(
+                symbol,
+                source=price_source,
+                replay_date=replay_date,
+            )
 
             if last_price is None:
-                return f"No current price available for {symbol}.", no_update
+                return f"No price available from {source_label} for {symbol}.", no_update
 
             if trigger == "paper-buy":
                 intent = TradeIntent(
@@ -729,7 +1112,7 @@ def register_callbacks(
                     quantity=quantity,
                     order_type="MARKET",
                     reason="Manual paper buy",
-                    source="manual",
+                    source=f"manual:{source_label}",
                 )
 
             elif trigger == "paper-sell":
@@ -739,17 +1122,25 @@ def register_callbacks(
                     quantity=quantity,
                     order_type="MARKET",
                     reason="Manual paper sell",
-                    source="manual",
+                    source=f"manual:{source_label}",
                 )
 
             else:
                 return no_update, no_update
+
+            print(
+                f"[PAPER TRADE DEBUG] symbol={symbol} side={intent.side} "
+                f"qty={quantity} price_source={price_source} "
+                f"position_mode={position_mode} allow_short={allow_short}",
+                flush=True,
+            )
 
             decision, order = paper_trading_service.submit_intent(
                 intent=intent,
                 last_price=last_price,
                 timestamp=timestamp,
                 mode="simulated",
+                allow_short=allow_short,
             )
 
             if not decision.approved:
@@ -765,7 +1156,12 @@ def register_callbacks(
                 else f"{order.side} {order.quantity:g} {order.symbol}"
             )
 
-            return f"Paper order {order.status}: {fill_text}", paper_trigger + 1
+            mode_label = "Shorts allowed" if allow_short else "Long only"
+
+            return (
+                f"Paper order {order.status}: {fill_text} via {source_label} · {mode_label}",
+                paper_trigger + 1,
+            )
 
         except Exception as exc:
             print(f"[PAPER TRADE ERROR] {exc}", flush=True)
@@ -777,10 +1173,24 @@ def register_callbacks(
 
         view = df.tail(max_rows).copy()
 
+        datetime_cols = {
+            "submitted_at",
+            "filled_at",
+            "timestamp",
+        }
+
         for col in view.columns:
-            if "time" in col.lower() or "at" in col.lower() or "timestamp" in col.lower():
+            col_lower = str(col).lower()
+
+            if col_lower in datetime_cols:
                 try:
-                    view[col] = pd.to_datetime(view[col]).dt.strftime("%Y-%m-%d %H:%M:%S")
+                    view[col] = pd.to_datetime(
+                        view[col],
+                        errors="coerce",
+                        format="mixed",
+                    ).dt.strftime("%Y-%m-%d %H:%M:%S")
+
+                    view[col] = view[col].fillna("")
                 except Exception:
                     pass
 
@@ -790,17 +1200,49 @@ def register_callbacks(
         )
 
     @app.callback(
+        Output("paper-trade-status", "children", allow_duplicate=True),
+        Input("paper-price-source", "value"),
+        Input("replay-date", "date"),
+        State("main-tabs", "value"),
+        prevent_initial_call=True,
+    )
+    def warn_live_source_for_historical_date(price_source, replay_date, active_tab):
+        if active_tab != "watch":
+            return no_update
+
+        if price_source == "live" and not _is_today_or_latest_replay_date(replay_date):
+            return "Live Market paper trading is only available for today's date or latest mode."
+
+        if price_source == "live":
+            return "Live Market paper trading enabled for today's/current data."
+
+        return "Replay Cursor paper trading enabled."
+
+
+    @app.callback(
         Output("paper-summary-panel", "children"),
         Output("paper-positions-panel", "children"),
         Output("paper-orders-panel", "children"),
         Output("paper-fills-panel", "children"),
         Input("paper-trade-trigger", "data"),
         Input("replay-render-trigger", "data"),
+        Input("ui-interval", "n_intervals"),
         State("watch-symbol-dropdown", "value"),
+        State("paper-price-source", "value"),
+        State("replay-date", "date"),
         State("main-tabs", "value"),
         prevent_initial_call=False,
     )
-    def render_paper_trading_panels(_paper_trigger, _replay_trigger, symbol, active_tab):
+    def render_paper_trading_panels(
+            _paper_trigger,
+            _replay_trigger,
+            _ui_n,
+            symbol,
+            price_source,
+            replay_date,
+            active_tab,
+    ):
+
         if active_tab != "watch":
             return no_update, no_update, no_update, no_update
 
@@ -812,7 +1254,12 @@ def register_callbacks(
 
         prices = {}
         try:
-            price, _timestamp = _paper_current_price_and_time(symbol)
+            price, _timestamp, _source_label = _paper_current_price_and_time(
+                symbol,
+                source=price_source,
+                replay_date=replay_date,
+            )
+
             if price is not None:
                 prices[symbol] = float(price)
         except Exception:
@@ -872,155 +1319,178 @@ def register_callbacks(
             "No fills yet.",
         )
 
+
         return summary_cards, positions, orders, fills
 
-    # ------------------------------------------------------------
-    # Dashboard
-    # ------------------------------------------------------------
-    @app.callback(
-        Output("quote-strip", "children"),
-        Output("live-chart", "figure"),
-        Output("dashboard-metrics-strip", "children"),
-        Output("dashboard-stats-grid", "children"),
-        Input("ui-interval", "n_intervals"),
-        Input("active-symbol", "data"),
-        Input("timeframe-dropdown", "value"),
-        Input("dashboard-chart-state", "data"),
-        State("main-tabs", "value"),
-        prevent_initial_call=False,
-    )
-    def render_dashboard_chart(_n, active_symbol, timeframe, dashboard_chart_state, active_tab):
-        if active_tab != "dashboard":
-            return no_update, no_update, no_update, no_update
+    def _add_trade_markers_to_fig(fig, bars, fills_df):
+        """
+        Add paper-trade fill markers to a candlestick chart.
 
-        try:
-            symbol = active_symbol or DEFAULT_SYMBOL
-            timeframe = timeframe or DEFAULT_TIMEFRAME
-            company_name = rt.get_company_name(symbol)
+        BUY markers appear above candles.
+        SELL markers appear below candles.
+        Multiple fills on the same candle/side are grouped into one marker.
+        """
+        if bars is None or bars.empty:
+            return fig
 
-            snap = rt.get_snapshot(symbol, timeframe)
-            fig = create_candlestick_figure(
-                snap.bars,
-                symbol,
-                timeframe,
-                current_price=snap.last,
+        if fills_df is None or fills_df.empty:
+            return fig
+
+        required_fill_cols = {"symbol", "side", "quantity", "price", "timestamp", "order_id"}
+        if not required_fill_cols.issubset(set(fills_df.columns)):
+            return fig
+
+        df_bars = bars.copy()
+        df_bars["time"] = pd.to_datetime(df_bars["time"], errors="coerce")
+        df_bars = df_bars.dropna(subset=["time"])
+
+        if df_bars.empty:
+            return fig
+
+        fills = fills_df.copy()
+        fills["timestamp"] = pd.to_datetime(fills["timestamp"], errors="coerce")
+        fills = fills.dropna(subset=["timestamp"])
+
+        if fills.empty:
+            return fig
+
+        fills["candle_time"] = fills["timestamp"].dt.floor("min")
+        df_bars["candle_time"] = df_bars["time"].dt.floor("min")
+
+        merged = fills.merge(
+            df_bars[["candle_time", "high", "low", "close"]],
+            on="candle_time",
+            how="inner",
+        )
+
+        if merged.empty:
+            return fig
+
+        grouped_rows = []
+
+        for (candle_time, side), group in merged.groupby(["candle_time", "side"]):
+            side = str(side).upper()
+
+            total_qty = float(group["quantity"].sum())
+            if total_qty <= 0:
+                continue
+
+            avg_price = float((group["price"] * group["quantity"]).sum() / total_qty)
+            order_ids = ", ".join(str(x) for x in group["order_id"].tolist())
+            count = len(group)
+
+            high = float(group["high"].iloc[0])
+            low = float(group["low"].iloc[0])
+            close = float(group["close"].iloc[0])
+
+            candle_range = max(high - low, abs(close) * 0.002, 0.01)
+            offset = candle_range * 0.35
+
+            if side == "BUY":
+                y = high + offset
+                marker_symbol = "triangle-up"
+                label = f"BUY x{count}" if count > 1 else "BUY"
+            else:
+                y = low - offset
+                marker_symbol = "triangle-down"
+                label = f"SELL x{count}" if count > 1 else "SELL"
+
+            realized = 0.0
+            if "realized_pnl" in group.columns:
+                realized = float(
+                    pd.to_numeric(group["realized_pnl"], errors="coerce")
+                    .fillna(0)
+                    .sum()
+                )
+
+            sources = []
+            if "source" in group.columns:
+                sources = [
+                    str(s)
+                    for s in group["source"].dropna().tolist()
+                    if str(s).strip()
+                ]
+
+            reasons = []
+            if "reason" in group.columns:
+                reasons = [
+                    str(r)
+                    for r in group["reason"].dropna().tolist()
+                    if str(r).strip()
+                ]
+
+            hover = (
+                f"<b>{label}</b><br>"
+                f"Time: {candle_time}<br>"
+                f"Orders: {order_ids}<br>"
+                f"Quantity: {total_qty:g}<br>"
+                f"Avg Fill: ${avg_price:,.2f}<br>"
+                f"Realized PnL: ${realized:,.2f}<br>"
+                f"Source: {', '.join(sorted(set(sources))) if sources else 'manual'}<br>"
+                f"Reason: {' | '.join(reasons) if reasons else '--'}"
             )
 
-            fig = _apply_chart_view(
-                fig,
-                snap.bars,
-                dashboard_chart_state,
-                default_range="1D",
+            grouped_rows.append(
+                {
+                    "time": candle_time,
+                    "side": side,
+                    "y": y,
+                    "symbol": marker_symbol,
+                    "label": label,
+                    "hover": hover,
+                }
             )
 
-            state = dashboard_chart_state or {}
-            range_key = _safe_range_key(state.get("range_key"), "1D")
-            mode = state.get("mode", "live")
-            fig.update_layout(
-                uirevision=f"dashboard-{symbol}-{timeframe}-{mode}-{range_key}",
-                dragmode="pan",
+        if not grouped_rows:
+            return fig
+
+        marker_df = pd.DataFrame(grouped_rows)
+
+        buys = marker_df[marker_df["side"] == "BUY"]
+        sells = marker_df[marker_df["side"] == "SELL"]
+
+        if not buys.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=buys["time"],
+                    y=buys["y"],
+                    mode="markers+text",
+                    marker=dict(
+                        symbol="triangle-up",
+                        size=14,
+                        color="#22c55e",
+                        line=dict(width=1, color="#ffffff"),
+                    ),
+                    text=buys["label"],
+                    textposition="top center",
+                    hovertext=buys["hover"],
+                    hoverinfo="text",
+                    name="Paper Buys",
+                )
             )
 
-            updated = snap.updated_at.strftime("%H:%M:%S") if snap.updated_at else "--:--:--"
-            quote_text = f"LIVE · {company_name} ({symbol}) · Updated {updated}"
-
-            open_val = None if snap.bars.empty else float(snap.bars.iloc[0]["open"])
-            metrics = _build_metrics_strip(symbol, company_name, snap.last, open_val, snap.updated_at)
-            stats = _build_stats_grid_from_bars(snap.bars)
-
-            return quote_text, fig, metrics, stats
-
-        except Exception as exc:
-            fig = _empty_figure(f"Loading dashboard... {exc}")
-            return f"Loading dashboard... {exc}", fig, [], []
-
-    # ------------------------------------------------------------
-    # Watch chart render
-    # ------------------------------------------------------------
-    @app.callback(
-        Output("watch-chart", "figure"),
-        Output("replay-slider", "max", allow_duplicate=True),
-        Output("replay-slider", "value", allow_duplicate=True),
-        Output("watch-metrics-strip", "children"),
-        Output("watch-stats-grid", "children"),
-        Input("replay-render-trigger", "data"),
-        Input("watch-load-request", "data"),
-        Input("watch-chart-state", "data"),
-        State("main-tabs", "value"),
-        State("watch-symbol-dropdown", "value"),
-        prevent_initial_call=True,
-    )
-    def render_watch_tab(_render_trigger, _load_request, watch_chart_state, active_tab, symbol):
-        if active_tab != "watch":
-            return no_update, no_update, no_update, no_update, no_update
-
-        try:
-            symbol = symbol or DEFAULT_SYMBOL
-
-            # Do NOT call replay_service.tick() here.
-            # The dedicated replay-clock callback owns playback ticking.
-            visible = replay_service.visible_bars()
-
-            if visible.empty:
-                fig = _empty_figure(f"{symbol} | 1 min | Loading replay data...")
-                fig.update_layout(uirevision=f"watch-{symbol}-empty")
-                return fig, 100, 1, [], []
-
-            info = replay_service.info()
-            max_idx = max(1, int(info.get("max_index", 1)))
-            idx = max(1, int(info.get("current_index", 1)))
-
-            current_price = float(visible.iloc[-1]["close"]) if not visible.empty else None
-
-            fig = create_candlestick_figure(
-                visible,
-                symbol,
-                "1 min",
-                current_price=current_price,
+        if not sells.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=sells["time"],
+                    y=sells["y"],
+                    mode="markers+text",
+                    marker=dict(
+                        symbol="triangle-down",
+                        size=14,
+                        color="#ef4444",
+                        line=dict(width=1, color="#ffffff"),
+                    ),
+                    text=sells["label"],
+                    textposition="bottom center",
+                    hovertext=sells["hover"],
+                    hoverinfo="text",
+                    name="Paper Sells",
+                )
             )
 
-            fig = _apply_chart_view(
-                fig,
-                visible,
-                watch_chart_state,
-                default_range="1D",
-            )
+        return fig
 
-            state = watch_chart_state or {}
-            range_key = _safe_range_key(state.get("range_key"), "1D")
-            mode = state.get("mode", "live")
-
-            fig.update_layout(
-                uirevision=f"watch-{symbol}-{mode}-{range_key}",
-                dragmode="pan",
-            )
-
-            company = rt.get_company_name(symbol)
-            open_val = float(visible.iloc[0]["open"]) if not visible.empty else None
-
-            metrics = _build_metrics_strip(
-                symbol,
-                company,
-                current_price,
-                open_val,
-                datetime.now(),
-            )
-
-            stats = _build_stats_grid_from_bars(visible)
-
-            return (
-                fig,
-                max_idx,
-                idx,
-                metrics,
-                stats,
-            )
-
-        except Exception as exc:
-            print(f"[WATCH RENDER ERROR] {exc}", flush=True)
-            fig = _empty_figure(f"Replay loading... {exc}")
-            fig.update_layout(uirevision=f"watch-{symbol or DEFAULT_SYMBOL}-error")
-            return fig, 100, 1, [], []
     # ------------------------------------------------------------
     # Quotes
     # ------------------------------------------------------------

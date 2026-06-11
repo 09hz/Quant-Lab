@@ -71,8 +71,8 @@ class ReplayEngine:
 
         self.bars = out
 
-        # Start replay at the beginning. The Watch chart can still show whatever
-        # view you choose, but Play needs room to advance.
+        # Start at the beginning. Play cannot advance if the cursor starts at
+        # len(out). The slider max still lets the user jump anywhere.
         self.current_index = 1
 
         self.speed = 1.0
@@ -84,8 +84,8 @@ class ReplayEngine:
         if self.bars.empty:
             return
 
-        # If replay is already at the final candle, restart from the beginning
-        # so Play always does something useful.
+        # If replay is already at the end, restart from the beginning so Play
+        # visibly does something instead of silently staying finished.
         if self.current_index >= len(self.bars):
             self.current_index = 1
 

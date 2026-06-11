@@ -64,63 +64,68 @@ def _floor_time_to_minute(ts: datetime) -> pd.Timestamp:
     return _to_tz_naive_timestamp(ts).floor("min")
 
 
-def apply_tick_to_bars(
-    bars: pd.DataFrame,
-    price: float,
-    size: float,
-    tick_time: Optional[datetime] = None,
-) -> pd.DataFrame:
-    """
-    Patch one live tick into the latest OHLCV bar.
+def apply_tick_to_bars(bars, price, size=0, tick_time=None):
+    import pandas as pd
+    from datetime import datetime
 
-    If the tick timestamp is behind the latest historical candle because of an
-    IB/local timezone mismatch, the newest visible candle is still patched. This
-    keeps candle shapes moving whenever the live price updates.
-    """
+    if bars is None or bars.empty or price is None:
+        return bars
+
+    df = bars.copy()
+
+    if "time" not in df.columns:
+        return df
+
+    df["time"] = pd.to_datetime(df["time"], errors="coerce")
+    df = df.dropna(subset=["time"])
+
+    if df.empty:
+        return df
+
+    # Force tz-naive timestamps to avoid tz comparison errors.
+    try:
+        if getattr(df["time"].dt, "tz", None) is not None:
+            df["time"] = df["time"].dt.tz_localize(None)
+    except Exception:
+        pass
+
     if tick_time is None:
         tick_time = datetime.now()
 
-    out = normalize_history_df(bars)
-    bar_time = _floor_time_to_minute(tick_time)
+    tick_time = pd.to_datetime(tick_time, errors="coerce")
+
+    if pd.isna(tick_time):
+        return df
+
+    try:
+        if tick_time.tzinfo is not None:
+            tick_time = tick_time.tz_localize(None)
+    except Exception:
+        try:
+            tick_time = tick_time.replace(tzinfo=None)
+        except Exception:
+            pass
+
     price = float(price)
     size = float(size or 0)
 
-    if out.empty:
-        return pd.DataFrame(
-            [
-                {
-                    "time": bar_time,
-                    "open": price,
-                    "high": price,
-                    "low": price,
-                    "close": price,
-                    "volume": size,
-                }
-            ]
-        )
+    last_idx = df.index[-1]
 
-    last_idx = out.index[-1]
-    last_bar_time = _floor_time_to_minute(out.loc[last_idx, "time"])
+    # Always patch the latest candle with the latest tick.
+    old_high = float(df.loc[last_idx, "high"])
+    old_low = float(df.loc[last_idx, "low"])
 
-    if bar_time > last_bar_time:
-        new_row = {
-            "time": bar_time,
-            "open": price,
-            "high": price,
-            "low": price,
-            "close": price,
-            "volume": size,
-        }
-        return pd.concat([out, pd.DataFrame([new_row])], ignore_index=True)
+    df.loc[last_idx, "high"] = max(old_high, price)
+    df.loc[last_idx, "low"] = min(old_low, price)
+    df.loc[last_idx, "close"] = price
 
-    # Same minute or timestamp mismatch: update latest visible candle.
-    out.loc[last_idx, "high"] = max(float(out.loc[last_idx, "high"]), price)
-    out.loc[last_idx, "low"] = min(float(out.loc[last_idx, "low"]), price)
-    out.loc[last_idx, "close"] = price
-    out.loc[last_idx, "volume"] = float(out.loc[last_idx, "volume"]) + size
+    if "volume" in df.columns and size > 0:
+        try:
+            df.loc[last_idx, "volume"] = float(df.loc[last_idx, "volume"] or 0) + size
+        except Exception:
+            pass
 
-    return out
-
+    return df
 
 def resample_bars(bars: pd.DataFrame, timeframe: str) -> pd.DataFrame:
     out = normalize_history_df(bars)

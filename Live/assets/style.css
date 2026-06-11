@@ -1076,9 +1076,12 @@ button:focus {
     letter-spacing: 0.4px;
     box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
 }
+
+
 /* =========================================================
    PAPER TRADING PANEL
-   Stacked below Watch chart/stats. No overlap with replay UI.
+   One Watch-tab panel for replay and live simulated trading.
+   Stacks below chart/stats and avoids overlap with replay UI.
 ========================================================= */
 
 .paper-trading-panel {
@@ -1123,6 +1126,11 @@ button:focus {
     gap: 16px;
     flex-wrap: wrap;
     margin-bottom: 14px;
+}
+
+#paper-price-source,
+#paper-position-mode {
+    min-width: 170px;
 }
 
 .control-qty {
@@ -1268,7 +1276,11 @@ button:focus {
         align-items: stretch;
     }
 
+    #paper-price-source,
+    #paper-position-mode,
+    .paper-controls-row .control-box,
     .control-qty {
+        width: 100%;
         min-width: 100%;
         max-width: 100%;
     }
