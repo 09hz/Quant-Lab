@@ -34,6 +34,7 @@ cache/
 # Local secrets / config
 .env
 .env.*
+.idea/workspace.xml
 secrets.json
 credentials.json
 
