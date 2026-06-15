@@ -213,6 +213,7 @@ register_callbacks(
     SYMBOL_OPTIONS,
     TIMEFRAME_MAP,
     paper_trading_service=paper_trading_service,
+    paper_state_cache = paper_state_cache,
 )
 
 if __name__ == "__main__":

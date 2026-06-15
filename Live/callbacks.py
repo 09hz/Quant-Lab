@@ -1,3 +1,24 @@
+# =============================================================================
+# CALLBACK ORDER WARNING
+# =============================================================================
+# This app is sensitive to callback order because several callbacks share
+# interval/store-trigger dependencies.
+#
+# Keep callback order as:
+# 1. Global state/status
+# 2. Dashboard state
+# 3. Watch state
+# 4. Watch replay load/control/clock
+# 5. Paper trading state/panels
+# 6. Dashboard render
+# 7. Watch render
+# 8. Quotes render
+# 9. Charts render
+#
+# Render callbacks should not mutate replay/paper/live service state except for
+# safe snapshot reads. State mutation should happen in control callbacks, then
+# trigger render callbacks through dcc.Store values.
+# =============================================================================
 from __future__ import annotations
 from core.RiskGuard import TradeIntent
 
@@ -277,21 +298,42 @@ def register_callbacks(
         symbol_options,
         timeframe_map,
         paper_trading_service=None,
+        paper_state_cache=None,
 ):
     @app.callback(
         Output("pair-title", "children"),
         Input("active-symbol", "data"),
         Input("main-tabs", "value"),
+        Input("watch-symbol-dropdown", "value"),
+        Input("symbol-dropdown", "value"),
         State("watch-state", "data"),
         State("dashboard-state", "data"),
     )
-    def update_pair_title(active_symbol, active_tab, watch_state, dashboard_state):
+    def update_pair_title(
+            active_symbol,
+            active_tab,
+            watch_symbol,
+            dashboard_symbol_dropdown,
+            watch_state,
+            dashboard_state,
+    ):
         if active_tab == "watch":
-            symbol = (watch_state or {}).get("symbol", DEFAULT_SYMBOL)
+            symbol = (
+                    watch_symbol
+                    or (watch_state or {}).get("symbol")
+                    or DEFAULT_SYMBOL
+            )
         else:
-            symbol = active_symbol or (dashboard_state or {}).get("symbol", DEFAULT_SYMBOL)
+            symbol = (
+                    active_symbol
+                    or dashboard_symbol_dropdown
+                    or (dashboard_state or {}).get("symbol")
+                    or DEFAULT_SYMBOL
+            )
 
+        symbol = str(symbol).upper().strip()
         company = rt.get_company_name(symbol)
+
         return f"{symbol} / {company}"
 
     @app.callback(
@@ -705,6 +747,14 @@ def register_callbacks(
         try:
             if trigger == "paper-reset":
                 paper_trading_service.reset()
+
+                try:
+                    if paper_state_cache is not None:
+                        paper_state_cache.clear()
+                        paper_state_cache.save_from_service(paper_trading_service)
+                except Exception as cache_exc:
+                    print(f"[PAPER CACHE RESET ERROR] {cache_exc}", flush=True)
+
                 return "Paper account reset to starting cash.", paper_trigger + 1
 
             symbol = (symbol or DEFAULT_SYMBOL).upper().strip()
@@ -752,6 +802,16 @@ def register_callbacks(
                 mode="simulated",
             )
 
+            try:
+                if paper_state_cache is not None:
+                    paper_state_cache.save_from_service(
+                        paper_trading_service,
+                        prices={symbol: float(last_price)},
+                    )
+            except Exception as cache_exc:
+                print(f"[PAPER CACHE SAVE ERROR] {cache_exc}", flush=True)
+
+
             if not decision.approved:
                 return f"Risk rejected: {decision.message}", paper_trigger + 1
 
@@ -777,10 +837,24 @@ def register_callbacks(
 
         view = df.tail(max_rows).copy()
 
+        datetime_cols = {
+            "submitted_at",
+            "filled_at",
+            "timestamp",
+        }
+
         for col in view.columns:
-            if "time" in col.lower() or "at" in col.lower() or "timestamp" in col.lower():
+            col_lower = str(col).lower()
+
+            if col_lower in datetime_cols:
                 try:
-                    view[col] = pd.to_datetime(view[col]).dt.strftime("%Y-%m-%d %H:%M:%S")
+                    view[col] = pd.to_datetime(
+                        view[col],
+                        errors="coerce",
+                        format="mixed",
+                    ).dt.strftime("%Y-%m-%d %H:%M:%S")
+
+                    view[col] = view[col].fillna("")
                 except Exception:
                     pass
 
@@ -873,6 +947,177 @@ def register_callbacks(
         )
 
         return summary_cards, positions, orders, fills
+
+    def _add_trade_markers_to_fig(fig, bars, fills_df):
+        """
+        Add paper-trade fill markers to the Watch candlestick chart only.
+
+        BUY markers appear above candles.
+        SELL markers appear below candles.
+        Multiple fills on the same candle/side are grouped.
+        """
+        if bars is None or bars.empty:
+            return fig
+
+        if fills_df is None or fills_df.empty:
+            return fig
+
+        required_cols = {"symbol", "side", "quantity", "price", "timestamp", "order_id"}
+        if not required_cols.issubset(set(fills_df.columns)):
+            return fig
+
+        df_bars = bars.copy()
+        df_bars["time"] = pd.to_datetime(df_bars["time"], errors="coerce", format="mixed")
+        df_bars = df_bars.dropna(subset=["time"]).copy()
+
+        if df_bars.empty:
+            return fig
+
+        fills = fills_df.copy()
+        fills["timestamp"] = pd.to_datetime(
+            fills["timestamp"],
+            errors="coerce",
+            format="mixed",
+        )
+        fills = fills.dropna(subset=["timestamp"]).copy()
+
+        if fills.empty:
+            return fig
+
+        fills["side"] = fills["side"].astype(str).str.upper()
+        fills["quantity"] = pd.to_numeric(fills["quantity"], errors="coerce").fillna(0.0)
+        fills["price"] = pd.to_numeric(fills["price"], errors="coerce").fillna(0.0)
+
+        fills["candle_time"] = fills["timestamp"].dt.floor("min")
+        df_bars["candle_time"] = df_bars["time"].dt.floor("min")
+
+        merged = fills.merge(
+            df_bars[["candle_time", "high", "low", "close"]],
+            on="candle_time",
+            how="inner",
+        )
+
+        if merged.empty:
+            return fig
+
+        marker_rows = []
+
+        for (candle_time, side), group in merged.groupby(["candle_time", "side"]):
+            side = str(side).upper()
+
+            total_qty = float(group["quantity"].sum())
+            if total_qty <= 0:
+                continue
+
+            avg_price = float((group["price"] * group["quantity"]).sum() / total_qty)
+
+            high = float(group["high"].iloc[0])
+            low = float(group["low"].iloc[0])
+            close = float(group["close"].iloc[0])
+
+            candle_range = max(high - low, abs(close) * 0.002, 0.01)
+            offset = candle_range * 0.35
+
+            order_ids = ", ".join(str(x) for x in group["order_id"].tolist())
+            fill_count = len(group)
+
+            realized = 0.0
+            if "realized_pnl" in group.columns:
+                realized = float(
+                    pd.to_numeric(group["realized_pnl"], errors="coerce")
+                    .fillna(0.0)
+                    .sum()
+                )
+
+            if side == "BUY":
+                marker_rows.append(
+                    {
+                        "time": candle_time,
+                        "y": high + offset,
+                        "side": "BUY",
+                        "label": f"BUY x{fill_count}" if fill_count > 1 else "BUY",
+                        "symbol": "triangle-up",
+                        "hover": (
+                            f"<b>BUY</b><br>"
+                            f"Time: {candle_time}<br>"
+                            f"Orders: {order_ids}<br>"
+                            f"Quantity: {total_qty:g}<br>"
+                            f"Avg Fill: ${avg_price:,.2f}<br>"
+                            f"Realized PnL: ${realized:,.2f}"
+                        ),
+                    }
+                )
+            else:
+                marker_rows.append(
+                    {
+                        "time": candle_time,
+                        "y": low - offset,
+                        "side": "SELL",
+                        "label": f"SELL x{fill_count}" if fill_count > 1 else "SELL",
+                        "symbol": "triangle-down",
+                        "hover": (
+                            f"<b>SELL</b><br>"
+                            f"Time: {candle_time}<br>"
+                            f"Orders: {order_ids}<br>"
+                            f"Quantity: {total_qty:g}<br>"
+                            f"Avg Fill: ${avg_price:,.2f}<br>"
+                            f"Realized PnL: ${realized:,.2f}"
+                        ),
+                    }
+                )
+
+        if not marker_rows:
+            return fig
+
+        marker_df = pd.DataFrame(marker_rows)
+
+        buys = marker_df[marker_df["side"] == "BUY"]
+        sells = marker_df[marker_df["side"] == "SELL"]
+
+        if not buys.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=buys["time"],
+                    y=buys["y"],
+                    mode="markers+text",
+                    marker=dict(
+                        symbol="triangle-up",
+                        size=14,
+                        color="#22c55e",
+                        line=dict(width=1, color="#ffffff"),
+                    ),
+                    text=buys["label"],
+                    textposition="top center",
+                    hovertext=buys["hover"],
+                    hoverinfo="text",
+                    name="Paper Buys",
+                    showlegend=False,
+                )
+            )
+
+        if not sells.empty:
+            fig.add_trace(
+                go.Scatter(
+                    x=sells["time"],
+                    y=sells["y"],
+                    mode="markers+text",
+                    marker=dict(
+                        symbol="triangle-down",
+                        size=14,
+                        color="#ef4444",
+                        line=dict(width=1, color="#ffffff"),
+                    ),
+                    text=sells["label"],
+                    textposition="bottom center",
+                    hovertext=sells["hover"],
+                    hoverinfo="text",
+                    name="Paper Sells",
+                    showlegend=False,
+                )
+            )
+
+        return fig
+
 
     # ------------------------------------------------------------
     # Dashboard
@@ -978,6 +1223,20 @@ def register_callbacks(
                 "1 min",
                 current_price=current_price,
             )
+
+            if paper_trading_service is not None:
+                try:
+                    fills_df = paper_trading_service.fills_df()
+
+                    if fills_df is not None and not fills_df.empty:
+                        fills_df = fills_df[
+                            fills_df["symbol"].astype(str).str.upper() == str(symbol).upper()
+                            ]
+
+                    fig = _add_trade_markers_to_fig(fig, visible, fills_df)
+
+                except Exception as exc:
+                    print(f"[WATCH TRADE MARKER ERROR] {exc}", flush=True)
 
             fig = _apply_chart_view(
                 fig,

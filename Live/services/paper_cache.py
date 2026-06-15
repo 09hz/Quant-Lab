@@ -11,15 +11,13 @@ import pandas as pd
 
 class PaperStateCache:
     """
-    Durable cache for paper trading data.
+    Durable paper-trading cache.
 
     Saves:
-    - summary snapshot
-    - positions
-    - orders
-    - fills
-
-    This lets the app reload analytics/trade history after restart.
+    - paper_state.json
+    - positions.csv
+    - orders.csv
+    - fills.csv
     """
 
     def __init__(self, cache_dir: str | Path = "cache/paper"):
