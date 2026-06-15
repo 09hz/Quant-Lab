@@ -1,4 +1,5 @@
 from dash import dcc, html
+from datetime import date
 
 
 CHART_CONFIG = {
@@ -107,6 +108,260 @@ def build_dashboard_tab(symbol_options, timeframe_map, default_symbol, default_t
     )
 
 
+def _build_strategy_lab_panel():
+    return html.Div(
+        className="strategy-lab-panel watch-workspace-panel",
+        children=[
+            html.Div(
+                className="strategy-lab-header",
+                children=[
+                    html.Div("Strategy Lab", className="strategy-lab-title"),
+                    html.Div(
+                        "Indicator script only · No auto-trading yet",
+                        className="strategy-lab-subtitle",
+                    ),
+                ],
+            ),
+            dcc.Textarea(
+                id="strategy-script-input",
+                value=(
+                    "fast = sma(close, 9)\n"
+                    "slow = ema(close, 21)\n"
+                    "plot fast\n"
+                    "plot slow"
+                ),
+                placeholder=(
+                    "Example:\n"
+                    "fast = sma(close, 9)\n"
+                    "slow = ema(close, 21)\n"
+                    "plot fast\n"
+                    "plot slow"
+                ),
+                className="strategy-script-input",
+            ),
+            html.Div(
+                className="strategy-lab-actions",
+                children=[
+                    html.Button(
+                        "Run Script",
+                        id="strategy-run",
+                        n_clicks=0,
+                        className="strategy-run-btn",
+                    ),
+                    html.Button(
+                        "Clear",
+                        id="strategy-clear",
+                        n_clicks=0,
+                        className="strategy-clear-btn",
+                    ),
+                ],
+            ),
+            html.Div(
+                id="strategy-status",
+                className="strategy-status",
+                children="Strategy Lab ready.",
+            ),
+        ],
+    )
+
+
+def _build_paper_trading_panel():
+    return html.Div(
+        className="paper-trading-panel watch-workspace-panel",
+        children=[
+            html.Div(
+                className="paper-panel-header",
+                children=[
+                    html.Div("Paper Trading", className="paper-panel-title"),
+                    html.Div(
+                        "Simulated only · No IBKR live orders",
+                        className="paper-panel-subtitle",
+                    ),
+                ],
+            ),
+            html.Div(
+                className="paper-controls-row",
+                children=[
+                    html.Div(
+                        className="control-box control-qty",
+                        children=[
+                            html.Label("Quantity"),
+                            dcc.Input(
+                                id="paper-order-qty",
+                                type="number",
+                                min=1,
+                                step=1,
+                                value=1,
+                                className="paper-input",
+                                debounce=True,
+                            ),
+                        ],
+                    ),
+                    html.Div(
+                        className="paper-control-row",
+                        children=[
+                            html.Div(
+                                className="paper-control-group",
+                                children=[
+                                    html.Label("Price Source", className="paper-control-label"),
+                                    dcc.RadioItems(
+                                        id="paper-price-source",
+                                        options=[
+                                            {"label": "Replay", "value": "replay"},
+                                            {"label": "Live", "value": "live"},
+                                        ],
+                                        value="replay",
+                                        inline=True,
+                                        className="paper-radio",
+                                        inputClassName="paper-radio-input",
+                                        labelClassName="paper-radio-label",
+                                    ),
+                                ],
+                            ),
+                            html.Div(
+                                className="paper-control-group",
+                                children=[
+                                    html.Label("Position Mode", className="paper-control-label"),
+                                    dcc.RadioItems(
+                                        id="paper-position-mode",
+                                        options=[
+                                            {"label": "Long Only", "value": "long_only"},
+                                            {"label": "Allow Shorts", "value": "allow_shorts"},
+                                        ],
+                                        value="long_only",
+                                        inline=True,
+                                        className="paper-radio",
+                                        inputClassName="paper-radio-input",
+                                        labelClassName="paper-radio-label",
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    html.Div(
+                        className="paper-button-group",
+                        children=[
+                            html.Button("Buy", id="paper-buy", n_clicks=0, className="paper-buy-btn"),
+                            html.Button("Sell", id="paper-sell", n_clicks=0, className="paper-sell-btn"),
+                            html.Button(
+                                "Short Buy",
+                                id="paper-short-buy",
+                                n_clicks=0,
+                                className="paper-btn paper-short-btn hidden",
+                            ),
+                            html.Button(
+                                "Short Sell",
+                                id="paper-short-sell",
+                                n_clicks=0,
+                                className="paper-btn paper-short-btn hidden",
+                            ),
+                            html.Button(
+                                "Reset Paper",
+                                id="paper-reset",
+                                n_clicks=0,
+                                className="paper-reset-btn",
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+            html.Div(
+                id="paper-trade-status",
+                className="paper-trade-status",
+                children="Paper account ready.",
+            ),
+            html.Div(
+                className="paper-summary-grid",
+                children=[
+                    html.Div(id="paper-summary-panel", className="paper-summary-panel"),
+                ],
+            ),
+            html.Div(
+                className="paper-table-grid",
+                children=[
+                    html.Div(
+                        className="paper-table-card",
+                        children=[
+                            html.Div("Positions", className="paper-table-title"),
+                            html.Div(id="paper-positions-panel"),
+                        ],
+                    ),
+                    html.Div(
+                        className="paper-table-card",
+                        children=[
+                            html.Div("Orders", className="paper-table-title"),
+                            html.Div(id="paper-orders-panel"),
+                        ],
+                    ),
+                    html.Div(
+                        className="paper-table-card",
+                        children=[
+                            html.Div("Fills", className="paper-table-title"),
+                            html.Div(id="paper-fills-panel"),
+                        ],
+                    ),
+                ],
+            ),
+        ],
+    )
+
+
+def _build_trade_analytics_panel():
+    return html.Div(
+        className="trade-analytics-panel watch-workspace-panel",
+        children=[
+            html.Div(
+                className="trade-analytics-panel-header",
+                children=[
+                    html.Div("Trade Analytics", className="trade-analytics-title"),
+                    html.Div(
+                        "Paper trading performance summary",
+                        className="trade-analytics-subtitle",
+                    ),
+                ],
+            ),
+            html.Div(
+                id="trade-analytics-content",
+                className="trade-analytics-content trade-analytics-content-tabbed",
+                children=[
+                    html.Div("No analytics loaded yet.", className="paper-empty"),
+                ],
+            ),
+        ],
+    )
+
+
+def _build_watch_workspace_tabs():
+    return dcc.Tabs(
+        id="watch-workspace-tabs",
+        value="strategy-lab",
+        className="watch-workspace-tabs",
+        children=[
+            dcc.Tab(
+                label="Strategy Lab",
+                value="strategy-lab",
+                className="watch-workspace-tab",
+                selected_className="watch-workspace-tab-selected",
+                children=[_build_strategy_lab_panel()],
+            ),
+            dcc.Tab(
+                label="Paper Trading",
+                value="paper-trading",
+                className="watch-workspace-tab",
+                selected_className="watch-workspace-tab-selected",
+                children=[_build_paper_trading_panel()],
+            ),
+            dcc.Tab(
+                label="Trade Analytics",
+                value="trade-analytics",
+                className="watch-workspace-tab",
+                selected_className="watch-workspace-tab-selected",
+                children=[_build_trade_analytics_panel()],
+            ),
+        ],
+    )
+
+
 def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_index=100, default_date=None):
     return html.Div(
         className="tab-panel watch-tab-panel",
@@ -151,6 +406,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                                 id="replay-date",
                                 date=default_date,
                                 display_format="MM/DD/YYYY",
+                                max_date_allowed=date.today(),
                                 className="date-picker-dark",
                             ),
                         ],
@@ -223,184 +479,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                 ],
             ),
             html.Div(id="watch-stats-grid", className="stats-grid"),
-
-            html.Div(
-                className="paper-trading-panel",
-                children=[
-                    html.Div(
-                        className="paper-panel-header",
-                        children=[
-                            html.Div("Paper Trading", className="paper-panel-title"),
-                            html.Div(
-                                "Simulated only · No IBKR live orders",
-                                className="paper-panel-subtitle",
-                            ),
-                        ],
-                    ),
-
-                    html.Div(
-                        className="paper-controls-row",
-                        children=[
-                            html.Div(
-                                className="control-box control-qty",
-                                children=[
-                                    html.Label("Quantity"),
-                                    dcc.Input(
-                                        id="paper-order-qty",
-                                        type="number",
-                                        min=1,
-                                        step=1,
-                                        value=1,
-                                        className="paper-input",
-                                        debounce=True,
-                                    ),
-                                ],
-                            ),
-                            html.Div(
-                                className="paper-control-row",
-                                children=[
-                                    html.Div(
-                                        className="paper-control-group",
-                                        children=[
-                                            html.Label("Price Source", className="paper-control-label"),
-                                            dcc.RadioItems(
-                                                id="paper-price-source",
-                                                options=[
-                                                    {"label": "Replay", "value": "replay"},
-                                                    {"label": "Live", "value": "live"},
-                                                ],
-                                                value="replay",
-                                                inline=True,
-                                                className="paper-radio",
-                                                inputClassName="paper-radio-input",
-                                                labelClassName="paper-radio-label",
-                                            ),
-                                        ],
-                                    ),
-                                    html.Div(
-                                        className="paper-control-group",
-                                        children=[
-                                            html.Label("Position Mode", className="paper-control-label"),
-                                            dcc.RadioItems(
-                                                id="paper-position-mode",
-                                                options=[
-                                                    {"label": "Long Only", "value": "long_only"},
-                                                    {"label": "Allow Shorts", "value": "allow_shorts"},
-                                                ],
-                                                value="long_only",
-                                                inline=True,
-                                                className="paper-radio",
-                                                inputClassName="paper-radio-input",
-                                                labelClassName="paper-radio-label",
-                                            ),
-                                        ],
-                                    ),
-                                ],
-                            ),
-                            html.Div(
-                                className="paper-button-group",
-                                children=[
-                                    html.Button("Buy", id="paper-buy", n_clicks=0, className="paper-buy-btn"),
-                                    html.Button("Sell", id="paper-sell", n_clicks=0, className="paper-sell-btn"),
-                                    html.Button(
-                                        "Short Buy",
-                                        id="paper-short-buy",
-                                        n_clicks=0,
-                                        className="paper-btn paper-short-btn hidden",
-                                    ),
-                                    html.Button(
-                                        "Short Sell",
-                                        id="paper-short-sell",
-                                        n_clicks=0,
-                                        className="paper-btn paper-short-btn hidden",
-                                    ),
-                                    html.Button(
-                                        "Reset Paper",
-                                        id="paper-reset",
-                                        n_clicks=0,
-                                        className="paper-reset-btn",
-                                    ),
-                                ],
-                            ),
-                        ],
-                    ),
-
-                    html.Div(
-                        id="paper-trade-status",
-                        className="paper-trade-status",
-                        children="Paper account ready.",
-                    ),
-
-                    html.Div(
-                        className="paper-summary-grid",
-                        children=[
-                            html.Div(id="paper-summary-panel", className="paper-summary-panel"),
-                        ],
-                    ),
-
-                    html.Div(
-                        className="paper-table-grid",
-                        children=[
-                            html.Div(
-                                className="paper-table-card",
-                                children=[
-                                    html.Div("Positions", className="paper-table-title"),
-                                    html.Div(id="paper-positions-panel"),
-                                ],
-                            ),
-                            html.Div(
-                                className="paper-table-card",
-                                children=[
-                                    html.Div("Orders", className="paper-table-title"),
-                                    html.Div(id="paper-orders-panel"),
-                                ],
-                            ),
-                            html.Div(
-                                className="paper-table-card",
-                                children=[
-                                    html.Div("Fills", className="paper-table-title"),
-                                    html.Div(id="paper-fills-panel"),
-                                ],
-                            ),
-                        ],
-                    ),
-                    html.Div(
-                        id="trade-analytics-tab",
-                        n_clicks=0,
-                        className="trade-analytics-tab",
-                        children=[
-                            html.Div("TRADE", className="trade-analytics-tab-text"),
-                            html.Div("ANALYTICS", className="trade-analytics-tab-text"),
-                        ],
-                    ),
-
-                    html.Div(
-                        id="trade-analytics-drawer",
-                        className="trade-analytics-drawer hidden",
-                        children=[
-                            html.Div(
-                                className="trade-analytics-header",
-                                children=[
-                                    html.Div("Trade Analytics", className="trade-analytics-title"),
-                                    html.Button(
-                                        "×",
-                                        id="trade-analytics-close",
-                                        n_clicks=0,
-                                        className="trade-analytics-close",
-                                    ),
-                                ],
-                            ),
-                            html.Div(
-                                id="trade-analytics-content",
-                                className="trade-analytics-content",
-                                children=[
-                                    html.Div("No analytics loaded yet.", className="paper-empty")
-                                ],
-                            ),
-                        ],
-                    ),
-                ],
-            ),
+            _build_watch_workspace_tabs(),
         ],
     )
 

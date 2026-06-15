@@ -19,6 +19,7 @@ from dash import Input, Output, State, html, dcc, no_update, ctx
 from config import DEFAULT_SYMBOL, DEFAULT_TIMEFRAME
 from utils.chart_utils import create_candlestick_figure
 from core.RiskGuard import TradeIntent
+from core.StrategyEngine import StrategyEngine
 
 
 RANGE_DAYS = {
@@ -308,6 +309,7 @@ def register_callbacks(
         paper_trading_service=None,
         paper_state_cache=None,
 ):
+    strategy_engine = StrategyEngine()
     @app.callback(
         Output("pair-title", "children"),
         Input("active-symbol", "data"),
@@ -704,29 +706,8 @@ def register_callbacks(
             return no_update
 
     @app.callback(
-        Output("trade-analytics-drawer", "className"),
-        Input("trade-analytics-tab", "n_clicks"),
-        Input("trade-analytics-close", "n_clicks"),
-        State("main-tabs", "value"),
-        prevent_initial_call=True,
-    )
-    def toggle_trade_analytics_drawer(open_clicks, close_clicks, active_tab):
-        if active_tab != "watch":
-            return no_update
-
-        trigger = ctx.triggered_id
-
-        if trigger == "trade-analytics-tab":
-            return "trade-analytics-drawer"
-
-        if trigger == "trade-analytics-close":
-            return "trade-analytics-drawer hidden"
-
-        return no_update
-
-    @app.callback(
         Output("trade-analytics-content", "children"),
-        Input("trade-analytics-tab", "n_clicks"),
+        Input("watch-workspace-tabs", "value"),
         Input("paper-trade-trigger", "data"),
         Input("replay-render-trigger", "data"),
         State("watch-symbol-dropdown", "value"),
@@ -735,7 +716,7 @@ def register_callbacks(
         prevent_initial_call=False,
     )
     def render_trade_analytics_content(
-            _open_clicks,
+            workspace_tab,
             _paper_trigger,
             _replay_trigger,
             symbol,
@@ -743,6 +724,9 @@ def register_callbacks(
             active_tab,
     ):
         if active_tab != "watch":
+            return no_update
+
+        if workspace_tab not in ("trade-analytics", None):
             return no_update
 
         symbol = (symbol or DEFAULT_SYMBOL).upper().strip()
@@ -1015,23 +999,21 @@ def register_callbacks(
 
         return html.Div(
             children=[
-                cards,
+                         cards,
 
-                html.Div("PnL Curve", className="analytics-section-title"),
-                _build_pnl_chart(symbol_fills),
+                         html.Div("PnL Curve", className="analytics-section-title"),
+                         _build_pnl_chart(symbol_fills),
 
-                html.Div("Open Position", className="analytics-section-title"),
-                _pre_from_df(symbol_positions, "No open position."),
+                         html.Div("Open Position", className="analytics-section-title"),
+                         _pre_from_df(symbol_positions, "No open position."),
 
-                html.Div("Recent Orders", className="analytics-section-title"),
-                _pre_from_df(symbol_orders, "No orders yet."),
+                         html.Div("Recent Orders", className="analytics-section-title"),
+                         _pre_from_df(symbol_orders, "No orders yet."),
 
-                html.Div("Recent Fills", className="analytics-section-title"),
-                _pre_from_df(symbol_fills, "No fills yet."),
-            ]
+                         html.Div("Recent Fills", className="analytics-section-title"),
+                         _pre_from_df(symbol_fills, "No fills yet."),
+                     ]
         )
-
-
     # ------------------------------------------------------------
     # Dashboard
     # ------------------------------------------------------------
@@ -1232,6 +1214,7 @@ def register_callbacks(
         Input("watch-load-request", "data"),
         Input("watch-chart-state", "data"),
         Input("paper-trade-trigger", "data"),
+        Input("strategy-script-store", "data"),
         Input("ui-interval", "n_intervals"),
         State("main-tabs", "value"),
         State("watch-symbol-dropdown", "value"),
@@ -1244,6 +1227,7 @@ def register_callbacks(
             _load_request,
             watch_chart_state,
             _paper_trade_trigger,
+            strategy_store,
             _ui_n,
             active_tab,
             symbol,
@@ -1272,10 +1256,17 @@ def register_callbacks(
                 except Exception:
                     pass
 
-                snap = rt.get_snapshot(symbol, "1 min")
+                try:
+                    snap = rt.get_snapshot(symbol, "1 min")
+                except Exception as snap_exc:
+                    if "No loaded state" in str(snap_exc):
+                        fig = _empty_figure(f"{symbol} | 1 min | Loading Live Market data...")
+                        fig.update_layout(uirevision=f"watch-{symbol}-live-loading")
+                        return fig, max_idx, idx, [], []
+                    raise
+
                 visible = snap.bars.copy() if snap.bars is not None else pd.DataFrame()
 
-                # Keep the chart dynamic by using the latest live tick price.
                 current_price = snap.last
                 updated_at = snap.updated_at or datetime.now()
                 chart_label = "Live Market"
@@ -1296,8 +1287,23 @@ def register_callbacks(
                 fig.update_layout(uirevision=f"watch-{symbol}-empty")
                 return fig, max_idx, idx, [], []
 
-            # In live mode, prefer snap.last. If it is missing, fall back to
-            # the latest candle close.
+            visible = visible.copy()
+
+            if "time" in visible.columns:
+                visible["time"] = pd.to_datetime(
+                    visible["time"],
+                    errors="coerce",
+                    format="mixed",
+                )
+                visible = visible.dropna(
+                    subset=["time", "open", "high", "low", "close"]
+                ).copy()
+
+            if visible.empty:
+                fig = _empty_figure(f"{symbol} | 1 min | Waiting for valid candles...")
+                fig.update_layout(uirevision=f"watch-{symbol}-invalid-bars")
+                return fig, max_idx, idx, [], []
+
             if current_price is None:
                 current_price = float(visible.iloc[-1]["close"])
 
@@ -1313,7 +1319,7 @@ def register_callbacks(
                 try:
                     fills_df = paper_trading_service.fills_df()
 
-                    if fills_df is not None and not fills_df.empty:
+                    if fills_df is not None and not fills_df.empty and "symbol" in fills_df.columns:
                         fills_df = fills_df[
                             fills_df["symbol"].astype(str).str.upper() == symbol.upper()
                             ]
@@ -1322,6 +1328,33 @@ def register_callbacks(
 
                 except Exception as exc:
                     print(f"[WATCH TRADE MARKER ERROR] {exc}", flush=True)
+
+            # Strategy Lab indicator overlays.
+            # Indicator-only for now. No trade execution here.
+            try:
+                strategy_store = strategy_store or {}
+
+                if strategy_store.get("enabled") and strategy_store.get("script"):
+                    strategy_result = strategy_engine.run(
+                        strategy_store.get("script", ""),
+                        visible,
+                    )
+
+                    fig = strategy_engine.add_plots_to_figure(
+                        fig,
+                        visible,
+                        strategy_result,
+                    )
+
+                    if strategy_result.errors:
+                        print(
+                            "[STRATEGY SCRIPT WARNINGS] "
+                            + " | ".join(strategy_result.errors),
+                            flush=True,
+                        )
+
+            except Exception as strategy_exc:
+                print(f"[STRATEGY OVERLAY ERROR] {strategy_exc}", flush=True)
 
             fig = _apply_chart_view(
                 fig,
@@ -1336,8 +1369,15 @@ def register_callbacks(
 
             source_label = "live" if use_live_watch_data else "replay"
 
+            strategy_key = ""
+            try:
+                strategy_key = str((strategy_store or {}).get("nonce", ""))
+            except Exception:
+                strategy_key = ""
+
             fig.update_layout(
                 uirevision=f"watch-{symbol}-{source_label}-{mode}-{range_key}",
+                datarevision=f"watch-{symbol}-{source_label}-{mode}-{range_key}-{idx}-{strategy_key}-{_paper_trade_trigger}",
                 dragmode="pan",
             )
 
@@ -1368,6 +1408,67 @@ def register_callbacks(
             fig.update_layout(uirevision=f"watch-{symbol or DEFAULT_SYMBOL}-error")
             return fig, 100, 1, [], []
 
+    @app.callback(
+        Output("strategy-script-store", "data"),
+        Output("strategy-script-input", "value"),
+        Output("strategy-status", "children"),
+        Input("strategy-run", "n_clicks"),
+        Input("strategy-clear", "n_clicks"),
+        State("strategy-script-input", "value"),
+        State("strategy-script-store", "data"),
+        State("main-tabs", "value"),
+        prevent_initial_call=True,
+    )
+    def update_strategy_script_store(
+            run_clicks,
+            clear_clicks,
+            script_text,
+            current_store,
+            active_tab,
+    ):
+        if active_tab != "watch":
+            return no_update, no_update, no_update
+
+        trigger = ctx.triggered_id
+        current_store = dict(current_store or {})
+        nonce = int(current_store.get("nonce", 0)) + 1
+
+        if trigger == "strategy-clear":
+            return (
+                {
+                    "script": "",
+                    "enabled": False,
+                    "nonce": nonce,
+                },
+                "",
+                "Strategy cleared.",
+            )
+
+        if trigger == "strategy-run":
+            script_text = str(script_text or "").strip()
+
+            if not script_text:
+                return (
+                    {
+                        "script": "",
+                        "enabled": False,
+                        "nonce": nonce,
+                    },
+                    script_text,
+                    "No strategy script entered.",
+                )
+
+            return (
+                {
+                    "script": script_text,
+                    "enabled": True,
+                    "nonce": nonce,
+                },
+                script_text,
+                "Strategy script loaded. Indicators will draw on the Watch chart.",
+            )
+
+        return no_update, no_update, no_update
 
     # ------------------------------------------------------------
     # Paper trading

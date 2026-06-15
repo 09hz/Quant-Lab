@@ -184,6 +184,14 @@ app.layout = html.Div(
         ),
 
         dcc.Store(id="paper-trade-trigger", data=0),
+        dcc.Store(
+            id="strategy-script-store",
+            data={
+                "script": "",
+                "enabled": False,
+                "nonce": 0,
+            },
+        ),
         dcc.Store(id="zoom-state", data={}),
         dcc.Store(id="active-symbol", data=DEFAULT_SYMBOL),
         dcc.Store(id="load-status", data="Ready"),
