@@ -42,8 +42,6 @@ class RiskGuard:
         intent: TradeIntent,
         last_price: Optional[float],
         mode: str = "simulated",
-        current_position: float = 0.0,
-        allow_short_override: Optional[bool] = None,
     ) -> RiskDecision:
         if intent is None:
             return RiskDecision(False, "No trade intent supplied.")
@@ -60,6 +58,11 @@ class RiskGuard:
 
         if side not in {"BUY", "SELL"}:
             return RiskDecision(False, f"Unsupported side: {side}")
+
+        if side == "SELL" and not self.allow_short:
+            # Selling is still allowed later if it closes an existing long position.
+            # The PaperBroker will decide if there is position available.
+            pass
 
         try:
             quantity = float(intent.quantity)
@@ -84,22 +87,7 @@ class RiskGuard:
         notional = quantity * float(last_price)
 
         if notional > self.max_notional:
-            return RiskDecision(
-                False,
-                f"Order notional ${notional:,.2f} exceeds max ${self.max_notional:,.2f}.",
-            )
-
-        effective_allow_short = (
-            self.allow_short
-            if allow_short_override is None
-            else bool(allow_short_override)
-        )
-
-        if side == "SELL" and quantity > max(0.0, float(current_position)) and not effective_allow_short:
-            return RiskDecision(
-                False,
-                f"Short selling is disabled. Current position is {current_position:g}, sell quantity is {quantity:g}.",
-            )
+            return RiskDecision(False, f"Order notional ${notional:,.2f} exceeds max ${self.max_notional:,.2f}.")
 
         if mode == "live" and not self.live_trading_enabled:
             return RiskDecision(False, "Live trading is disabled.")

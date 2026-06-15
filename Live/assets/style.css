@@ -1076,12 +1076,9 @@ button:focus {
     letter-spacing: 0.4px;
     box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
 }
-
-
 /* =========================================================
    PAPER TRADING PANEL
-   One Watch-tab panel for replay and live simulated trading.
-   Stacks below chart/stats and avoids overlap with replay UI.
+   Stacked below Watch chart/stats. No overlap with replay UI.
 ========================================================= */
 
 .paper-trading-panel {
@@ -1126,11 +1123,6 @@ button:focus {
     gap: 16px;
     flex-wrap: wrap;
     margin-bottom: 14px;
-}
-
-#paper-price-source,
-#paper-position-mode {
-    min-width: 170px;
 }
 
 .control-qty {
@@ -1276,11 +1268,7 @@ button:focus {
         align-items: stretch;
     }
 
-    #paper-price-source,
-    #paper-position-mode,
-    .paper-controls-row .control-box,
     .control-qty {
-        width: 100%;
         min-width: 100%;
         max-width: 100%;
     }
@@ -1292,132 +1280,4 @@ button:focus {
     .paper-button-group button {
         flex: 1 1 auto;
     }
-}
-.analytics-open-button {
-    border: 1px solid rgba(56, 189, 248, 0.45);
-    background: rgba(15, 23, 42, 0.95);
-    color: #dbeafe;
-    border-radius: 10px;
-    padding: 8px 14px;
-    font-weight: 700;
-    cursor: pointer;
-}
-
-.analytics-open-button:hover {
-    border-color: rgba(56, 189, 248, 0.9);
-    background: rgba(30, 41, 59, 0.95);
-}
-
-.trade-analytics-drawer {
-    position: fixed;
-    top: 0;
-    right: 0;
-    width: 480px;
-    max-width: 92vw;
-    height: 100vh;
-    z-index: 9999;
-    background: linear-gradient(180deg, #111827 0%, #0f172a 100%);
-    border-left: 1px solid rgba(148, 163, 184, 0.25);
-    box-shadow: -20px 0 60px rgba(0, 0, 0, 0.45);
-    transform: translateX(0);
-    transition: transform 180ms ease;
-    overflow-y: auto;
-}
-
-.trade-analytics-drawer.hidden {
-    transform: translateX(105%);
-}
-
-.trade-analytics-header {
-    position: sticky;
-    top: 0;
-    z-index: 2;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 18px 18px 12px;
-    background: rgba(15, 23, 42, 0.98);
-    border-bottom: 1px solid rgba(148, 163, 184, 0.18);
-}
-
-.trade-analytics-title {
-    font-size: 20px;
-    font-weight: 800;
-    color: #f8fafc;
-}
-
-.trade-analytics-close {
-    border: 1px solid rgba(248, 113, 113, 0.5);
-    background: rgba(127, 29, 29, 0.3);
-    color: #fecaca;
-    width: 34px;
-    height: 34px;
-    border-radius: 10px;
-    cursor: pointer;
-    font-size: 22px;
-    line-height: 1;
-}
-
-.trade-analytics-content {
-    padding: 16px;
-}
-
-.analytics-card-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    margin-bottom: 16px;
-}
-
-.analytics-card {
-    background: rgba(15, 23, 42, 0.8);
-    border: 1px solid rgba(148, 163, 184, 0.15);
-    border-radius: 14px;
-    padding: 12px;
-}
-
-.analytics-label {
-    font-size: 11px;
-    color: #94a3b8;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-    margin-bottom: 6px;
-}
-
-.analytics-value {
-    font-size: 18px;
-    color: #f8fafc;
-    font-weight: 800;
-}
-
-.analytics-positive {
-    color: #22c55e;
-}
-
-.analytics-negative {
-    color: #ef4444;
-}
-
-.analytics-section-title {
-    margin: 18px 0 8px;
-    color: #e5e7eb;
-    font-weight: 800;
-}
-
-.analytics-table {
-    white-space: pre;
-    overflow-x: auto;
-    background: rgba(2, 6, 23, 0.75);
-    border: 1px solid rgba(148, 163, 184, 0.14);
-    border-radius: 12px;
-    padding: 10px;
-    color: #dbeafe;
-    font-size: 11px;
-}
-.analytics-pnl-chart {
-    border: 1px solid rgba(148, 163, 184, 0.14);
-    border-radius: 14px;
-    overflow: hidden;
-    background: rgba(2, 6, 23, 0.75);
-    margin-bottom: 14px;
 }

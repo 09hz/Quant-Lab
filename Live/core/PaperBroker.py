@@ -50,10 +50,8 @@ class PaperBroker:
     """
     Local simulated broker.
 
-    Negative position quantity means a paper short position:
-        quantity =  10 -> long 10
-        quantity =   0 -> flat
-        quantity = -10 -> short 10
+    This does not touch IBKR.
+    It lets your app, strategies, and LLM-generated intents safely test order placement.
     """
 
     def __init__(
@@ -78,13 +76,6 @@ class PaperBroker:
         self.orders.clear()
         self.fills.clear()
         self.positions.clear()
-
-    def get_position_quantity(self, symbol: str) -> float:
-        symbol = str(symbol or "").upper().strip()
-        position = self.positions.get(symbol)
-        if position is None:
-            return 0.0
-        return float(position.quantity)
 
     def submit_order(
         self,
@@ -111,12 +102,7 @@ class PaperBroker:
         self._next_order_id += 1
         self.orders.append(order)
 
-        try:
-            self._try_fill_order(order, last_price=last_price, timestamp=timestamp)
-        except Exception as exc:
-            order.status = "REJECTED"
-            order.reason = f"{order.reason} | Rejected: {exc}".strip(" |")
-            raise
+        self._try_fill_order(order, last_price=last_price, timestamp=timestamp)
 
         return order
 
@@ -194,90 +180,54 @@ class PaperBroker:
         quantity: float,
         price: float,
     ) -> float:
-        symbol = symbol.upper().strip()
-        side = side.upper().strip()
-        quantity = float(quantity)
-        price = float(price)
-
-        if quantity <= 0:
-            raise ValueError("Quantity must be greater than zero.")
-
         position = self.positions.get(symbol)
+
         if position is None:
             position = PaperPosition(symbol=symbol)
             self.positions[symbol] = position
 
         realized_pnl = 0.0
-        old_qty = float(position.quantity)
+        quantity = float(quantity)
+        price = float(price)
 
         if side == "BUY":
-            cash_needed = quantity * price + self.commission_per_order
-            if cash_needed > self.cash:
+            total_cost = quantity * price + self.commission_per_order
+
+            if total_cost > self.cash:
                 raise ValueError(
-                    f"Insufficient paper cash. Needed ${cash_needed:,.2f}, available ${self.cash:,.2f}."
+                    f"Insufficient paper cash. Needed ${total_cost:,.2f}, available ${self.cash:,.2f}."
                 )
 
-            if old_qty < 0:
-                cover_qty = min(quantity, abs(old_qty))
-                realized_pnl += (position.avg_price - price) * cover_qty
-                position.realized_pnl += realized_pnl
-
-                self.cash -= cover_qty * price + self.commission_per_order
-                position.quantity = old_qty + cover_qty
-
-                remaining_buy_qty = quantity - cover_qty
-
-                if remaining_buy_qty > 0:
-                    position.quantity = remaining_buy_qty
-                    position.avg_price = price
-                    self.cash -= remaining_buy_qty * price
-                elif position.quantity == 0:
-                    position.avg_price = 0.0
-
-                return realized_pnl
-
+            old_qty = position.quantity
             old_cost = old_qty * position.avg_price
             new_cost = quantity * price
 
             position.quantity = old_qty + quantity
             position.avg_price = (old_cost + new_cost) / position.quantity if position.quantity else 0.0
-            self.cash -= cash_needed
-            return realized_pnl
 
-        if side == "SELL":
-            if old_qty > 0:
-                close_qty = min(quantity, old_qty)
-                proceeds = close_qty * price - self.commission_per_order
-                realized_pnl += (price - position.avg_price) * close_qty - self.commission_per_order
+            self.cash -= total_cost
 
-                self.cash += proceeds
-                position.quantity = old_qty - close_qty
-                position.realized_pnl += realized_pnl
+        elif side == "SELL":
+            if quantity > position.quantity:
+                raise ValueError(
+                    f"Cannot sell {quantity} {symbol}. Current paper position is {position.quantity}."
+                )
 
-                remaining_sell_qty = quantity - close_qty
+            proceeds = quantity * price - self.commission_per_order
+            realized_pnl = (price - position.avg_price) * quantity - self.commission_per_order
 
-                if remaining_sell_qty > 0:
-                    position.quantity = -remaining_sell_qty
-                    position.avg_price = price
-                    self.cash += remaining_sell_qty * price
-                elif position.quantity == 0:
-                    position.avg_price = 0.0
+            position.quantity -= quantity
+            position.realized_pnl += realized_pnl
+            self.cash += proceeds
 
-                return realized_pnl
+            if position.quantity <= 0:
+                position.quantity = 0.0
+                position.avg_price = 0.0
 
-            short_proceeds = quantity * price - self.commission_per_order
+        else:
+            raise ValueError(f"Unsupported side: {side}")
 
-            old_short_qty = abs(old_qty)
-            old_short_value = old_short_qty * position.avg_price
-            new_short_value = quantity * price
-            new_short_qty = old_short_qty + quantity
-
-            position.quantity = -new_short_qty
-            position.avg_price = (old_short_value + new_short_value) / new_short_qty if new_short_qty else 0.0
-            self.cash += short_proceeds
-            return realized_pnl
-
-        raise ValueError(f"Unsupported side: {side}")
+        return realized_pnl
 
     def mark_to_market_value(self, prices: dict[str, float]) -> float:
         total = self.cash
@@ -287,14 +237,7 @@ class PaperBroker:
             if price is None:
                 price = position.avg_price
 
-            qty = float(position.quantity)
-            price = float(price)
-
-            if qty >= 0:
-                total += qty * price
-            else:
-                # Liability to buy back borrowed shares.
-                total += qty * price
+            total += position.quantity * float(price)
 
         return total
 
@@ -317,7 +260,7 @@ class PaperBroker:
             "starting_cash": self.starting_cash,
             "cash": self.cash,
             "equity": self.mark_to_market_value(prices),
-            "open_positions": len([p for p in self.positions.values() if p.quantity != 0]),
+            "open_positions": len([p for p in self.positions.values() if p.quantity > 0]),
             "orders": len(self.orders),
             "fills": len(self.fills),
         }

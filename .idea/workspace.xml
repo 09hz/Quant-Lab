@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="93fe4438-ee1e-4f0e-a2b9-5093a52cfe98" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/Live/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/Live/app.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Live/assets/style.css" beforeDir="false" afterPath="$PROJECT_DIR$/Live/assets/style.css" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Live/callbacks.py" beforeDir="false" afterPath="$PROJECT_DIR$/Live/callbacks.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Live/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/Live/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Live/core/PaperBroker.py" beforeDir="false" afterPath="$PROJECT_DIR$/Live/core/PaperBroker.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Live/core/RealTime.py" beforeDir="false" afterPath="$PROJECT_DIR$/Live/core/RealTime.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Live/core/ReplayModule.py" beforeDir="false" afterPath="$PROJECT_DIR$/Live/core/ReplayModule.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Live/core/RiskGuard.py" beforeDir="false" afterPath="$PROJECT_DIR$/Live/core/RiskGuard.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Live/services/paper_trading_service.py" beforeDir="false" afterPath="$PROJECT_DIR$/Live/services/paper_trading_service.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Live/ui/tabs_ui.py" beforeDir="false" afterPath="$PROJECT_DIR$/Live/ui/tabs_ui.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Live/utils/chart_utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/Live/utils/chart_utils.py" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="CopilotPersistence">
+    <persistenceIdMap>
+      <entry key="_C:/Users/sunny/Documents/GitHub/Stock_Visualizer" value="3FAolhG3Hf7tduvThBDLdnid95D" />
+    </persistenceIdMap>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
+  "lastFilter": {
+    "state": "OPEN",
+    "assignee": "09hz"
+  }
+}]]></component>
+  <component name="GithubPullRequestsUISettings"><![CDATA[{
+  "selectedUrlAndAccountId": {
+    "url": "https://github.com/09hz/Stock_Visualizer.git",
+    "accountId": "cb109331-8ea6-467e-b43e-f3f0f234263e"
+  }
+}]]></component>
+  <component name="NextEditCompletionFeaturesState">
+    <decayedCancelled>
+      <entry key="MS100" value="1.6071562792213707" />
+      <entry key="MS500" value="2.6409512420952637" />
+      <entry key="S2" value="4.3328126062504335" />
+      <entry key="S5" value="5.593210109643104" />
+      <entry key="S10" value="6.220913029526476" />
+      <entry key="S30" value="6.721170290614699" />
+      <entry key="S60" value="6.858031720770265" />
+      <entry key="M2" value="6.92894054339064" />
+      <entry key="M5" value="7.606538300068074" />
+      <entry key="M10" value="13.556924646615656" />
+      <entry key="M15" value="21.309480371100435" />
+      <entry key="M30" value="38.19848402445062" />
+      <entry key="H1" value="53.06054031269552" />
+      <entry key="H2" value="62.96547992508233" />
+      <entry key="H4" value="68.690006952944" />
+      <entry key="D1" value="73.90520815717218" />
+      <entry key="W1" value="74.84251124226807" />
+    </decayedCancelled>
+    <decayedSelected>
+      <entry key="MS100" value="0.0" />
+      <entry key="MS500" value="0.0" />
+      <entry key="S2" value="0.0" />
+      <entry key="S5" value="0.0" />
+      <entry key="S10" value="0.0" />
+      <entry key="S30" value="0.0" />
+      <entry key="S60" value="0.0" />
+      <entry key="M2" value="0.0" />
+      <entry key="M5" value="0.0" />
+      <entry key="M10" value="0.0" />
+      <entry key="M15" value="0.0" />
+      <entry key="M30" value="0.0" />
+      <entry key="H1" value="0.0" />
+      <entry key="H2" value="0.0" />
+      <entry key="H4" value="0.0" />
+      <entry key="D1" value="0.0" />
+      <entry key="W1" value="0.0" />
+    </decayedSelected>
+    <decayedShown>
+      <entry key="MS100" value="1.5632085062493315" />
+      <entry key="MS500" value="2.6258905910813195" />
+      <entry key="S2" value="4.318190415947828" />
+      <entry key="S5" value="5.5819272172200565" />
+      <entry key="S10" value="6.213731751242668" />
+      <entry key="S30" value="6.718345211669393" />
+      <entry key="S60" value="6.856558663062965" />
+      <entry key="M2" value="6.928188319500977" />
+      <entry key="M5" value="7.606222284666441" />
+      <entry key="M10" value="13.556713449730807" />
+      <entry key="M15" value="21.309293811228635" />
+      <entry key="M30" value="38.198341038314155" />
+      <entry key="H1" value="53.06044698237218" />
+      <entry key="H2" value="62.96542598809868" />
+      <entry key="H4" value="68.68997788378442" />
+      <entry key="D1" value="73.90520299341499" />
+      <entry key="W1" value="74.84251049640157" />
+    </decayedShown>
+  </component>
+  <component name="ProjectColorInfo"><![CDATA[{
+  "associatedIndex": 5,
+  "fromUser": false
+}]]></component>
+  <component name="ProjectId" id="3FAolhG3Hf7tduvThBDLdnid95D" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Python.app.executor": "Run",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "codeWithMe.voiceChat.enabledByDefault": "false",
+    "git-widget-placeholder": "Reverting in PaperTradingFeature",
+    "ignore.virus.scanning.warn.message": "true",
+    "node.js.detected.package.eslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)"
+  }
+}]]></component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-python-sdk-c59985aa861c-c2ffad84badb-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-261.24374.152" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="93fe4438-ee1e-4f0e-a2b9-5093a52cfe98" name="Changes" comment="" />
+      <created>1781527389457</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1781527389457</updated>
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+</project>

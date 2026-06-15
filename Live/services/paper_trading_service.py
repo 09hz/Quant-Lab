@@ -11,7 +11,7 @@ class PaperTradingService:
     """
     Service layer between UI/LLM/strategies and the local PaperBroker.
 
-    This is simulated only. It does not submit live IBKR orders.
+    Later, this same shape can be used for IBKR paper trading through a BrokerAdapter.
     """
 
     def __init__(
@@ -31,21 +31,11 @@ class PaperTradingService:
         last_price: float,
         timestamp: Optional[datetime] = None,
         mode: str = "simulated",
-        allow_short: Optional[bool] = None,
     ) -> tuple[RiskDecision, Optional[PaperOrder]]:
-        symbol = str(intent.symbol or "").upper().strip()
-
-        try:
-            current_position = self.broker.get_position_quantity(symbol)
-        except Exception:
-            current_position = 0.0
-
         decision = self.risk_guard.validate(
             intent=intent,
             last_price=last_price,
             mode=mode,
-            current_position=current_position,
-            allow_short_override=allow_short,
         )
 
         if not decision.approved:
@@ -66,7 +56,6 @@ class PaperTradingService:
         last_price: float,
         reason: str = "",
         source: str = "manual",
-        allow_short: Optional[bool] = None,
     ):
         intent = TradeIntent(
             symbol=symbol,
@@ -77,11 +66,7 @@ class PaperTradingService:
             source=source,
         )
 
-        return self.submit_intent(
-            intent,
-            last_price=last_price,
-            allow_short=allow_short,
-        )
+        return self.submit_intent(intent, last_price=last_price)
 
     def market_sell(
         self,
@@ -90,7 +75,6 @@ class PaperTradingService:
         last_price: float,
         reason: str = "",
         source: str = "manual",
-        allow_short: Optional[bool] = None,
     ):
         intent = TradeIntent(
             symbol=symbol,
@@ -101,11 +85,7 @@ class PaperTradingService:
             source=source,
         )
 
-        return self.submit_intent(
-            intent,
-            last_price=last_price,
-            allow_short=allow_short,
-        )
+        return self.submit_intent(intent, last_price=last_price)
 
     def summary(self, prices: Optional[dict[str, float]] = None) -> dict:
         return self.broker.summary(prices)
