@@ -1,5 +1,5 @@
 from dash import dcc, html
-from datetime import date
+
 
 CHART_CONFIG = {
     "displaylogo": False,
@@ -151,7 +151,6 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                                 id="replay-date",
                                 date=default_date,
                                 display_format="MM/DD/YYYY",
-                                max_date_allowed=date.today(),
                                 className="date-picker-dark",
                             ),
                         ],
@@ -177,7 +176,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                         ],
                     ),
                     html.Div(
-                        className="control-box control-symbol",
+                        className="control-box control-symbol slider-box",
                         children=[
                             html.Label("Position"),
                             dcc.Slider(
@@ -187,11 +186,19 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                                 step=1,
                                 value=default_index,
                             ),
+                            dcc.Input(
+                                id="replay-index-input",
+                                type="number",
+                                min=1,
+                                step=1,
+                                value=default_index,
+                                debounce=True,
+                                className="paper-input replay-index-input",
+                            ),
                         ],
                     ),
                 ],
             ),
-
             html.Div(id="watch-status", className="status-text"),
             html.Div(id="watch-metrics-strip", className="metrics-strip"),
             html.Div(
@@ -216,6 +223,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                 ],
             ),
             html.Div(id="watch-stats-grid", className="stats-grid"),
+
             html.Div(
                 className="paper-trading-panel",
                 children=[
@@ -249,12 +257,69 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                                 ],
                             ),
                             html.Div(
+                                className="paper-control-row",
+                                children=[
+                                    html.Div(
+                                        className="paper-control-group",
+                                        children=[
+                                            html.Label("Price Source", className="paper-control-label"),
+                                            dcc.RadioItems(
+                                                id="paper-price-source",
+                                                options=[
+                                                    {"label": "Replay", "value": "replay"},
+                                                    {"label": "Live", "value": "live"},
+                                                ],
+                                                value="replay",
+                                                inline=True,
+                                                className="paper-radio",
+                                                inputClassName="paper-radio-input",
+                                                labelClassName="paper-radio-label",
+                                            ),
+                                        ],
+                                    ),
+                                    html.Div(
+                                        className="paper-control-group",
+                                        children=[
+                                            html.Label("Position Mode", className="paper-control-label"),
+                                            dcc.RadioItems(
+                                                id="paper-position-mode",
+                                                options=[
+                                                    {"label": "Long Only", "value": "long_only"},
+                                                    {"label": "Allow Shorts", "value": "allow_shorts"},
+                                                ],
+                                                value="long_only",
+                                                inline=True,
+                                                className="paper-radio",
+                                                inputClassName="paper-radio-input",
+                                                labelClassName="paper-radio-label",
+                                            ),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                            html.Div(
                                 className="paper-button-group",
                                 children=[
                                     html.Button("Buy", id="paper-buy", n_clicks=0, className="paper-buy-btn"),
                                     html.Button("Sell", id="paper-sell", n_clicks=0, className="paper-sell-btn"),
-                                    html.Button("Reset Paper", id="paper-reset", n_clicks=0,
-                                                className="paper-reset-btn"),
+                                    html.Button(
+                                        "Short Buy",
+                                        id="paper-short-buy",
+                                        n_clicks=0,
+                                        className="paper-btn paper-short-btn hidden",
+                                    ),
+                                    html.Button(
+                                        "Short Sell",
+                                        id="paper-short-sell",
+                                        n_clicks=0,
+                                        className="paper-btn paper-short-btn hidden",
+                                    ),
+                                    html.Button(
+                                        "Reset Paper",
+                                        id="paper-reset",
+                                        n_clicks=0,
+                                        className="paper-reset-btn",
+                                    ),
                                 ],
                             ),
                         ],

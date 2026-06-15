@@ -11,13 +11,13 @@ import pandas as pd
 
 class PaperStateCache:
     """
-    Durable paper-trading cache.
+    Durable cache for paper trading data.
 
     Saves:
-    - paper_state.json
-    - positions.csv
-    - orders.csv
-    - fills.csv
+    - summary snapshot
+    - positions
+    - orders
+    - fills
     """
 
     def __init__(self, cache_dir: str | Path = "cache/paper"):
