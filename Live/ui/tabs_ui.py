@@ -364,6 +364,41 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                             ),
                         ],
                     ),
+                    html.Div(
+                        id="trade-analytics-tab",
+                        n_clicks=0,
+                        className="trade-analytics-tab",
+                        children=[
+                            html.Div("TRADE", className="trade-analytics-tab-text"),
+                            html.Div("ANALYTICS", className="trade-analytics-tab-text"),
+                        ],
+                    ),
+
+                    html.Div(
+                        id="trade-analytics-drawer",
+                        className="trade-analytics-drawer hidden",
+                        children=[
+                            html.Div(
+                                className="trade-analytics-header",
+                                children=[
+                                    html.Div("Trade Analytics", className="trade-analytics-title"),
+                                    html.Button(
+                                        "×",
+                                        id="trade-analytics-close",
+                                        n_clicks=0,
+                                        className="trade-analytics-close",
+                                    ),
+                                ],
+                            ),
+                            html.Div(
+                                id="trade-analytics-content",
+                                className="trade-analytics-content",
+                                children=[
+                                    html.Div("No analytics loaded yet.", className="paper-empty")
+                                ],
+                            ),
+                        ],
+                    ),
                 ],
             ),
         ],
