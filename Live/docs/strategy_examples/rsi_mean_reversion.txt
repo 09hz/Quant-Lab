@@ -1,0 +1,8 @@
+# RSI Mean Reversion
+
+r = rsi(close, 14)
+
+plot r
+
+buy when crossunder(r, 30)
+sell when crossover(r, 70)

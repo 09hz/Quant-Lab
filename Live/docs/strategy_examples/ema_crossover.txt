@@ -1,0 +1,10 @@
+# EMA Crossover
+
+fast = ema(close, 9)
+slow = ema(close, 21)
+
+plot fast
+plot slow
+
+buy when crossover(fast, slow)
+sell when crossunder(fast, slow)
