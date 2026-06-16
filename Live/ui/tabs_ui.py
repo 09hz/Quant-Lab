@@ -1,5 +1,5 @@
 from dash import dcc, html
-from datetime import date
+from datetime import date, timedelta
 
 
 CHART_CONFIG = {
@@ -33,6 +33,26 @@ def make_replay_speed_options():
         {"label": "2x", "value": 2, "search": "2x double fast"},
         {"label": "5x", "value": 5, "search": "5x very fast"},
     ]
+
+def make_disabled_weekend_days(years_back=10, years_forward=1):
+    """
+    Dash DatePickerSingle accepts disabled_days as a list of YYYY-MM-DD strings.
+    This disables Saturdays and Sundays so users cannot select non-market days.
+    """
+
+    start = date.today() - timedelta(days=365 * years_back)
+    end = date.today() + timedelta(days=365 * years_forward)
+
+    disabled = []
+    current = start
+
+    while current <= end:
+        if current.weekday() >= 5:
+            disabled.append(current.isoformat())
+
+        current += timedelta(days=1)
+
+    return disabled
 
 
 def make_chart_control_buttons(prefix: str):
@@ -161,6 +181,70 @@ def _build_strategy_lab_panel():
                 className="strategy-status",
                 children="Strategy Lab ready.",
             ),
+            html.Div(
+                className="strategy-backtest-panel",
+                children=[
+                    html.Div("Backtest", className="strategy-backtest-title"),
+
+                    html.Div(
+                        className="strategy-backtest-controls",
+                        children=[
+                            html.Div(
+                                className="control-box strategy-backtest-input-box",
+                                children=[
+                                    html.Label("Initial Cash"),
+                                    dcc.Input(
+                                        id="backtest-initial-cash",
+                                        type="number",
+                                        min=100,
+                                        step=100,
+                                        value=100000,
+                                        className="paper-input",
+                                        debounce=True,
+                                    ),
+                                ],
+                            ),
+                            html.Div(
+                                className="control-box strategy-backtest-input-box",
+                                children=[
+                                    html.Label("Quantity"),
+                                    dcc.Input(
+                                        id="backtest-quantity",
+                                        type="number",
+                                        min=1,
+                                        step=1,
+                                        value=10,
+                                        className="paper-input",
+                                        debounce=True,
+                                    ),
+                                ],
+                            ),
+                            html.Button(
+                                "Run Backtest",
+                                id="strategy-run-backtest",
+                                n_clicks=0,
+                                className="strategy-run-btn",
+                            ),
+                        ],
+                    ),
+
+                    html.Div(
+                        id="backtest-status",
+                        className="strategy-status",
+                        children="Backtest ready.",
+                    ),
+
+                    html.Div(
+                        id="backtest-results-panel",
+                        className="backtest-results-panel",
+                        children=[
+                            html.Div("Run a backtest to see results.", className="paper-empty")
+                        ],
+                    ),
+                ],
+            ),
+
+
         ],
     )
 
@@ -385,6 +469,27 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                         ],
                     ),
                     html.Div(
+                        className="control-box control-timeframe",
+                        children=[
+                            html.Label("Interval"),
+                            dcc.Dropdown(
+                                id="watch-timeframe-dropdown",
+                                options=[
+                                    {"label": "1 Min", "value": "1 min"},
+                                    {"label": "5 Min", "value": "5 min"},
+                                    {"label": "15 Min", "value": "15 min"},
+                                    {"label": "30 Min", "value": "30 min"},
+                                    {"label": "1 Hour", "value": "1 hour"},
+                                    {"label": "1 Day", "value": "1 day"},
+                                ],
+                                value="1 min",
+                                clearable=False,
+                                searchable=False,
+                                className="black-dropdown",
+                            ),
+                        ],
+                    ),
+                    html.Div(
                         className="control-box control-timeframe control-speed",
                         children=[
                             html.Label("Speed"),
@@ -407,6 +512,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                                 date=default_date,
                                 display_format="MM/DD/YYYY",
                                 max_date_allowed=date.today(),
+                                disabled_days=make_disabled_weekend_days(),
                                 className="date-picker-dark",
                             ),
                         ],

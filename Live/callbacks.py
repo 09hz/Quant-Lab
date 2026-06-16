@@ -20,7 +20,7 @@ from config import DEFAULT_SYMBOL, DEFAULT_TIMEFRAME
 from utils.chart_utils import create_candlestick_figure
 from core.RiskGuard import TradeIntent
 from core.StrategyEngine import StrategyEngine
-
+from core.BackTestEngine import BackTestEngine
 
 RANGE_DAYS = {
     "1D": 1,
@@ -289,9 +289,6 @@ def _is_today_or_latest_replay_date(replay_date) -> bool:
     except Exception:
         return False
 
-
-
-
 def _default_chart_state(range_key="1D"):
     return {
         "mode": "live",
@@ -310,6 +307,8 @@ def register_callbacks(
         paper_state_cache=None,
 ):
     strategy_engine = StrategyEngine()
+    backtest_engine = BackTestEngine()
+
     @app.callback(
         Output("pair-title", "children"),
         Input("active-symbol", "data"),
@@ -408,8 +407,6 @@ def register_callbacks(
             return symbol, f"Loading live data for {symbol}"
         except Exception as exc:
             return no_update, f"Error: {exc}"
-
-
 
     # ------------------------------------------------------------
     # Dashboard chart interaction state
@@ -1014,6 +1011,443 @@ def register_callbacks(
                          _pre_from_df(symbol_fills, "No fills yet."),
                      ]
         )
+
+    def _build_backtest_equity_graph(equity_curve, initial_cash=100000):
+        fig = go.Figure()
+
+        fig.update_layout(
+            title="Backtest Cumulative PnL",
+            template="plotly_dark",
+            paper_bgcolor="#10101a",
+            plot_bgcolor="#0a0a12",
+            font={"color": "#f1f1f8"},
+            height=300,
+            margin=dict(l=42, r=24, t=50, b=38),
+            showlegend=False,
+            hovermode="x unified",
+        )
+
+        if equity_curve is not None and not equity_curve.empty and "equity" in equity_curve.columns:
+            df = equity_curve.copy()
+
+            df["equity"] = pd.to_numeric(df["equity"], errors="coerce")
+            df = df.dropna(subset=["equity"]).copy()
+
+            if not df.empty:
+                x_values = df["time"] if "time" in df.columns else df.index
+                df["cumulative_pnl"] = df["equity"] - float(initial_cash)
+
+                final_pnl = float(df["cumulative_pnl"].iloc[-1])
+                line_color = "#34d399" if final_pnl >= 0 else "#ff6b6b"
+
+                fig.add_trace(
+                    go.Scatter(
+                        x=x_values,
+                        y=df["cumulative_pnl"],
+                        mode="lines",
+                        name="Cumulative PnL",
+                        line=dict(width=3, color=line_color),
+                        hovertemplate=(
+                            "Time: %{x}<br>"
+                            "PnL: $%{y:,.2f}"
+                            "<extra></extra>"
+                        ),
+                    )
+                )
+
+                fig.add_hline(
+                    y=0,
+                    line_width=1,
+                    line_dash="dot",
+                    line_color="rgba(148, 163, 184, 0.7)",
+                )
+
+                fig.update_layout(
+                    title=f"Backtest Cumulative PnL: ${final_pnl:,.2f}",
+                )
+
+                fig.update_yaxes(
+                    title="PnL $",
+                    showgrid=True,
+                    gridcolor="rgba(255,255,255,0.06)",
+                    zeroline=False,
+                )
+
+                fig.update_xaxes(
+                    showgrid=True,
+                    gridcolor="rgba(255,255,255,0.06)",
+                )
+
+        return dcc.Graph(
+            figure=fig,
+            config={"displayModeBar": False, "responsive": True},
+            className="analytics-pnl-chart",
+        )
+
+    def _build_backtest_trades_table(trades):
+        if not trades:
+            return html.Div("No completed trades.", className="paper-empty")
+
+        rows = []
+
+        for trade in trades[-20:]:
+            rows.append(
+                {
+                    "Entry Time": trade.entry_time,
+                    "Exit Time": trade.exit_time,
+                    "Entry": round(float(trade.entry_price), 4),
+                    "Exit": round(float(trade.exit_price), 4),
+                    "Qty": int(trade.quantity),
+                    "PnL": round(float(trade.pnl), 2),
+                    "Return %": round(float(trade.return_pct), 2),
+                    "Bars": int(trade.bars_held),
+                }
+            )
+
+        df = pd.DataFrame(rows)
+
+        return html.Pre(
+            df.to_string(index=False),
+            className="analytics-table",
+        )
+
+    def _build_backtest_results_panel(backtest_result):
+        if backtest_result is None:
+            return html.Div("No backtest result.", className="paper-empty")
+
+        pnl_class = (
+            "analytics-value analytics-positive"
+            if backtest_result.total_pnl >= 0
+            else "analytics-value analytics-negative"
+        )
+
+        cards = html.Div(
+            className="analytics-card-grid backtest-card-grid",
+            children=[
+                html.Div(
+                    className="analytics-card",
+                    children=[
+                        html.Div("Final Equity", className="analytics-label"),
+                        html.Div(
+                            f"${backtest_result.final_equity:,.2f}",
+                            className="analytics-value",
+                        ),
+                    ],
+                ),
+                html.Div(
+                    className="analytics-card",
+                    children=[
+                        html.Div("Total PnL", className="analytics-label"),
+                        html.Div(
+                            f"${backtest_result.total_pnl:,.2f}",
+                            className=pnl_class,
+                        ),
+                    ],
+                ),
+                html.Div(
+                    className="analytics-card",
+                    children=[
+                        html.Div("Return", className="analytics-label"),
+                        html.Div(
+                            f"{backtest_result.total_return_pct:,.2f}%",
+                            className=pnl_class,
+                        ),
+                    ],
+                ),
+                html.Div(
+                    className="analytics-card",
+                    children=[
+                        html.Div("Max Drawdown", className="analytics-label"),
+                        html.Div(
+                            f"{backtest_result.max_drawdown_pct:,.2f}%",
+                            className="analytics-value analytics-negative",
+                        ),
+                    ],
+                ),
+                html.Div(
+                    className="analytics-card",
+                    children=[
+                        html.Div("Trades", className="analytics-label"),
+                        html.Div(
+                            str(backtest_result.trade_count),
+                            className="analytics-value",
+                        ),
+                    ],
+                ),
+                html.Div(
+                    className="analytics-card",
+                    children=[
+                        html.Div("Win Rate", className="analytics-label"),
+                        html.Div(
+                            f"{backtest_result.win_rate_pct:,.2f}%",
+                            className="analytics-value",
+                        ),
+                    ],
+                ),
+            ],
+        )
+
+        errors = []
+
+        if backtest_result.errors:
+            errors = [
+                html.Div("Backtest Notes", className="analytics-section-title"),
+                html.Pre(
+                    "\n".join(backtest_result.errors),
+                    className="analytics-table",
+                ),
+            ]
+
+        return html.Div(
+            children=[
+                cards,
+                html.Div("Cumulative PnL", className="analytics-section-title"),
+                _build_backtest_equity_graph(
+                    backtest_result.equity_curve,
+                    backtest_result.initial_cash,
+                ),
+                html.Div("Trades", className="analytics-section-title"),
+                _build_backtest_trades_table(backtest_result.trades),
+                *errors,
+            ]
+        )
+
+    def _get_backtest_bars():
+        """
+        Prefer the full loaded replay dataset for backtests.
+        Fall back to visible bars if the replay service does not expose full bars.
+        """
+
+        method_names = [
+            "all_bars",
+            "full_bars",
+            "loaded_bars",
+            "bars_df",
+            "get_all_bars",
+            "get_full_bars",
+        ]
+
+        for name in method_names:
+            obj = getattr(replay_service, name, None)
+
+            if callable(obj):
+                try:
+                    bars = obj()
+
+                    if bars is not None and not bars.empty:
+                        return bars.copy()
+                except Exception:
+                    pass
+
+        attr_names = [
+            "bars",
+            "_bars",
+            "df",
+            "_df",
+            "data",
+            "_data",
+            "replay_bars",
+            "_replay_bars",
+            "loaded_df",
+            "_loaded_df",
+        ]
+
+        for name in attr_names:
+            try:
+                bars = getattr(replay_service, name, None)
+
+                if bars is not None and not bars.empty:
+                    return bars.copy()
+            except Exception:
+                pass
+
+        try:
+            visible = replay_service.visible_bars()
+
+            if visible is not None and not visible.empty:
+                return visible.copy()
+        except Exception:
+            pass
+
+        return pd.DataFrame()
+
+    @app.callback(
+        Output("backtest-status", "children"),
+        Output("backtest-results-panel", "children"),
+        Input("strategy-run-backtest", "n_clicks"),
+        State("strategy-script-input", "value"),
+        State("backtest-initial-cash", "value"),
+        State("backtest-quantity", "value"),
+        State("main-tabs", "value"),
+        State("watch-symbol-dropdown", "value"),
+        prevent_initial_call=True,
+    )
+    def run_strategy_backtest(
+            n_clicks,
+            script_text,
+            initial_cash,
+            quantity,
+            active_tab,
+            symbol,
+    ):
+        if active_tab != "watch":
+            return no_update, no_update
+
+        script_text = str(script_text or "").strip()
+        symbol = (symbol or DEFAULT_SYMBOL).upper().strip()
+
+        if not script_text:
+            return (
+                "No strategy script entered.",
+                html.Div(
+                    "Enter a strategy script first.",
+                    className="paper-empty",
+                ),
+            )
+
+        try:
+            visible = _get_backtest_bars()
+
+            if visible is None or visible.empty:
+                return (
+                    "No replay bars available.",
+                    html.Div(
+                        "Load replay data before running a backtest.",
+                        className="paper-empty",
+                    ),
+                )
+
+            strategy_result = strategy_engine.run(script_text, visible)
+
+            if not strategy_result.signals:
+                return (
+                    f"No strategy signals found for {symbol}. Bars checked: {len(visible):,}.",
+                    html.Div(
+                        [
+                            html.Div("No Signals", className="analytics-section-title"),
+                            html.Div(
+                                "The script ran, but no buy/sell signals were generated. "
+                                "Try a faster crossover like SMA 3 / SMA 8, move replay farther forward, "
+                                "or backtest a larger loaded dataset.",
+                                className="paper-empty",
+                            ),
+                        ]
+                    ),
+                )
+
+
+
+            if strategy_result.errors:
+                return (
+                    "Strategy script has errors.",
+                    html.Div(
+                        children=[
+                            html.Div("Script Errors", className="analytics-section-title"),
+                            html.Pre(
+                                "\n".join(strategy_result.errors),
+                                className="analytics-table",
+                            ),
+                        ]
+                    ),
+                )
+
+            backtest_result = backtest_engine.run(
+                bars=visible,
+                signals=strategy_result.signals,
+                initial_cash=initial_cash or 100000,
+                quantity=quantity or 1,
+            )
+
+            return (
+                f"Backtest complete for {symbol}.",
+                _build_backtest_results_panel(backtest_result),
+            )
+
+        except Exception as exc:
+            print(f"[BACKTEST ERROR] {exc}", flush=True)
+            return (
+                f"Backtest error: {exc}",
+                html.Div(str(exc), className="paper-empty"),
+            )
+
+    def _resample_watch_bars(bars, timeframe):
+        """
+        Convert 1-minute replay/live bars into larger chart intervals for Watch.
+        Replay still runs on the original data; this only changes chart display.
+        """
+
+        if bars is None or bars.empty:
+            return pd.DataFrame()
+
+        timeframe = str(timeframe or "1 min").lower().strip()
+
+        rule_map = {
+            "1 min": None,
+            "1m": None,
+            "5 min": "5min",
+            "5m": "5min",
+            "15 min": "15min",
+            "15m": "15min",
+            "30 min": "30min",
+            "30m": "30min",
+            "1 hour": "1h",
+            "1h": "1h",
+            "1 day": "1D",
+            "1d": "1D",
+        }
+
+        rule = rule_map.get(timeframe)
+
+        clean = bars.copy()
+
+        if "time" not in clean.columns:
+            return clean
+
+        clean["time"] = pd.to_datetime(
+            clean["time"],
+            errors="coerce",
+            format="mixed",
+        )
+
+        clean = clean.dropna(
+            subset=["time", "open", "high", "low", "close"]
+        ).copy()
+
+        if clean.empty:
+            return clean
+
+        for col in ["open", "high", "low", "close"]:
+            clean[col] = pd.to_numeric(clean[col], errors="coerce")
+
+        if "volume" in clean.columns:
+            clean["volume"] = pd.to_numeric(clean["volume"], errors="coerce").fillna(0)
+        else:
+            clean["volume"] = 0
+
+        clean = clean.dropna(subset=["open", "high", "low", "close"]).copy()
+        clean = clean.sort_values("time").copy()
+
+        if rule is None:
+            return clean.reset_index(drop=True)
+
+        resampled = (
+            clean.set_index("time")
+            .resample(rule)
+            .agg(
+                {
+                    "open": "first",
+                    "high": "max",
+                    "low": "min",
+                    "close": "last",
+                    "volume": "sum",
+                }
+            )
+            .dropna(subset=["open", "high", "low", "close"])
+            .reset_index()
+        )
+
+        return resampled.reset_index(drop=True)
+
     # ------------------------------------------------------------
     # Dashboard
     # ------------------------------------------------------------
@@ -1218,6 +1652,7 @@ def register_callbacks(
         Input("ui-interval", "n_intervals"),
         State("main-tabs", "value"),
         State("watch-symbol-dropdown", "value"),
+        State("watch-timeframe-dropdown", "value"),
         State("paper-price-source", "value"),
         State("replay-date", "date"),
         prevent_initial_call=True,
@@ -1231,6 +1666,7 @@ def register_callbacks(
             _ui_n,
             active_tab,
             symbol,
+            watch_timeframe,
             price_source,
             replay_date,
     ):
@@ -1307,10 +1743,20 @@ def register_callbacks(
             if current_price is None:
                 current_price = float(visible.iloc[-1]["close"])
 
-            fig = create_candlestick_figure(
+            chart_bars = _resample_watch_bars(
                 visible,
+                watch_timeframe,
+            )
+
+            if chart_bars is None or chart_bars.empty:
+                fig = _empty_figure(f"{symbol} | {watch_timeframe or '1 min'} | Waiting for valid candles...")
+                fig.update_layout(uirevision=f"watch-{symbol}-empty-{watch_timeframe}")
+                return fig, max_idx, idx, [], []
+
+            fig = create_candlestick_figure(
+                chart_bars,
                 symbol,
-                "1 min",
+                watch_timeframe or "1 min",
                 current_price=current_price,
             )
 
@@ -1324,7 +1770,7 @@ def register_callbacks(
                             fills_df["symbol"].astype(str).str.upper() == symbol.upper()
                             ]
 
-                    fig = _add_trade_markers_to_fig(fig, visible, fills_df)
+                    fig = _add_trade_markers_to_fig(fig, chart_bars, fills_df)
 
                 except Exception as exc:
                     print(f"[WATCH TRADE MARKER ERROR] {exc}", flush=True)
@@ -1337,12 +1783,17 @@ def register_callbacks(
                 if strategy_store.get("enabled") and strategy_store.get("script"):
                     strategy_result = strategy_engine.run(
                         strategy_store.get("script", ""),
-                        visible,
+                        chart_bars,
                     )
 
                     fig = strategy_engine.add_plots_to_figure(
                         fig,
-                        visible,
+                        chart_bars,
+                        strategy_result,
+                    )
+
+                    fig = strategy_engine.add_signals_to_figure(
+                        fig,
                         strategy_result,
                     )
 
@@ -1358,7 +1809,7 @@ def register_callbacks(
 
             fig = _apply_chart_view(
                 fig,
-                visible,
+                chart_bars,
                 watch_chart_state,
                 default_range="1D",
             )
@@ -1392,7 +1843,7 @@ def register_callbacks(
                 updated_at,
             )
 
-            stats = _build_stats_grid_from_bars(visible)
+            stats = _build_stats_grid_from_bars(chart_bars)
 
             return (
                 fig,
@@ -1469,6 +1920,8 @@ def register_callbacks(
             )
 
         return no_update, no_update, no_update
+
+
 
     # ------------------------------------------------------------
     # Paper trading
