@@ -201,30 +201,26 @@ def create_candlestick_figure(
         )
 
     fig.update_layout(
-        title=dict(
-            text=f"{symbol} · {timeframe}",
-            x=0.02,
-            xanchor="left",
-            font=dict(size=18, color="#f8fbff"),
-        ),
         template="plotly_dark",
-        paper_bgcolor="#071224",
-        plot_bgcolor="#071224",
-        font={"color": "#dbe7ff"},
-        margin=dict(l=16, r=56, t=44, b=16),
-        xaxis_rangeslider_visible=False,
+        paper_bgcolor="#0d1b4f",
+        plot_bgcolor="#0d1b4f",
+        font={"color": "#e8f1ff"},
         dragmode="pan",
         hovermode="x unified",
+        margin={"l": 40, "r": 20, "t": 50, "b": 40},
     )
 
     fig.update_xaxes(
-        showgrid=True,
-        gridcolor="rgba(255,255,255,0.05)",
-        zeroline=False,
-        showline=False,
+        rangebreaks=[
+            dict(bounds=["sat", "mon"]),
+            dict(bounds=[16, 9.5], pattern="hour"),
+        ],
         rangeslider_visible=False,
-        fixedrange=False,
     )
+
+    fig.update_yaxes(fixedrange=False)
+
+
     fig.update_yaxes(
         showgrid=True,
         gridcolor="rgba(255,255,255,0.05)",
