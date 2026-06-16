@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from pathlib import Path
 import time
 
 import pandas as pd
@@ -22,6 +23,16 @@ from utils.chart_utils import create_candlestick_figure
 from core.RiskGuard import TradeIntent
 from core.StrategyEngine import StrategyEngine
 from core.BackTestEngine import BackTestEngine
+
+try:
+    from core.StrategyFunctionRegistry import get_function_reference_markdown
+except Exception:
+    def get_function_reference_markdown() -> str:
+        return (
+            "# Strategy Function Reference\n\n"
+            "Function registry could not be imported. "
+            "Make sure `Live/core/StrategyFunctionRegistry.py` exists."
+        )
 
 RANGE_DAYS = {
     "1D": 1,
@@ -331,71 +342,35 @@ def register_callbacks(
 
         return days
 
-    def _get_backtest_bars() -> pd.DataFrame:
-        """
-        Backtests should run on the full loaded replay dataset, not only visible bars.
+    def _strategy_docs_dir() -> Path:
+        return Path(__file__).resolve().parent / "docs"
 
-        Priority:
-        1. replay_service.all_bars()
-        2. replay_service.full_bars()
-        3. replay_service.loaded_bars()
-        4. replay_service.engine.bars
-        5. fallback to visible_bars()
-        """
+    def _strategy_examples_dir() -> Path:
+        return _strategy_docs_dir() / "strategy_examples"
 
-        candidates = []
-
-        for method_name in ["all_bars", "full_bars", "loaded_bars"]:
-            try:
-                method = getattr(replay_service, method_name, None)
-
-                if callable(method):
-                    bars = method()
-
-                    if bars is not None and hasattr(bars, "empty") and not bars.empty:
-                        candidates.append(bars.copy())
-            except Exception as exc:
-                print(f"[BACKTEST DATA] {method_name} failed: {exc}", flush=True)
-
+    def _read_strategy_doc_file(path: Path, fallback: str) -> str:
         try:
-            engine = getattr(replay_service, "engine", None)
-
-            if engine is not None:
-                bars = getattr(engine, "bars", None)
-
-                if bars is not None and hasattr(bars, "empty") and not bars.empty:
-                    candidates.append(bars.copy())
+            if path.exists() and path.is_file():
+                return path.read_text(encoding="utf-8")
         except Exception as exc:
-            print(f"[BACKTEST DATA] engine.bars failed: {exc}", flush=True)
+            print(f"[STRATEGY DOC READ ERROR] {path}: {exc}", flush=True)
 
-        try:
-            bars = replay_service.visible_bars()
+        return fallback
 
-            if bars is not None and hasattr(bars, "empty") and not bars.empty:
-                candidates.append(bars.copy())
-        except Exception as exc:
-            print(f"[BACKTEST DATA] visible_bars fallback failed: {exc}", flush=True)
+    def _read_strategy_example(example_file: str) -> str:
+        safe_name = Path(str(example_file or "ema_crossover.txt")).name
+        path = _strategy_examples_dir() / safe_name
 
-        if not candidates:
-            return pd.DataFrame(columns=["time", "open", "high", "low", "close", "volume"])
+        fallback = (
+            "fast = ema(close, 9)\n"
+            "slow = ema(close, 21)\n\n"
+            "plot fast\n"
+            "plot slow\n\n"
+            "buy when crossover(fast, slow)\n"
+            "sell when crossunder(fast, slow)\n"
+        )
 
-        bars = candidates[0].copy()
-
-        if "time" in bars.columns:
-            bars["time"] = pd.to_datetime(bars["time"], errors="coerce")
-            bars = bars.dropna(subset=["time"]).sort_values("time").copy()
-
-        required = ["time", "open", "high", "low", "close", "volume"]
-        missing = [col for col in required if col not in bars.columns]
-
-        if missing:
-            print(f"[BACKTEST DATA] missing columns: {missing}", flush=True)
-            return pd.DataFrame(columns=required)
-
-        bars = bars[required].copy()
-        bars = bars.dropna(subset=["open", "high", "low", "close"]).reset_index(drop=True)
-
-        return bars
+        return _read_strategy_doc_file(path, fallback).strip()
 
     @app.callback(
         Output("pair-title", "children"),
@@ -1422,6 +1397,124 @@ def register_callbacks(
         return pd.DataFrame()
 
     @app.callback(
+        Output("strategy-script-input", "value", allow_duplicate=True),
+        Output("strategy-status", "children", allow_duplicate=True),
+        Input("strategy-insert-example", "n_clicks"),
+        State("strategy-example-dropdown", "value"),
+        State("main-tabs", "value"),
+        prevent_initial_call=True,
+    )
+    def insert_strategy_example(n_clicks, example_file, active_tab):
+        if active_tab != "watch":
+            return no_update, no_update
+
+        if not n_clicks:
+            return no_update, no_update
+
+        script = _read_strategy_example(example_file)
+        safe_name = Path(str(example_file or "")).name
+
+        if safe_name == "ema_supertrend.txt":
+            return (
+                script,
+                (
+                    "Inserted EMA + Supertrend planned example. "
+                    "This example is documentation only until Strategy Language v0.2 supports "
+                    "ta.supertrend, ta.ema, boolean expressions, and comparisons."
+                ),
+            )
+
+        label = {
+            "ema_crossover.txt": "EMA Crossover",
+            "sma_fast_test.txt": "Fast SMA Test",
+            "rsi_mean_reversion.txt": "RSI Mean Reversion",
+        }.get(safe_name, safe_name or "example")
+
+        return script, f"Inserted example: {label}"
+
+    @app.callback(
+        Output("strategy-help-content", "children"),
+        Input("strategy-show-language-guide", "n_clicks"),
+        Input("strategy-show-function-reference", "n_clicks"),
+        Input("strategy-example-dropdown", "value"),
+        State("main-tabs", "value"),
+        prevent_initial_call=False,
+    )
+    def render_strategy_help_content(
+            guide_clicks,
+            reference_clicks,
+            example_file,
+            active_tab,
+    ):
+        if active_tab != "watch":
+            return no_update
+
+        trigger = ctx.triggered_id
+
+        if trigger == "strategy-show-function-reference":
+            try:
+                markdown_text = get_function_reference_markdown()
+            except Exception as exc:
+                markdown_text = (
+                    "# Function Reference\n\n"
+                    "Could not load function registry.\n\n"
+                    f"Error: `{exc}`"
+                )
+
+            return html.Div(
+                className="strategy-help-markdown-card",
+                children=[
+                    dcc.Markdown(
+                        markdown_text,
+                        className="strategy-help-markdown",
+                    ),
+                ],
+            )
+
+        if trigger == "strategy-example-dropdown":
+            example_text = _read_strategy_example(example_file)
+
+            return html.Div(
+                className="strategy-help-markdown-card",
+                children=[
+                    html.Div("Example Preview", className="analytics-section-title"),
+                    html.Pre(
+                        example_text,
+                        className="strategy-example-preview",
+                    ),
+                ],
+            )
+
+        guide_path = _strategy_docs_dir() / "STRATEGY_LANGUAGE.md"
+
+        guide_text = _read_strategy_doc_file(
+            guide_path,
+            fallback=(
+                "# Strategy Language\n\n"
+                "Could not find `Live/docs/STRATEGY_LANGUAGE.md`.\n\n"
+                "Supported basic example:\n\n"
+                "```text\n"
+                "fast = ema(close, 9)\n"
+                "slow = ema(close, 21)\n"
+                "plot fast\n"
+                "plot slow\n"
+                "buy when crossover(fast, slow)\n"
+                "sell when crossunder(fast, slow)\n"
+                "```"
+            ),
+        )
+
+        return html.Div(
+            className="strategy-help-markdown-card",
+            children=[
+                dcc.Markdown(
+                    guide_text,
+                    className="strategy-help-markdown",
+                ),
+            ],
+        )
+
+    @app.callback(
         Output("backtest-status", "children"),
         Output("backtest-results-panel", "children"),
         Input("strategy-run-backtest", "n_clicks"),
@@ -1467,11 +1560,14 @@ def register_callbacks(
                     ),
                 )
 
-            print(
-                f"[BACKTEST DATA] using {len(bars):,} bars "
-                f"from {bars['time'].iloc[0]} to {bars['time'].iloc[-1]}",
-                flush=True,
-            )
+            if "time" in bars.columns and not bars.empty:
+                print(
+                    f"[BACKTEST DATA] using {len(bars):,} bars "
+                    f"from {bars['time'].iloc[0]} to {bars['time'].iloc[-1]}",
+                    flush=True,
+                )
+            else:
+                print(f"[BACKTEST DATA] using {len(bars):,} bars", flush=True)
 
             strategy_result = strategy_engine.run(script_text, bars)
 
@@ -1834,9 +1930,11 @@ def register_callbacks(
         if active_tab != "watch":
             return no_update, no_update, no_update, no_update, no_update
 
+        symbol = (symbol or DEFAULT_SYMBOL).upper().strip()
+
         try:
-            symbol = (symbol or DEFAULT_SYMBOL).upper().strip()
             price_source = str(price_source or "replay").lower().strip()
+            display_timeframe = str(watch_timeframe or "1 min")
 
             use_live_watch_data = (
                     price_source == "live"
@@ -1846,6 +1944,13 @@ def register_callbacks(
             info = replay_service.info()
             max_idx = max(1, int(info.get("max_index", 1)))
             idx = max(1, int(info.get("current_index", 1)))
+
+            visible = pd.DataFrame(
+                columns=["time", "open", "high", "low", "close", "volume"]
+            )
+            current_price = None
+            updated_at = datetime.now()
+            chart_label = "Replay Cursor"
 
             if use_live_watch_data:
                 try:
@@ -1857,30 +1962,40 @@ def register_callbacks(
                     snap = rt.get_snapshot(symbol, "1 min")
                 except Exception as snap_exc:
                     if "No loaded state" in str(snap_exc):
-                        fig = _empty_figure(f"{symbol} | 1 min | Loading Live Market data...")
+                        fig = _empty_figure(
+                            f"{symbol} | {display_timeframe} | Loading Live Market data..."
+                        )
                         fig.update_layout(uirevision=f"watch-{symbol}-live-loading")
                         return fig, max_idx, idx, [], []
+
                     raise
 
-                visible = snap.bars.copy() if snap.bars is not None else pd.DataFrame()
+                if snap.bars is not None and not snap.bars.empty:
+                    visible = snap.bars.copy()
 
                 current_price = snap.last
                 updated_at = snap.updated_at or datetime.now()
                 chart_label = "Live Market"
 
             else:
-                visible = replay_service.visible_bars()
+                try:
+                    visible = replay_service.visible_bars()
+                except Exception as replay_exc:
+                    print(f"[WATCH RENDER] visible_bars failed: {replay_exc}", flush=True)
+                    visible = pd.DataFrame(
+                        columns=["time", "open", "high", "low", "close", "volume"]
+                    )
 
-                current_price = (
-                    float(visible.iloc[-1]["close"])
-                    if visible is not None and not visible.empty
-                    else None
-                )
+                if visible is not None and not visible.empty:
+                    current_price = float(visible.iloc[-1]["close"])
+
                 updated_at = datetime.now()
                 chart_label = "Replay Cursor"
 
             if visible is None or visible.empty:
-                fig = _empty_figure(f"{symbol} | 1 min | Loading {chart_label} data...")
+                fig = _empty_figure(
+                    f"{symbol} | {display_timeframe} | Loading {chart_label} data..."
+                )
                 fig.update_layout(uirevision=f"watch-{symbol}-empty")
                 return fig, max_idx, idx, [], []
 
@@ -1892,32 +2007,50 @@ def register_callbacks(
                     errors="coerce",
                     format="mixed",
                 )
-                visible = visible.dropna(
-                    subset=["time", "open", "high", "low", "close"]
-                ).copy()
+
+            required_cols = ["time", "open", "high", "low", "close"]
+            missing_cols = [col for col in required_cols if col not in visible.columns]
+
+            if missing_cols:
+                fig = _empty_figure(
+                    f"{symbol} | {display_timeframe} | Missing candle columns: {missing_cols}"
+                )
+                fig.update_layout(uirevision=f"watch-{symbol}-missing-bars")
+                return fig, max_idx, idx, [], []
+
+            visible = visible.dropna(
+                subset=["time", "open", "high", "low", "close"]
+            ).copy()
 
             if visible.empty:
-                fig = _empty_figure(f"{symbol} | 1 min | Waiting for valid candles...")
+                fig = _empty_figure(
+                    f"{symbol} | {display_timeframe} | Waiting for valid candles..."
+                )
                 fig.update_layout(uirevision=f"watch-{symbol}-invalid-bars")
                 return fig, max_idx, idx, [], []
+
+            if "volume" not in visible.columns:
+                visible["volume"] = 0
 
             if current_price is None:
                 current_price = float(visible.iloc[-1]["close"])
 
             chart_bars = _resample_watch_bars(
                 visible,
-                watch_timeframe,
+                display_timeframe,
             )
 
             if chart_bars is None or chart_bars.empty:
-                fig = _empty_figure(f"{symbol} | {watch_timeframe or '1 min'} | Waiting for valid candles...")
-                fig.update_layout(uirevision=f"watch-{symbol}-empty-{watch_timeframe}")
+                fig = _empty_figure(
+                    f"{symbol} | {display_timeframe} | Waiting for valid candles..."
+                )
+                fig.update_layout(uirevision=f"watch-{symbol}-empty-{display_timeframe}")
                 return fig, max_idx, idx, [], []
 
             fig = create_candlestick_figure(
                 chart_bars,
                 symbol,
-                watch_timeframe or "1 min",
+                display_timeframe,
                 current_price=current_price,
             )
 
@@ -1989,7 +2122,10 @@ def register_callbacks(
 
             fig.update_layout(
                 uirevision=f"watch-{symbol}-{source_label}-{mode}-{range_key}",
-                datarevision=f"watch-{symbol}-{source_label}-{mode}-{range_key}-{idx}-{strategy_key}-{_paper_trade_trigger}",
+                datarevision=(
+                    f"watch-{symbol}-{source_label}-{mode}-{range_key}-"
+                    f"{idx}-{strategy_key}-{_paper_trade_trigger}"
+                ),
                 dragmode="pan",
             )
 

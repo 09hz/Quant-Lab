@@ -249,6 +249,90 @@ def _build_strategy_lab_panel():
                     ),
                 ],
             ),
+            html.Div(
+                className="strategy-help-panel",
+                children=[
+                    html.Div(
+                        className="strategy-help-header",
+                        children=[
+                            html.Div("Strategy Help", className="strategy-help-title"),
+                            html.Div(
+                                "Language guide, function reference, and examples",
+                                className="strategy-help-subtitle",
+                            ),
+                        ],
+                    ),
+                    html.Div(
+                        className="strategy-help-controls",
+                        children=[
+                            html.Div(
+                                className="strategy-help-example-control",
+                                children=[
+                                    html.Label("Load Example"),
+                                    dcc.Dropdown(
+                                        id="strategy-example-dropdown",
+                                        options=[
+                                            {
+                                                "label": "EMA Crossover",
+                                                "value": "ema_crossover.txt",
+                                            },
+                                            {
+                                                "label": "Fast SMA Test",
+                                                "value": "sma_fast_test.txt",
+                                            },
+                                            {
+                                                "label": "RSI Mean Reversion",
+                                                "value": "rsi_mean_reversion.txt",
+                                            },
+                                            {
+                                                "label": "EMA + Supertrend — Planned v0.2",
+                                                "value": "ema_supertrend.txt",
+                                            },
+                                        ],
+                                        value="ema_crossover.txt",
+                                        clearable=False,
+                                        searchable=False,
+                                        className="black-dropdown",
+                                    ),
+                                ],
+                            ),
+                            html.Div(
+                                className="strategy-help-button-row",
+                                children=[
+                                    html.Button(
+                                        "Insert Example",
+                                        id="strategy-insert-example",
+                                        n_clicks=0,
+                                        className="strategy-run-btn strategy-help-btn",
+                                    ),
+                                    html.Button(
+                                        "Language Guide",
+                                        id="strategy-show-language-guide",
+                                        n_clicks=0,
+                                        className="range-btn strategy-help-btn",
+                                    ),
+                                    html.Button(
+                                        "Function Reference",
+                                        id="strategy-show-function-reference",
+                                        n_clicks=0,
+                                        className="range-btn strategy-help-btn",
+                                    ),
+                                ],
+                            ),
+                        ],
+                    ),
+                    html.Div(
+                        id="strategy-help-content",
+                        className="strategy-help-content",
+                        children=[
+                            html.Div(
+                                "Choose an example, insert it into the editor, or open the language guide.",
+                                className="paper-empty",
+                            ),
+                        ],
+                    ),
+                ],
+            ),
         ],
     )
 
