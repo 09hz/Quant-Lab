@@ -133,6 +133,154 @@ class ReplayService:
 
         return hist.copy()
 
+    def load_date_range(
+            self,
+            symbol: str,
+            start_date,
+            end_date,
+            timeframe: str = "1 min",
+            speed: Optional[float] = 1,
+            force_refresh: bool = False,
+    ) -> pd.DataFrame:
+        """
+        Load and stitch multiple weekday replay sessions into one active replay dataset.
+
+        Important:
+            * Weekends are skipped.
+            * Raw replay data is always loaded as 1-minute bars.
+            * The Watch Interval dropdown should resample the chart display only.
+            * The stitched DataFrame is installed into ReplayEngine, so visible_bars(),
+              current_bar(), info(), the replay slider, paper trading, and backtests all
+              read from the same multi-day dataset.
+        """
+
+        symbol = self.rt._sanitize_symbol(symbol)
+
+        start = pd.to_datetime(start_date, errors="coerce")
+        end = pd.to_datetime(end_date, errors="coerce")
+
+        if pd.isna(start) or pd.isna(end):
+            raise ValueError("Invalid replay date range.")
+
+        if end < start:
+            start, end = end, start
+
+        today = datetime.now().date()
+        if start.date() > today or end.date() > today:
+            raise ValueError("Replay date range cannot include future dates.")
+
+        days: list[str] = []
+        current = start.normalize()
+
+        while current <= end.normalize():
+            if int(current.weekday()) < 5:
+                days.append(current.date().isoformat())
+            current = current + pd.Timedelta(days=1)
+
+        if not days:
+            raise ValueError("No weekday trading days found in selected range.")
+
+        # The replay engine uses 1-minute source bars. Display intervals are handled
+        # later by callbacks._resample_watch_bars(...).
+        load_timeframe = "1 min"
+        chunks: list[pd.DataFrame] = []
+
+        for day in days:
+            try:
+                hist = self.get_history(
+                    symbol=symbol,
+                    timeframe=load_timeframe,
+                    replay_date=day,
+                    force_refresh=force_refresh,
+                )
+            except Exception as exc:
+                print(f"[REPLAY RANGE] {symbol} {day}: load failed: {exc}", flush=True)
+                continue
+
+            if hist is None or hist.empty:
+                print(f"[REPLAY RANGE] {symbol} {day}: no bars returned.", flush=True)
+                continue
+
+            day_bars = hist.copy()
+
+            if "time" in day_bars.columns:
+                day_bars["time"] = pd.to_datetime(
+                    day_bars["time"],
+                    errors="coerce",
+                    format="mixed",
+                )
+                day_bars = day_bars.dropna(subset=["time"]).copy()
+
+            required = {"time", "open", "high", "low", "close", "volume"}
+            if not required.issubset(set(day_bars.columns)):
+                print(
+                    f"[REPLAY RANGE] {symbol} {day}: missing columns "
+                    f"{sorted(required - set(day_bars.columns))}.",
+                    flush=True,
+                )
+                continue
+
+            if day_bars.empty:
+                print(f"[REPLAY RANGE] {symbol} {day}: empty after cleaning.", flush=True)
+                continue
+
+            print(
+                f"[REPLAY RANGE] {symbol} {day}: collected {len(day_bars):,} bars.",
+                flush=True,
+            )
+            chunks.append(day_bars[["time", "open", "high", "low", "close", "volume"]].copy())
+
+        if not chunks:
+            raise ValueError("No replay bars found for selected date range.")
+
+        stitched = pd.concat(chunks, ignore_index=True)
+
+        stitched["time"] = pd.to_datetime(
+            stitched["time"],
+            errors="coerce",
+            format="mixed",
+        )
+        stitched = stitched.dropna(subset=["time"]).copy()
+
+        for col in ["open", "high", "low", "close"]:
+            stitched[col] = pd.to_numeric(stitched[col], errors="coerce")
+
+        stitched["volume"] = pd.to_numeric(
+            stitched["volume"],
+            errors="coerce",
+        ).fillna(0)
+
+        stitched = (
+            stitched
+            .dropna(subset=["open", "high", "low", "close"])
+            .sort_values("time")
+            .drop_duplicates(subset="time")
+            .reset_index(drop=True)
+        )
+
+        if stitched.empty:
+            raise ValueError("Replay date range became empty after cleaning.")
+
+        self.current_symbol = symbol
+        self.current_timeframe = load_timeframe
+        self.current_replay_date = start.date().isoformat()
+        self.current_replay_end_date = end.date().isoformat()
+
+        self.engine.reset()
+        self.engine.load_from_df(stitched)
+
+        if speed is not None:
+            self.engine.set_speed(speed)
+
+        print(
+            f"[REPLAY RANGE] installed stitched dataset: "
+            f"{symbol} {start.date().isoformat()} -> {end.date().isoformat()} "
+            f"{len(stitched):,} bars.",
+            flush=True,
+        )
+
+        return stitched
+
     def load_replay(
         self,
         symbol: str,
@@ -204,6 +352,19 @@ class ReplayService:
 
     def tick(self) -> None:
         self.engine.tick()
+
+
+    def all_bars(self) -> pd.DataFrame:
+        """
+        Return the full loaded replay dataset.
+        """
+        return self.engine.all_bars()
+
+    def full_bars(self) -> pd.DataFrame:
+        return self.all_bars()
+
+    def loaded_bars(self) -> pd.DataFrame:
+        return self.all_bars()
 
     def visible_bars(self) -> pd.DataFrame:
         return self.engine.visible_bars()

@@ -55,8 +55,12 @@ class ReplayEngine:
             raise ValueError(f"Missing required columns: {missing}")
 
         out = out[required].copy()
-        out["time"] = pd.to_datetime(out["time"], errors="coerce")
-        out = out.dropna(subset=["time"]).sort_values("time").drop_duplicates(subset="time")
+        out["time"] = pd.to_datetime(out["time"], errors="coerce", format="mixed")
+        out = (
+            out.dropna(subset=["time"])
+            .sort_values("time")
+            .drop_duplicates(subset="time")
+        )
 
         out["open"] = pd.to_numeric(out["open"], errors="coerce")
         out["high"] = pd.to_numeric(out["high"], errors="coerce")
@@ -79,6 +83,15 @@ class ReplayEngine:
         self.playing = False
         self.progress = 0.0
         self.last_tick_time = None
+
+    def all_bars(self) -> pd.DataFrame:
+        """
+        Return the full loaded replay dataset.
+
+        Backtests and Max view should use this, while visible_bars() remains
+        cursor-based for replay playback.
+        """
+        return self.bars.copy()
 
     def play(self) -> None:
         if self.bars.empty:

@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import time
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -309,6 +310,27 @@ def register_callbacks(
     strategy_engine = StrategyEngine()
     backtest_engine = BackTestEngine()
 
+    def _trading_days_between(start_date, end_date):
+        start = pd.to_datetime(start_date, errors="coerce")
+        end = pd.to_datetime(end_date, errors="coerce")
+
+        if pd.isna(start) or pd.isna(end):
+            return []
+
+        if end < start:
+            start, end = end, start
+
+        days = []
+        current = start.normalize()
+
+        while current <= end.normalize():
+            if int(current.weekday()) < 5:
+                days.append(current.date().isoformat())
+
+            current = current + pd.Timedelta(days=1)
+
+        return days
+
     @app.callback(
         Output("pair-title", "children"),
         Input("active-symbol", "data"),
@@ -407,7 +429,6 @@ def register_callbacks(
             return symbol, f"Loading live data for {symbol}"
         except Exception as exc:
             return no_update, f"Error: {exc}"
-
     # ------------------------------------------------------------
     # Dashboard chart interaction state
     # ------------------------------------------------------------
@@ -497,7 +518,7 @@ def register_callbacks(
     # ------------------------------------------------------------
     app.clientside_callback(
         """
-        function(activeTab, symbol, replayDate, currentRequest) {
+        function(activeTab, symbol, replayDate, loadRangeClicks, replayEndDate, timeframe, currentRequest) {
             if (activeTab !== "watch") {
                 return [
                     dash_clientside.no_update,
@@ -505,8 +526,18 @@ def register_callbacks(
                 ];
             }
 
+            const ctx = dash_clientside.callback_context;
+            let trigger = null;
+
+            if (ctx && ctx.triggered && ctx.triggered.length > 0) {
+                trigger = ctx.triggered[0].prop_id.split(".")[0];
+            }
+
+            // The interval dropdown is intentionally a State, not an Input.
+            // Changing interval should redraw/resample the chart, not reload IB data.
             const req = currentRequest || {};
             const nonce = (req.nonce || 0) + 1;
+            const mode = trigger === "replay-load-range" ? "range" : "single";
 
             return [
                 "watch-loading-overlay",
@@ -514,7 +545,9 @@ def register_callbacks(
                     nonce: nonce,
                     symbol: symbol || "MSFT",
                     replay_date: replayDate || null,
-                    timeframe: "1 min"
+                    replay_end_date: replayEndDate || replayDate || null,
+                    timeframe: timeframe || "1 min",
+                    load_mode: mode
                 }
             ];
         }
@@ -524,9 +557,18 @@ def register_callbacks(
         Input("main-tabs", "value"),
         Input("watch-symbol-dropdown", "value"),
         Input("replay-date", "date"),
+        Input("replay-load-range", "n_clicks"),
+        State("replay-end-date", "date"),
+        State("watch-timeframe-dropdown", "value"),
         State("watch-load-request", "data"),
         prevent_initial_call=True,
     )
+
+    # ------------------------------------------------------------------
+    # WATCH REPLAY SERVER LOADER - SINGLE DAY + STITCHED DATE RANGE
+    # ------------------------------------------------------------------
+    # Replace your current load_watch_symbol_from_request callback with this
+    # version. Its outputs match the 5-output callback you pasted.
 
     @app.callback(
         Output("watch-status", "children", allow_duplicate=True),
@@ -547,14 +589,56 @@ def register_callbacks(
         if not load_request:
             return no_update, no_update, no_update, no_update, no_update
 
-        symbol = load_request.get("symbol") or DEFAULT_SYMBOL
+        symbol = (load_request.get("symbol") or DEFAULT_SYMBOL).upper().strip()
         replay_date = load_request.get("replay_date")
-        timeframe = load_request.get("timeframe") or "1 min"
+        replay_end_date = load_request.get("replay_end_date") or replay_date
+        display_timeframe = load_request.get("timeframe") or "1 min"
+        load_mode = load_request.get("load_mode") or "single"
 
         try:
+            if load_mode == "range":
+                trading_days = _trading_days_between(replay_date, replay_end_date)
+
+                if not trading_days:
+                    render_trigger = int(render_trigger or 0) + 1
+                    return (
+                        "No weekday trading days found in selected replay range.",
+                        100,
+                        1,
+                        "watch-loading-overlay hidden",
+                        render_trigger,
+                    )
+
+                stitched = replay_service.load_date_range(
+                    symbol=symbol,
+                    start_date=replay_date,
+                    end_date=replay_end_date,
+                    timeframe="1 min",
+                    speed=replay_speed or 1,
+                )
+
+                info = replay_service.info()
+                max_idx = max(1, int(info.get("max_index", len(stitched))))
+                idx = max(1, int(info.get("current_index", 1)))
+                render_trigger = int(render_trigger or 0) + 1
+
+                return (
+                    (
+                        f"Loaded {symbol} replay range {replay_date} → {replay_end_date} · "
+                        f"{len(trading_days)} trading days · {len(stitched):,} raw 1-min bars · "
+                        f"display {display_timeframe}."
+                    ),
+                    max_idx,
+                    idx,
+                    "watch-loading-overlay hidden",
+                    render_trigger,
+                )
+
+            # Single-day replay loading also uses raw 1-minute bars.
+            # The Watch Interval dropdown only resamples display data.
             status, info = replay_service.load_replay(
                 symbol=symbol,
-                timeframe=timeframe,
+                timeframe="1 min",
                 replay_date=replay_date,
                 speed=replay_speed or 1,
             )
@@ -564,7 +648,7 @@ def register_callbacks(
             render_trigger = int(render_trigger or 0) + 1
 
             return (
-                status,
+                f"{status} · display {display_timeframe}",
                 max_idx,
                 idx,
                 "watch-loading-overlay hidden",
@@ -1359,7 +1443,12 @@ def register_callbacks(
             )
 
             return (
-                f"Backtest complete for {symbol}.",
+                (
+                    f"Backtest complete for {symbol}. "
+                    f"Bars: {len(visible):,} · "
+                    f"Signals: {len(strategy_result.signals):,} · "
+                    f"Trades: {backtest_result.trade_count:,}"
+                ),
                 _build_backtest_results_panel(backtest_result),
             )
 
@@ -1649,10 +1738,10 @@ def register_callbacks(
         Input("watch-chart-state", "data"),
         Input("paper-trade-trigger", "data"),
         Input("strategy-script-store", "data"),
+        Input("watch-timeframe-dropdown", "value"),
         Input("ui-interval", "n_intervals"),
         State("main-tabs", "value"),
         State("watch-symbol-dropdown", "value"),
-        State("watch-timeframe-dropdown", "value"),
         State("paper-price-source", "value"),
         State("replay-date", "date"),
         prevent_initial_call=True,
@@ -1663,10 +1752,10 @@ def register_callbacks(
             watch_chart_state,
             _paper_trade_trigger,
             strategy_store,
+            watch_timeframe,
             _ui_n,
             active_tab,
             symbol,
-            watch_timeframe,
             price_source,
             replay_date,
     ):

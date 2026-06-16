@@ -34,12 +34,13 @@ def make_replay_speed_options():
         {"label": "5x", "value": 5, "search": "5x very fast"},
     ]
 
+
+
 def make_disabled_weekend_days(years_back=10, years_forward=1):
     """
-    Dash DatePickerSingle accepts disabled_days as a list of YYYY-MM-DD strings.
-    This disables Saturdays and Sundays so users cannot select non-market days.
+    Disable Saturdays and Sundays in Dash DatePickerSingle.
+    Dash expects disabled_days as YYYY-MM-DD strings.
     """
-
     start = date.today() - timedelta(days=365 * years_back)
     end = date.today() + timedelta(days=365 * years_forward)
 
@@ -147,6 +148,10 @@ def _build_strategy_lab_panel():
                 value=(
                     "fast = sma(close, 9)\n"
                     "slow = ema(close, 21)\n"
+                    "\n"
+                    "buy when crossover(fast, slow)\n"
+                    "sell when crossunder(fast, slow)\n"
+                    "\n"
                     "plot fast\n"
                     "plot slow"
                 ),
@@ -154,6 +159,10 @@ def _build_strategy_lab_panel():
                     "Example:\n"
                     "fast = sma(close, 9)\n"
                     "slow = ema(close, 21)\n"
+                    "\n"
+                    "buy when crossover(fast, slow)\n"
+                    "sell when crossunder(fast, slow)\n"
+                    "\n"
                     "plot fast\n"
                     "plot slow"
                 ),
@@ -185,7 +194,6 @@ def _build_strategy_lab_panel():
                 className="strategy-backtest-panel",
                 children=[
                     html.Div("Backtest", className="strategy-backtest-title"),
-
                     html.Div(
                         className="strategy-backtest-controls",
                         children=[
@@ -227,24 +235,20 @@ def _build_strategy_lab_panel():
                             ),
                         ],
                     ),
-
                     html.Div(
                         id="backtest-status",
                         className="strategy-status",
                         children="Backtest ready.",
                     ),
-
                     html.Div(
                         id="backtest-results-panel",
                         className="backtest-results-panel",
                         children=[
-                            html.Div("Run a backtest to see results.", className="paper-empty")
+                            html.Div("Run a backtest to see results.", className="paper-empty"),
                         ],
                     ),
                 ],
             ),
-
-
         ],
     )
 
@@ -506,7 +510,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                     html.Div(
                         className="control-box control-timeframe",
                         children=[
-                            html.Label("Start Date"),
+                            html.Label("Replay Start"),
                             dcc.DatePickerSingle(
                                 id="replay-date",
                                 date=default_date,
@@ -514,6 +518,32 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                                 max_date_allowed=date.today(),
                                 disabled_days=make_disabled_weekend_days(),
                                 className="date-picker-dark",
+                            ),
+                        ],
+                    ),
+                    html.Div(
+                        className="control-box control-timeframe",
+                        children=[
+                            html.Label("Replay End"),
+                            dcc.DatePickerSingle(
+                                id="replay-end-date",
+                                date=default_date,
+                                display_format="MM/DD/YYYY",
+                                max_date_allowed=date.today(),
+                                disabled_days=make_disabled_weekend_days(),
+                                className="date-picker-dark",
+                            ),
+                        ],
+                    ),
+                    html.Div(
+                        className="control-box",
+                        children=[
+                            html.Label("Replay Range"),
+                            html.Button(
+                                "Load Range",
+                                id="replay-load-range",
+                                n_clicks=0,
+                                className="range-btn",
                             ),
                         ],
                     ),

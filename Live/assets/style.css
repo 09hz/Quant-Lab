@@ -1560,3 +1560,51 @@ button:focus {
         grid-template-columns: 1fr !important;
     }
 }
+
+
+/* =========================
+   STRATEGY BACKTEST
+========================= */
+
+.strategy-backtest-panel {
+    margin-top: 18px;
+    padding-top: 16px;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.strategy-backtest-title {
+    margin-bottom: 12px;
+    color: #ffffff;
+    font-family: 'IBM Plex Serif', serif;
+    font-size: 22px;
+    font-weight: 700;
+}
+
+.strategy-backtest-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+}
+
+.strategy-backtest-input-box {
+    min-width: 180px;
+}
+
+.backtest-results-panel {
+    margin-top: 14px;
+}
+
+.backtest-card-grid {
+    grid-template-columns: repeat(3, minmax(150px, 1fr)) !important;
+}
+
+@media (max-width: 900px) {
+    .backtest-card-grid {
+        grid-template-columns: 1fr !important;
+    }
+
+    .strategy-backtest-input-box {
+        min-width: 100%;
+    }
+}
