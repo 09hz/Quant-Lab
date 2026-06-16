@@ -369,6 +369,30 @@ class ReplayService:
     def visible_bars(self) -> pd.DataFrame:
         return self.engine.visible_bars()
 
+    def all_bars(self) -> pd.DataFrame:
+        """
+        Return the full loaded replay dataset.
+
+        This is what backtests should use.
+        It includes the full stitched date range when a replay range is loaded.
+        """
+        if self.engine is None or self.engine.bars is None:
+            return pd.DataFrame(columns=["time", "open", "high", "low", "close", "volume"])
+
+        return self.engine.bars.copy()
+
+    def full_bars(self) -> pd.DataFrame:
+        """
+        Alias for all_bars().
+        """
+        return self.all_bars()
+
+    def loaded_bars(self) -> pd.DataFrame:
+        """
+        Alias for all_bars().
+        """
+        return self.all_bars()
+
     def current_bar(self):
         return self.engine.current_bar()
 

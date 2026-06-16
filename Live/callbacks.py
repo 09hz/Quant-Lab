@@ -331,6 +331,72 @@ def register_callbacks(
 
         return days
 
+    def _get_backtest_bars() -> pd.DataFrame:
+        """
+        Backtests should run on the full loaded replay dataset, not only visible bars.
+
+        Priority:
+        1. replay_service.all_bars()
+        2. replay_service.full_bars()
+        3. replay_service.loaded_bars()
+        4. replay_service.engine.bars
+        5. fallback to visible_bars()
+        """
+
+        candidates = []
+
+        for method_name in ["all_bars", "full_bars", "loaded_bars"]:
+            try:
+                method = getattr(replay_service, method_name, None)
+
+                if callable(method):
+                    bars = method()
+
+                    if bars is not None and hasattr(bars, "empty") and not bars.empty:
+                        candidates.append(bars.copy())
+            except Exception as exc:
+                print(f"[BACKTEST DATA] {method_name} failed: {exc}", flush=True)
+
+        try:
+            engine = getattr(replay_service, "engine", None)
+
+            if engine is not None:
+                bars = getattr(engine, "bars", None)
+
+                if bars is not None and hasattr(bars, "empty") and not bars.empty:
+                    candidates.append(bars.copy())
+        except Exception as exc:
+            print(f"[BACKTEST DATA] engine.bars failed: {exc}", flush=True)
+
+        try:
+            bars = replay_service.visible_bars()
+
+            if bars is not None and hasattr(bars, "empty") and not bars.empty:
+                candidates.append(bars.copy())
+        except Exception as exc:
+            print(f"[BACKTEST DATA] visible_bars fallback failed: {exc}", flush=True)
+
+        if not candidates:
+            return pd.DataFrame(columns=["time", "open", "high", "low", "close", "volume"])
+
+        bars = candidates[0].copy()
+
+        if "time" in bars.columns:
+            bars["time"] = pd.to_datetime(bars["time"], errors="coerce")
+            bars = bars.dropna(subset=["time"]).sort_values("time").copy()
+
+        required = ["time", "open", "high", "low", "close", "volume"]
+        missing = [col for col in required if col not in bars.columns]
+
+        if missing:
+            print(f"[BACKTEST DATA] missing columns: {missing}", flush=True)
+            return pd.DataFrame(columns=required)
+
+        bars = bars[required].copy()
+        bars = bars.dropna(subset=["open", "high", "low", "close"]).reset_index(drop=True)
+
+        return bars
+
     @app.callback(
         Output("pair-title", "children"),
         Input("active-symbol", "data"),
@@ -1390,9 +1456,9 @@ def register_callbacks(
             )
 
         try:
-            visible = _get_backtest_bars()
+            bars = _get_backtest_bars()
 
-            if visible is None or visible.empty:
+            if bars is None or bars.empty:
                 return (
                     "No replay bars available.",
                     html.Div(
@@ -1401,11 +1467,17 @@ def register_callbacks(
                     ),
                 )
 
-            strategy_result = strategy_engine.run(script_text, visible)
+            print(
+                f"[BACKTEST DATA] using {len(bars):,} bars "
+                f"from {bars['time'].iloc[0]} to {bars['time'].iloc[-1]}",
+                flush=True,
+            )
+
+            strategy_result = strategy_engine.run(script_text, bars)
 
             if not strategy_result.signals:
                 return (
-                    f"No strategy signals found for {symbol}. Bars checked: {len(visible):,}.",
+                    f"No strategy signals found for {symbol}. Bars checked: {len(bars):,}.",
                     html.Div(
                         [
                             html.Div("No Signals", className="analytics-section-title"),
@@ -1436,7 +1508,7 @@ def register_callbacks(
                 )
 
             backtest_result = backtest_engine.run(
-                bars=visible,
+                bars=bars,
                 signals=strategy_result.signals,
                 initial_cash=initial_cash or 100000,
                 quantity=quantity or 1,
@@ -1445,7 +1517,7 @@ def register_callbacks(
             return (
                 (
                     f"Backtest complete for {symbol}. "
-                    f"Bars: {len(visible):,} · "
+                    f"Bars: {len(bars):,} · "
                     f"Signals: {len(strategy_result.signals):,} · "
                     f"Trades: {backtest_result.trade_count:,}"
                 ),
