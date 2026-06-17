@@ -30,28 +30,23 @@ class StrategyEngine:
     """
     Safe Pine-inspired Strategy Lab engine.
 
-    Supported examples:
-
-        fast = ta.ema(close, 9)
-        slow = ta.ema(close, 21)
-        trend = ta.ema(close, 50)
-        r = ta.rsi(close, 14)
-
-        bullCross = ta.crossover(fast, slow)
-        bearCross = ta.crossunder(fast, slow)
-
-        aboveTrend = close > trend
-        notOverbought = r < 70
-
-        longSignal = bullCross and aboveTrend and notOverbought
-        exitSignal = bearCross or r > 80
-
-        plot fast
-        plot slow
-        plot trend
-
-        buy when longSignal
-        sell when exitSignal
+    Strategy Language v0.4 supports:
+        - ta.* aliases
+        - indicator assignments:
+              fast = ta.ema(close, 9)
+              r = ta.rsi(close, 14)
+              atr = ta.atr(close, 14)
+        - boolean condition assignments:
+              bullCross = ta.crossover(fast, slow)
+              aboveTrend = close > trend
+              longSignal = bullCross and aboveTrend
+        - session/time filters:
+              inSession = session("0930-1600")
+              morning = time_hhmm >= 930 and time_hhmm <= 1130
+              weekday = dayofweek >= 0 and dayofweek <= 4
+        - buy/sell conditions:
+              buy when longSignal
+              sell when bearCross or r > 80
 
     Safety:
         No eval.
@@ -121,11 +116,12 @@ class StrategyEngine:
         "ta.rsi": "rsi",
         "ta.highest": "highest",
         "ta.lowest": "lowest",
+        "ta.atr": "atr",
         "ta.crossover": "crossover",
         "ta.crossunder": "crossunder",
     }
 
-    SUPPORTED_INDICATORS = {"sma", "ema", "rsi", "highest", "lowest"}
+    SUPPORTED_INDICATORS = {"sma", "ema", "rsi", "highest", "lowest", "atr"}
     SUPPORTED_CONDITION_FUNCTIONS = {"crossover", "crossunder"}
 
     def run(self, script: str, bars: pd.DataFrame) -> StrategyScriptResult:
@@ -145,8 +141,7 @@ class StrategyEngine:
         conditions: dict[str, pd.Series] = {}
 
         for raw_line in str(script or "").splitlines():
-            original_raw_line = str(raw_line or "")
-            line = original_raw_line.strip()
+            line = str(raw_line or "").strip()
 
             if not line or line.startswith("#") or line.startswith("//"):
                 continue
@@ -162,11 +157,9 @@ class StrategyEngine:
                 result.errors.append(f"Blocked unsafe token '{unsafe}' in line: {line}")
                 continue
 
-            # 1. Indicator assignment:
-            #    fast = ta.ema(close, 9)
             assign_match = self.ASSIGN_RE.match(line)
             if assign_match:
-                self._handle_indicator_assignment(
+                self._handle_assignment(
                     assign_match,
                     clean_bars,
                     series_context,
@@ -175,14 +168,9 @@ class StrategyEngine:
                 )
                 continue
 
-            # 2. General boolean/expression assignment:
-            #    bullCross = crossover(fast, slow)
-            #    aboveTrend = close > trend
-            #    longSignal = bullCross and aboveTrend
-            generic_assignment = self._parse_generic_assignment(line)
-            if generic_assignment is not None:
-                name, expr = generic_assignment
-
+            expr_assignment = self._match_expression_assignment(line)
+            if expr_assignment is not None:
+                name, expr = expr_assignment
                 condition = self._evaluate_condition_expression(
                     expr=expr,
                     bars=clean_bars,
@@ -192,22 +180,17 @@ class StrategyEngine:
                 condition = self._to_bool_series(condition, clean_bars)
 
                 if condition is None:
-                    result.errors.append(f"Could not parse assignment: {line}")
+                    result.errors.append(f"Could not parse condition assignment: {line}")
                     continue
 
                 conditions[name] = condition
                 continue
 
-            # 3. Plot command:
-            #    plot fast
             plot_match = self.PLOT_RE.match(line)
             if plot_match:
                 self._handle_plot(plot_match, result)
                 continue
 
-            # 4. Signal command:
-            #    buy when longSignal
-            #    sell when bearCross or r > 80
             signal_match = self.SIGNAL_RE.match(line)
             if signal_match:
                 self._handle_signal(
@@ -321,12 +304,40 @@ class StrategyEngine:
 
         return fig
 
+    def _match_expression_assignment(self, line: str) -> tuple[str, str] | None:
+        match = re.match(
+            rf"^(?P<name>{self.NAME_PATTERN})\s*=\s*(?P<expr>.+?)\s*$",
+            str(line or ""),
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return None
+
+        name = match.group("name").strip()
+        expr = match.group("expr").strip()
+
+        if not name or not expr:
+            return None
+
+        return name, expr
+
     def _build_series_context(self, bars: pd.DataFrame) -> dict[str, pd.Series]:
         context: dict[str, pd.Series] = {}
 
         for col in ["open", "high", "low", "close", "volume"]:
             if col in bars.columns:
                 context[col] = pd.to_numeric(bars[col], errors="coerce")
+
+        if "time" in bars.columns:
+            times = pd.to_datetime(bars["time"], errors="coerce")
+
+            context["hour"] = pd.Series(times.dt.hour, index=bars.index)
+            context["minute"] = pd.Series(times.dt.minute, index=bars.index)
+            context["dayofweek"] = pd.Series(times.dt.dayofweek, index=bars.index)
+            context["time_hhmm"] = pd.Series(
+                times.dt.hour * 100 + times.dt.minute,
+                index=bars.index,
+            )
 
         return context
 
@@ -376,18 +387,7 @@ class StrategyEngine:
 
         return out[: min(indexes)]
 
-    def _normalize_function_name(self, name: str) -> str:
-        name = str(name or "").strip().lower()
-        return self.FUNCTION_ALIASES.get(name, name)
-
     def _normalize_strategy_aliases(self, line: str) -> str:
-        """
-        Convert Pine-style ta.* aliases into current internal function names.
-
-        This is intentionally simple and keeps the AST evaluator from seeing
-        unsupported attribute calls like ta.ema(...).
-        """
-
         out = str(line or "")
 
         replacements = {
@@ -396,6 +396,7 @@ class StrategyEngine:
             "ta.rsi(": "rsi(",
             "ta.highest(": "highest(",
             "ta.lowest(": "lowest(",
+            "ta.atr(": "atr(",
             "ta.crossover(": "crossover(",
             "ta.crossunder(": "crossunder(",
         }
@@ -405,25 +406,11 @@ class StrategyEngine:
 
         return out
 
-    def _parse_generic_assignment(self, line: str) -> tuple[str, str] | None:
-        match = re.match(
-            rf"^(?P<name>{self.NAME_PATTERN})\s*=\s*(?P<expr>.+?)\s*$",
-            line,
-            flags=re.IGNORECASE,
-        )
+    def _normalize_function_name(self, name: str) -> str:
+        name = str(name or "").strip().lower()
+        return self.FUNCTION_ALIASES.get(name, name)
 
-        if not match:
-            return None
-
-        name = match.group("name").strip()
-        expr = match.group("expr").strip()
-
-        if not name or not expr:
-            return None
-
-        return name, expr
-
-    def _handle_indicator_assignment(
+    def _handle_assignment(
         self,
         match: re.Match,
         bars: pd.DataFrame,
@@ -451,6 +438,7 @@ class StrategyEngine:
                 func_name=func_name,
                 source=source,
                 length=length,
+                bars=bars,
             )
             output = pd.Series(output, index=bars.index, name=name)
         except Exception as exc:
@@ -465,6 +453,7 @@ class StrategyEngine:
         func_name: str,
         source: pd.Series,
         length: int,
+        bars: pd.DataFrame | None = None,
     ) -> pd.Series:
         source = pd.to_numeric(pd.Series(source), errors="coerce")
         length = max(1, int(length))
@@ -486,10 +475,7 @@ class StrategyEngine:
             rs = avg_gain / avg_loss.replace(0, pd.NA)
             rsi = 100 - (100 / (1 + rs))
 
-            # If avg_loss is zero and avg_gain is positive, RSI is 100.
             rsi = rsi.where(~((avg_loss == 0) & (avg_gain > 0)), 100)
-
-            # If both are zero, price is flat. Use neutral RSI.
             rsi = rsi.where(~((avg_loss == 0) & (avg_gain == 0)), 50)
 
             return rsi
@@ -499,6 +485,26 @@ class StrategyEngine:
 
         if func_name == "lowest":
             return source.rolling(length, min_periods=length).min()
+
+        if func_name == "atr":
+            if bars is None:
+                raise ValueError("ATR requires bars data.")
+
+            high = pd.to_numeric(bars["high"], errors="coerce")
+            low = pd.to_numeric(bars["low"], errors="coerce")
+            close = pd.to_numeric(bars["close"], errors="coerce")
+            prev_close = close.shift(1)
+
+            tr1 = high - low
+            tr2 = (high - prev_close).abs()
+            tr3 = (low - prev_close).abs()
+            true_range = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+            return true_range.ewm(
+                alpha=1 / length,
+                adjust=False,
+                min_periods=length,
+            ).mean()
 
         raise ValueError(f"Unsupported indicator: {func_name}")
 
@@ -536,7 +542,7 @@ class StrategyEngine:
             result.errors.append(f"Could not parse signal condition: {line}")
             return
 
-        for idx, is_signal in condition.items():
+        for idx, is_signal in condition.fillna(False).items():
             if not bool(is_signal):
                 continue
 
@@ -564,20 +570,6 @@ class StrategyEngine:
         series_context: dict[str, pd.Series],
         conditions: dict[str, pd.Series],
     ):
-        """
-        Resolve names used in strategy expressions.
-
-        Supports:
-            close
-            open
-            high
-            low
-            volume
-            plotted indicator names
-            boolean condition names
-            numeric constants
-        """
-
         name = str(name or "").strip()
 
         if name in conditions:
@@ -596,18 +588,8 @@ class StrategyEngine:
             return None
 
     def _to_bool_series(self, value, bars: pd.DataFrame) -> pd.Series | None:
-        """
-        Convert expression output into a boolean Series.
-        """
-
         if isinstance(value, pd.Series):
-            # Boolean series should stay boolean.
-            if str(value.dtype) == "bool":
-                return value.fillna(False).astype(bool)
-
-            # Numeric series as a condition means non-zero and non-null.
-            numeric = pd.to_numeric(value, errors="coerce")
-            return numeric.fillna(0).ne(0)
+            return value.fillna(False).astype(bool)
 
         if isinstance(value, bool):
             return pd.Series(value, index=bars.index)
@@ -620,6 +602,18 @@ class StrategyEngine:
         except Exception:
             return None
 
+    def _to_numeric_series(self, value, bars: pd.DataFrame) -> pd.Series | None:
+        if isinstance(value, pd.Series):
+            return pd.to_numeric(value, errors="coerce")
+
+        if isinstance(value, (int, float)):
+            return pd.Series(float(value), index=bars.index)
+
+        if isinstance(value, bool):
+            return pd.Series(float(value), index=bars.index)
+
+        return None
+
     def _eval_ast_expression(
         self,
         node,
@@ -627,79 +621,38 @@ class StrategyEngine:
         series_context: dict[str, pd.Series],
         conditions: dict[str, pd.Series],
     ):
-        """
-        Safely evaluate a small expression language.
-
-        Supported:
-            names
-            numbers
-            comparisons
-            and/or/not
-            crossover(...)
-            crossunder(...)
-
-        Explicitly unsupported:
-            attributes
-            subscripts
-            comprehensions
-            lambdas
-            imports
-            function calls except crossover/crossunder
-        """
-
         if isinstance(node, ast.Expression):
-            return self._eval_ast_expression(
-                node.body,
-                bars,
-                series_context,
-                conditions,
-            )
+            return self._eval_ast_expression(node.body, bars, series_context, conditions)
 
         if isinstance(node, ast.Name):
-            return self._resolve_expression_value(
-                node.id,
-                bars,
-                series_context,
-                conditions,
-            )
+            return self._resolve_expression_value(node.id, bars, series_context, conditions)
 
         if isinstance(node, ast.Constant):
             if isinstance(node.value, (int, float, bool)):
                 return pd.Series(node.value, index=bars.index)
+
+            if isinstance(node.value, str):
+                return node.value
+
             return None
 
         if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
-            value = self._eval_ast_expression(
-                node.operand,
-                bars,
-                series_context,
-                conditions,
-            )
+            value = self._eval_ast_expression(node.operand, bars, series_context, conditions)
             value = self._to_bool_series(value, bars)
-
             if value is None:
                 return None
-
             return ~value
 
         if isinstance(node, ast.BoolOp):
-            values = []
-
-            for child in node.values:
-                value = self._eval_ast_expression(
-                    child,
+            values = [
+                self._to_bool_series(
+                    self._eval_ast_expression(child, bars, series_context, conditions),
                     bars,
-                    series_context,
-                    conditions,
                 )
-                value = self._to_bool_series(value, bars)
+                for child in node.values
+            ]
 
-                if value is None:
-                    return None
-
-                values.append(value)
-
-            if not values:
+            if any(v is None for v in values):
                 return None
 
             result = values[0]
@@ -715,12 +668,8 @@ class StrategyEngine:
             return result
 
         if isinstance(node, ast.Compare):
-            left = self._eval_ast_expression(
-                node.left,
-                bars,
-                series_context,
-                conditions,
-            )
+            left = self._eval_ast_expression(node.left, bars, series_context, conditions)
+            left = self._to_numeric_series(left, bars)
 
             if left is None:
                 return None
@@ -729,12 +678,8 @@ class StrategyEngine:
             current_left = left
 
             for op, comparator in zip(node.ops, node.comparators):
-                right = self._eval_ast_expression(
-                    comparator,
-                    bars,
-                    series_context,
-                    conditions,
-                )
+                right = self._eval_ast_expression(comparator, bars, series_context, conditions)
+                right = self._to_numeric_series(right, bars)
 
                 if right is None:
                     return None
@@ -754,12 +699,7 @@ class StrategyEngine:
                 else:
                     return None
 
-                if isinstance(part, pd.Series):
-                    part = part.fillna(False)
-                else:
-                    part = pd.Series(bool(part), index=bars.index)
-
-                result = result & part.astype(bool)
+                result = result & part.fillna(False)
                 current_left = right
 
             return result
@@ -768,7 +708,17 @@ class StrategyEngine:
             if not isinstance(node.func, ast.Name):
                 return None
 
-            func_name = self._normalize_function_name(node.func.id)
+            func_name = node.func.id.strip().lower()
+
+            if func_name == "session":
+                if len(node.args) != 1:
+                    return None
+
+                arg = node.args[0]
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    return self._make_session_condition(arg.value, bars)
+
+                return None
 
             if func_name not in self.SUPPORTED_CONDITION_FUNCTIONS:
                 return None
@@ -776,24 +726,14 @@ class StrategyEngine:
             if len(node.args) != 2:
                 return None
 
-            left = self._eval_ast_expression(
-                node.args[0],
-                bars,
-                series_context,
-                conditions,
-            )
-            right = self._eval_ast_expression(
-                node.args[1],
-                bars,
-                series_context,
-                conditions,
-            )
+            left = self._eval_ast_expression(node.args[0], bars, series_context, conditions)
+            right = self._eval_ast_expression(node.args[1], bars, series_context, conditions)
+
+            left = self._to_numeric_series(left, bars)
+            right = self._to_numeric_series(right, bars)
 
             if left is None or right is None:
                 return None
-
-            left = pd.to_numeric(pd.Series(left), errors="coerce")
-            right = pd.to_numeric(pd.Series(right), errors="coerce")
 
             if func_name == "crossover":
                 return (left.shift(1) <= right.shift(1)) & (left > right)
@@ -809,7 +749,7 @@ class StrategyEngine:
         bars: pd.DataFrame,
         series_context: dict[str, pd.Series],
         conditions: dict[str, pd.Series],
-    ):
+    ) -> pd.Series | None:
         expr = str(expr or "").strip()
         expr = self._normalize_strategy_aliases(expr)
 
@@ -821,12 +761,56 @@ class StrategyEngine:
         except SyntaxError:
             return None
 
-        return self._eval_ast_expression(
-            tree,
-            bars,
-            series_context,
-            conditions,
+        return self._eval_ast_expression(tree, bars, series_context, conditions)
+
+    def _make_session_condition(self, session_text: str, bars: pd.DataFrame) -> pd.Series | None:
+        """
+        Build a boolean Series for a session window.
+
+        Supports:
+            session("0930-1600")
+            session("09:30-16:00")
+            session("0930-1130")
+            session("1500-1600")
+            overnight sessions like session("2000-0500")
+        """
+
+        if "time" not in bars.columns:
+            return None
+
+        text = str(session_text or "").strip().strip('"').strip("'")
+
+        match = re.match(
+            r"^(\d{1,2}):?(\d{2})\s*-\s*(\d{1,2}):?(\d{2})$",
+            text,
         )
+
+        if not match:
+            return None
+
+        start_hour = int(match.group(1))
+        start_minute = int(match.group(2))
+        end_hour = int(match.group(3))
+        end_minute = int(match.group(4))
+
+        if not (0 <= start_hour <= 23 and 0 <= end_hour <= 23):
+            return None
+
+        if not (0 <= start_minute <= 59 and 0 <= end_minute <= 59):
+            return None
+
+        start_hhmm = start_hour * 100 + start_minute
+        end_hhmm = end_hour * 100 + end_minute
+
+        times = pd.to_datetime(bars["time"], errors="coerce")
+        hhmm = times.dt.hour * 100 + times.dt.minute
+
+        if start_hhmm <= end_hhmm:
+            mask = (hhmm >= start_hhmm) & (hhmm <= end_hhmm)
+        else:
+            mask = (hhmm >= start_hhmm) | (hhmm <= end_hhmm)
+
+        return pd.Series(mask.fillna(False).astype(bool), index=bars.index)
 
     def _find_blocked_token(self, line: str) -> str | None:
         lowered = str(line or "").lower()

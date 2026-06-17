@@ -1,22 +1,25 @@
-# EMA + Supertrend Planned Example
+# Trend Filtered EMA + RSI + ATR Session Filter
 
-# This example is planned for Strategy Language v0.2.
-# It will not run until ta.supertrend and boolean expressions are implemented.
+fast = ta.ema(close, 9)
+slow = ta.ema(close, 21)
+trend = ta.ema(close, 50)
+r = ta.rsi(close, 14)
+atr = ta.atr(close, 14)
 
-fastEMA = ta.ema(close, 9)
-slowEMA = ta.ema(close, 21)
-supertrendLine, trendDirection = ta.supertrend(3.0, 10)
+bullCross = ta.crossover(fast, slow)
+bearCross = ta.crossunder(fast, slow)
 
-emaBullCross = ta.crossover(fastEMA, slowEMA)
-emaBearCross = ta.crossunder(fastEMA, slowEMA)
-supertrendBull = trendDirection < 0
+inSession = session("0930-1600")
+aboveTrend = close > trend
+notOverbought = r < 70
+enoughVolatility = atr > 0.25
 
-longSignal = emaBullCross and supertrendBull
-exitSignal = emaBearCross
+longSignal = inSession and bullCross and aboveTrend and notOverbought and enoughVolatility
+exitSignal = bearCross or r > 80
 
-plot fastEMA
-plot slowEMA
-plot supertrendLine
+plot fast
+plot slow
+plot trend
 
 buy when longSignal
 sell when exitSignal
