@@ -285,6 +285,10 @@ def _build_strategy_lab_panel():
                                                 "value": "rsi_mean_reversion.txt",
                                             },
                                             {
+                                                "label": "Boolean Crossover",
+                                                "value": "boolean_crossover.txt",
+                                            },
+                                            {
                                                 "label": "EMA + Supertrend — Planned v0.2",
                                                 "value": "ema_supertrend.txt",
                                             },

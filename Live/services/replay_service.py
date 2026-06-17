@@ -65,11 +65,17 @@ class ReplayService:
         self.bar_store.delete(symbol)
 
     def _load_from_rt_or_ib(
-        self,
-        symbol: str,
-        timeframe: str,
-        replay_date: Optional[str],
+            self,
+            symbol: str,
+            timeframe: str,
+            replay_date: Optional[str],
     ) -> pd.DataFrame:
+        print(
+            f"[REPLAY SOURCE] requesting symbol={symbol}, "
+            f"timeframe={timeframe}, date={replay_date}",
+            flush=True,
+        )
+
         if replay_date:
             start_dt = datetime.fromisoformat(replay_date)
 
@@ -79,18 +85,61 @@ class ReplayService:
 
             end_dt = start_dt + timedelta(days=1)
 
-            return self.rt.load_history_range(symbol, timeframe, start_dt, end_dt)
+            print(
+                f"[REPLAY SOURCE] loading range {start_dt} -> {end_dt}",
+                flush=True,
+            )
+
+            df = self.rt.load_history_range(
+                symbol,
+                timeframe,
+                start_dt,
+                end_dt,
+            )
+
+            print(
+                f"[RT HISTORY RANGE RESULT] {symbol} {timeframe} "
+                f"{start_dt} -> {end_dt} rows={0 if df is None else len(df)}",
+                flush=True,
+            )
+
+            if df is not None:
+                print(
+                    f"[RT HISTORY RANGE COLUMNS] {list(df.columns)}",
+                    flush=True,
+                )
+
+            return df
 
         # If the live app already has bars for this symbol, use them.
-        # This avoids a duplicate IB historical request for "latest" replay.
         try:
             snap = self.rt.get_snapshot(symbol, timeframe)
-            if snap.bars is not None and not snap.bars.empty:
-                return snap.bars.copy()
-        except Exception:
-            pass
 
-        return self.rt.load_history(symbol, timeframe)
+            if snap.bars is not None and not snap.bars.empty:
+                print(
+                    f"[REPLAY SOURCE] using live snapshot bars "
+                    f"{symbol} {timeframe} rows={len(snap.bars)}",
+                    flush=True,
+                )
+                return snap.bars.copy()
+
+        except Exception as snap_exc:
+            print(f"[REPLAY SOURCE] live snapshot unavailable: {snap_exc}", flush=True)
+
+        df = self.rt.load_history(symbol, timeframe)
+
+        print(
+            f"[RT HISTORY RESULT] {symbol} {timeframe} rows={0 if df is None else len(df)}",
+            flush=True,
+        )
+
+        if df is not None:
+            print(
+                f"[RT HISTORY COLUMNS] {list(df.columns)}",
+                flush=True,
+            )
+
+        return df
 
     def get_history(
         self,
@@ -122,6 +171,24 @@ class ReplayService:
             timeframe=timeframe,
             replay_date=replay_date,
         )
+        try:
+            print(
+                f"[REPLAY SOURCE RESULT] symbol={symbol} timeframe={timeframe} "
+                f"date={replay_date} rows={0 if hist is None else len(hist)} "
+                f"columns={[] if hist is None else list(hist.columns)}",
+                flush=True,
+            )
+
+            if hist is not None and not hist.empty and "time" in hist.columns:
+                print(
+                    f"[REPLAY SOURCE RESULT] first={hist['time'].iloc[0]} "
+                    f"last={hist['time'].iloc[-1]}",
+                    flush=True,
+                )
+        except Exception as debug_exc:
+            print(f"[REPLAY SOURCE DEBUG ERROR] {debug_exc}", flush=True)
+
+
 
         if hist is None:
             hist = pd.DataFrame(columns=["time", "open", "high", "low", "close", "volume"])
