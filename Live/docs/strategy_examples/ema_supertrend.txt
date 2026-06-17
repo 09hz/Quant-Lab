@@ -1,0 +1,22 @@
+# EMA + Supertrend Planned Example
+
+# This example is planned for Strategy Language v0.2.
+# It will not run until ta.supertrend and boolean expressions are implemented.
+
+fastEMA = ta.ema(close, 9)
+slowEMA = ta.ema(close, 21)
+supertrendLine, trendDirection = ta.supertrend(3.0, 10)
+
+emaBullCross = ta.crossover(fastEMA, slowEMA)
+emaBearCross = ta.crossunder(fastEMA, slowEMA)
+supertrendBull = trendDirection < 0
+
+longSignal = emaBullCross and supertrendBull
+exitSignal = emaBearCross
+
+plot fastEMA
+plot slowEMA
+plot supertrendLine
+
+buy when longSignal
+sell when exitSignal

@@ -1,8 +1,0 @@
-lightweight-charts
-yfinance
-pandas_ta
-pandas
-nest-asyncio
-ib_insync
-plotly
-dash
