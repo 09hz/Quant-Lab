@@ -34,7 +34,21 @@ plot slow
 buy when crossover(fast, slow)
 sell when crossunder(fast, slow)
 
-Example:
+## Strategy Language v0.3 expressions
+
+Supported comparison operators:
+
+>
+<
+>=
+<=
+==
+!=
+and
+or
+not
+
+##Example:
 fast = sma(close, 9)
 slow = ema(close, 21)
 
@@ -46,6 +60,17 @@ sell when crossunder(fast, slow)
 
 BUY signal opens a long position when flat.
 SELL signal closes the long position when open.
+
+## Example strategy with multiple conditions:
+
+aboveTrend = close > trend
+notOverbought = r < 70
+
+longSignal = bullCross and aboveTrend and notOverbought
+exitSignal = bearCross or r > 80
+
+buy when longSignal
+sell when exitSignal
 
 Long-only
 Fixed quantity

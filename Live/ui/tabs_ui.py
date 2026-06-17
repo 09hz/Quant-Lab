@@ -281,6 +281,10 @@ def _build_strategy_lab_panel():
                                                 "value": "sma_fast_test.txt",
                                             },
                                             {
+                                                "label": "Trend Filtered EMA + RSI",
+                                                "value": "trend_filtered_ema_rsi.txt",
+                                            },
+                                            {
                                                 "label": "RSI Mean Reversion",
                                                 "value": "rsi_mean_reversion.txt",
                                             },
