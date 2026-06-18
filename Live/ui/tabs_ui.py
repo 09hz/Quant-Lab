@@ -292,6 +292,10 @@ def _build_strategy_lab_panel():
                                                 "label": "EMA + ATR Filter",
                                                 "value": "ema_supertrend.txt",
                                             },
+                                            {
+                                                "label": "Background Regime Filter",
+                                                "value": "background_regime_test.txt",
+                                            },
                                         ],
                                         value="ema_crossover.txt",
                                         clearable=False,

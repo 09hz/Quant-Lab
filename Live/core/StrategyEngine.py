@@ -19,10 +19,22 @@ class StrategySignal:
 
 
 @dataclass
+class StrategyBackground:
+    start_index: int
+    end_index: int
+    start_time: Any
+    end_time: Any
+    color: str
+    label: str
+    rule: str
+
+
+@dataclass
 class StrategyScriptResult:
     lines: dict[str, pd.Series] = field(default_factory=dict)
     plots: list[str] = field(default_factory=list)
     signals: list[StrategySignal] = field(default_factory=list)
+    backgrounds: list[StrategyBackground] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
 
@@ -47,6 +59,9 @@ class StrategyEngine:
         - buy/sell conditions:
               buy when longSignal
               sell when bearCross or r > 80
+        - background regime shading:
+              bgcolor bullMarket color="green"
+              bgcolor bearMarket color="red"
 
     Safety:
         No eval.
@@ -75,6 +90,11 @@ class StrategyEngine:
 
     SIGNAL_RE = re.compile(
         r"^(?P<side>buy|sell)\s+when\s+(?P<expr>.+?)\s*$",
+        flags=re.IGNORECASE,
+    )
+
+    BGCOLOR_RE = re.compile(
+        r"^bgcolor\s+(?P<expr>.+?)\s+color\s*=\s*[\"']?(?P<color>[A-Za-z_][A-Za-z0-9_#-]*)[\"']?\s*$",
         flags=re.IGNORECASE,
     )
 
@@ -126,8 +146,9 @@ class StrategyEngine:
 
     # Rendering safeguards. These prevent Plotly/Dash from freezing when a
     # strategy produces too many markers or overlay lines during replay.
-    MAX_RENDERED_STRATEGY_LINES = 6
-    MAX_RENDERED_STRATEGY_SIGNALS = 250
+    MAX_RENDERED_STRATEGY_LINES = 4
+    MAX_RENDERED_STRATEGY_SIGNALS = 150
+    MAX_RENDERED_BACKGROUNDS = 20
 
     # Signal-generation safeguard. In position-aware mode, repeated true
     # conditions only create one BUY while flat and one SELL while long.
@@ -149,6 +170,7 @@ class StrategyEngine:
         series_context = self._build_series_context(clean_bars)
         conditions: dict[str, pd.Series] = {}
         signal_rules: list[tuple[str, str, str]] = []
+        background_rules: list[tuple[str, str, str]] = []
 
         for raw_line in str(script or "").splitlines():
             line = str(raw_line or "").strip()
@@ -209,6 +231,13 @@ class StrategyEngine:
                 self._handle_plot(plot_match, result)
                 continue
 
+            bgcolor_match = self.BGCOLOR_RE.match(line)
+            if bgcolor_match:
+                expr = bgcolor_match.group("expr").strip()
+                color = bgcolor_match.group("color").strip()
+                background_rules.append((expr, color, line))
+                continue
+
             signal_match = self.SIGNAL_RE.match(line)
             if signal_match:
                 side = signal_match.group("side").upper().strip()
@@ -217,6 +246,14 @@ class StrategyEngine:
                 continue
 
             result.errors.append(f"Could not parse line: {line}")
+
+        self._build_backgrounds_from_rules(
+            background_rules=background_rules,
+            bars=clean_bars,
+            series_context=series_context,
+            conditions=conditions,
+            result=result,
+        )
 
         self._build_signals_from_rules(
             signal_rules=signal_rules,
@@ -271,6 +308,7 @@ class StrategyEngine:
             lines={},
             plots=list(result.plots or []),
             signals=[],
+            backgrounds=[],
             errors=list(result.errors or []),
         )
 
@@ -312,8 +350,61 @@ class StrategyEngine:
             except Exception:
                 continue
 
+        for bg in list(getattr(result, "backgrounds", []) or []):
+            try:
+                bg_start = pd.to_datetime(bg.start_time, errors="coerce")
+                bg_end = pd.to_datetime(bg.end_time, errors="coerce")
+                if pd.isna(bg_start) or pd.isna(bg_end):
+                    continue
+
+                # Keep ranges that overlap the current target window.
+                if bg_end >= target_min and bg_start <= target_max:
+                    filtered.backgrounds.append(bg)
+            except Exception:
+                continue
+
         return filtered
 
+
+    def add_backgrounds_to_figure(
+        self,
+        fig: go.Figure,
+        bars: pd.DataFrame,
+        result: StrategyScriptResult,
+    ) -> go.Figure:
+        """
+        Add TradingView-style regime background shading.
+
+        Background ranges are merged when the script is parsed, then capped here
+        so replay remains responsive.
+        """
+        if bars is None or bars.empty or result is None:
+            return fig
+
+        backgrounds = list(getattr(result, "backgrounds", []) or [])
+        if not backgrounds:
+            return fig
+
+        if len(backgrounds) > self.MAX_RENDERED_BACKGROUNDS:
+            backgrounds = backgrounds[-self.MAX_RENDERED_BACKGROUNDS:]
+
+        for bg in backgrounds:
+            color = self._background_fill_color(bg.color)
+
+            try:
+                fig.add_vrect(
+                    x0=bg.start_time,
+                    x1=bg.end_time,
+                    fillcolor=color,
+                    opacity=1.0,
+                    line_width=0,
+                    layer="below",
+                    annotation_text=None,
+                )
+            except Exception:
+                continue
+
+        return fig
 
     def add_plots_to_figure(
         self,
@@ -630,6 +721,168 @@ class StrategyEngine:
 
         if name not in result.plots:
             result.plots.append(name)
+
+    def _build_backgrounds_from_rules(
+        self,
+        background_rules: list[tuple[str, str, str]],
+        bars: pd.DataFrame,
+        series_context: dict[str, pd.Series],
+        conditions: dict[str, pd.Series],
+        result: StrategyScriptResult,
+    ) -> None:
+        """
+        Convert bgcolor commands into merged background ranges.
+
+        Important for performance:
+        - Do not draw one rectangle per candle.
+        - Merge consecutive True candles into one range.
+        - Cap total ranges before storing/rendering.
+        """
+        if not background_rules:
+            return
+
+        for expr, color, original_line in background_rules:
+            condition = self._evaluate_condition_expression(
+                expr=expr,
+                bars=bars,
+                series_context=series_context,
+                conditions=conditions,
+            )
+            condition = self._to_bool_series(condition, bars)
+
+            if condition is None:
+                result.errors.append(f"Could not parse background condition: {original_line}")
+                continue
+
+            ranges = self._condition_to_background_ranges(
+                condition=condition.reindex(bars.index).fillna(False).astype(bool),
+                bars=bars,
+                color=color,
+                label=expr,
+                rule=original_line,
+            )
+
+            if ranges:
+                result.backgrounds.extend(ranges)
+
+        if len(result.backgrounds) > self.MAX_RENDERED_BACKGROUNDS:
+            result.backgrounds = result.backgrounds[-self.MAX_RENDERED_BACKGROUNDS:]
+
+    def _condition_to_background_ranges(
+        self,
+        condition: pd.Series,
+        bars: pd.DataFrame,
+        color: str,
+        label: str,
+        rule: str,
+    ) -> list[StrategyBackground]:
+        ranges: list[StrategyBackground] = []
+
+        if condition is None or condition.empty or bars is None or bars.empty:
+            return ranges
+
+        times = bars["time"] if "time" in bars.columns else pd.Series(bars.index, index=bars.index)
+
+        start_idx = None
+        end_idx = None
+
+        for idx in bars.index:
+            try:
+                active = bool(condition.loc[idx])
+            except Exception:
+                active = False
+
+            if active and start_idx is None:
+                start_idx = int(idx)
+                end_idx = int(idx)
+                continue
+
+            if active:
+                end_idx = int(idx)
+                continue
+
+            if start_idx is not None and end_idx is not None:
+                ranges.append(
+                    self._make_background_range(
+                        start_idx=start_idx,
+                        end_idx=end_idx,
+                        times=times,
+                        color=color,
+                        label=label,
+                        rule=rule,
+                    )
+                )
+                start_idx = None
+                end_idx = None
+
+        if start_idx is not None and end_idx is not None:
+            ranges.append(
+                self._make_background_range(
+                    start_idx=start_idx,
+                    end_idx=end_idx,
+                    times=times,
+                    color=color,
+                    label=label,
+                    rule=rule,
+                )
+            )
+
+        return [bg for bg in ranges if bg is not None]
+
+    def _make_background_range(
+        self,
+        start_idx: int,
+        end_idx: int,
+        times,
+        color: str,
+        label: str,
+        rule: str,
+    ) -> StrategyBackground | None:
+        try:
+            start_time = times.iloc[start_idx] if hasattr(times, "iloc") else times[start_idx]
+            end_time = times.iloc[end_idx] if hasattr(times, "iloc") else times[end_idx]
+        except Exception:
+            return None
+
+        return StrategyBackground(
+            start_index=int(start_idx),
+            end_index=int(end_idx),
+            start_time=start_time,
+            end_time=end_time,
+            color=str(color or "blue"),
+            label=str(label or ""),
+            rule=str(rule or ""),
+        )
+
+    def _background_fill_color(self, color: str) -> str:
+        key = str(color or "").strip().lower()
+
+        palette = {
+            "green": "rgba(34, 197, 94, 0.12)",
+            "bull": "rgba(34, 197, 94, 0.12)",
+            "bullish": "rgba(34, 197, 94, 0.12)",
+            "red": "rgba(239, 68, 68, 0.12)",
+            "bear": "rgba(239, 68, 68, 0.12)",
+            "bearish": "rgba(239, 68, 68, 0.12)",
+            "yellow": "rgba(234, 179, 8, 0.10)",
+            "orange": "rgba(249, 115, 22, 0.10)",
+            "blue": "rgba(59, 130, 246, 0.10)",
+            "purple": "rgba(168, 85, 247, 0.10)",
+            "gray": "rgba(148, 163, 184, 0.08)",
+            "grey": "rgba(148, 163, 184, 0.08)",
+        }
+
+        if key in palette:
+            return palette[key]
+
+        # Allow a raw rgba(...) color for advanced users, but keep it simple.
+        if key.startswith("rgba(") and key.endswith(")"):
+            return str(color)
+
+        if key.startswith("#") and len(key) in {4, 7}:
+            return str(color)
+
+        return palette["blue"]
 
     def _build_signals_from_rules(
         self,

@@ -24,6 +24,8 @@ from core.RiskGuard import TradeIntent
 from core.StrategyEngine import StrategyEngine
 from core.BackTestEngine import BackTestEngine
 
+from services.strategy_overlay_service import StrategyOverlayService
+
 try:
     from core.StrategyFunctionRegistry import get_function_reference_markdown
 except Exception:
@@ -319,6 +321,7 @@ def register_callbacks(
         paper_state_cache=None,
 ):
     strategy_engine = StrategyEngine()
+    strategy_overlay_service = StrategyOverlayService()
     backtest_engine = BackTestEngine()
 
     # Strategy overlay cache:
@@ -1582,6 +1585,20 @@ def register_callbacks(
 
             strategy_result = strategy_engine.run(script_text, bars)
 
+            if strategy_result.errors:
+                return (
+                    "Strategy script has errors.",
+                    html.Div(
+                        children=[
+                            html.Div("Script Errors", className="analytics-section-title"),
+                            html.Pre(
+                                "\n".join(strategy_result.errors),
+                                className="analytics-table",
+                            ),
+                        ]
+                    ),
+                )
+
             if not strategy_result.signals:
                 return (
                     f"No strategy signals found for {symbol}. Bars checked: {len(bars):,}.",
@@ -1593,22 +1610,6 @@ def register_callbacks(
                                 "Try a faster crossover like SMA 3 / SMA 8, move replay farther forward, "
                                 "or backtest a larger loaded dataset.",
                                 className="paper-empty",
-                            ),
-                        ]
-                    ),
-                )
-
-
-
-            if strategy_result.errors:
-                return (
-                    "Strategy script has errors.",
-                    html.Div(
-                        children=[
-                            html.Div("Script Errors", className="analytics-section-title"),
-                            html.Pre(
-                                "\n".join(strategy_result.errors),
-                                className="analytics-table",
                             ),
                         ]
                     ),
@@ -2080,17 +2081,25 @@ def register_callbacks(
                 except Exception as exc:
                     print(f"[WATCH TRADE MARKER ERROR] {exc}", flush=True)
 
+
             # Strategy Lab indicator overlays.
-            # Heavy strategy calculation is cached so replay ticks do not
-            # recalculate indicators/signals over a growing cursor window.
-            # Define this before the strategy cache key uses it.
+            # Heavy strategy calculation is cached by StrategyOverlayService so replay ticks
+            # do not repeatedly parse scripts, calculate indicators, generate signals,
+            # or merge background ranges.
             source_label = "live" if use_live_watch_data else "replay"
 
             try:
                 strategy_store = strategy_store or {}
                 script_text = str(strategy_store.get("script") or "").strip()
+                strategy_enabled = bool(strategy_store.get("enabled"))
 
-                if strategy_store.get("enabled") and script_text:
+                if strategy_enabled and script_text:
+                    try:
+                        replay_info_for_source = replay_service.info()
+                        is_replay_playing = bool(replay_info_for_source.get("playing"))
+                    except Exception:
+                        is_replay_playing = False
+
                     if use_live_watch_data:
                         strategy_source_raw = visible.copy()
                     else:
@@ -2104,84 +2113,53 @@ def register_callbacks(
                     )
 
                     if strategy_source_bars is not None and not strategy_source_bars.empty:
-                        source_first = ""
-                        source_last = ""
-
-                        if "time" in strategy_source_bars.columns:
-                            source_times = pd.to_datetime(
-                                strategy_source_bars["time"],
-                                errors="coerce",
-                                format="mixed",
-                            )
-                            if not source_times.empty:
-                                source_first = str(source_times.iloc[0])
-                                source_last = str(source_times.iloc[-1])
-
-                        strategy_key = (
-                            symbol,
-                            source_label,
-                            display_timeframe,
-                            script_text,
-                            len(strategy_source_bars),
-                            source_first,
-                            source_last,
+                        snapshot = strategy_overlay_service.get_or_run(
+                            script=script_text,
+                            bars=strategy_source_bars,
+                            symbol=symbol,
+                            timeframe=display_timeframe,
+                            source_label=source_label,
                         )
 
-                        if strategy_overlay_cache.get("key") != strategy_key:
-                            started = time.perf_counter()
-                            full_strategy_result = strategy_engine.run(
-                                script_text,
-                                strategy_source_bars,
-                            )
-                            elapsed_ms = (time.perf_counter() - started) * 1000.0
+                        if snapshot is not None:
+                            strategy_result = snapshot.result
 
-                            strategy_overlay_cache["key"] = strategy_key
-                            strategy_overlay_cache["source_bars"] = strategy_source_bars
-                            strategy_overlay_cache["result"] = full_strategy_result
-                            strategy_overlay_cache["last_warning_key"] = None
-
-                            print(
-                                f"[STRATEGY CACHE REFRESH] {symbol} "
-                                f"{display_timeframe} bars={len(strategy_source_bars):,} "
-                                f"signals={len(full_strategy_result.signals):,} "
-                                f"plots={len(full_strategy_result.plots):,} "
-                                f"{elapsed_ms:,.1f}ms",
-                                flush=True,
-                            )
-
-                        full_strategy_result = strategy_overlay_cache.get("result")
-                        cached_source_bars = strategy_overlay_cache.get("source_bars")
-
-                        strategy_result = strategy_engine.filter_result_to_bars(
-                            full_strategy_result,
-                            cached_source_bars,
-                            chart_bars,
-                        )
-
-                        fig = strategy_engine.add_plots_to_figure(
-                            fig,
-                            chart_bars,
-                            strategy_result,
-                        )
-
-                        fig = strategy_engine.add_signals_to_figure(
-                            fig,
-                            strategy_result,
-                        )
-
-                        if strategy_result.errors:
                             warning_key = (
-                                strategy_key,
-                                tuple(strategy_result.errors),
+                                symbol,
+                                source_label,
+                                display_timeframe,
+                                len(strategy_source_bars),
+                                tuple(strategy_result.errors or []),
                             )
 
-                            if strategy_overlay_cache.get("last_warning_key") != warning_key:
-                                strategy_overlay_cache["last_warning_key"] = warning_key
+                            if strategy_result.errors and getattr(render_watch_tab, "_last_strategy_warning_key",
+                                                                  None) != warning_key:
                                 print(
                                     "[STRATEGY SCRIPT WARNINGS] "
-                                    + " | ".join(strategy_result.errors),
+                                    + " | ".join(strategy_result.errors[:12]),
                                     flush=True,
                                 )
+                                render_watch_tab._last_strategy_warning_key = warning_key
+
+                            # Background rectangles are expensive. Render them only when
+                            # replay is paused/manual, not while the clock is playing.
+                            if not is_replay_playing:
+                                fig = strategy_overlay_service.engine.add_backgrounds_to_figure(
+                                    fig,
+                                    chart_bars,
+                                    strategy_result,
+                                )
+
+                            fig = strategy_overlay_service.engine.add_plots_to_figure(
+                                fig,
+                                chart_bars,
+                                strategy_result,
+                            )
+
+                            fig = strategy_overlay_service.engine.add_signals_to_figure(
+                                fig,
+                                strategy_result,
+                            )
 
             except Exception as strategy_exc:
                 print(f"[STRATEGY OVERLAY ERROR] {strategy_exc}", flush=True)
