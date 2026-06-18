@@ -12,7 +12,11 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
+import copy
 import time
+
+
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -28,7 +32,16 @@ from services.strategy_overlay_service import StrategyOverlayService
 from services.bar_view_service import BarViewService
 from services.chart_viewport_service import ChartViewportService
 
-from renderer.watch_chart_render import WatchChartRenderer
+try:
+    from renderers.watch_chart_renderer import WatchChartRenderer
+except Exception:
+    try:
+        from renderer.watch_chart_render import WatchChartRenderer
+    except Exception:
+        try:
+            from renderers.watch_chart_render import WatchChartRenderer
+        except Exception:
+            from renderer.watch_chart_renderer import WatchChartRenderer
 
 try:
     from core.StrategyFunctionRegistry import get_function_reference_markdown
@@ -328,13 +341,10 @@ def register_callbacks(
     strategy_overlay_service = StrategyOverlayService()
     bar_view_service = BarViewService()
     chart_viewport_service = ChartViewportService()
-    watch_chart_render = WatchChartRenderer()
+    watch_chart_renderer = WatchChartRenderer()
     backtest_engine = BackTestEngine()
 
-    # Strategy overlay cache:
-    # Heavy strategy calculation should not run on every replay clock tick.
-    # The render callback uses this cache and only recalculates when script,
-    # symbol, timeframe, loaded data size, or data endpoints change.
+    # Strategy overlays are cached by StrategyOverlayService.
 
     def _trading_days_between(start_date, end_date):
         start = pd.to_datetime(start_date, errors="coerce")
@@ -386,6 +396,152 @@ def register_callbacks(
         )
 
         return _read_strategy_doc_file(path, fallback).strip()
+
+    def _clone_strategy_result_with_updates(result, **updates):
+        """
+        Return a result-like object with selected fields replaced.
+
+        StrategyScriptResult has changed during development, so this helper
+        supports mutable dataclasses, namedtuples, and plain objects. The
+        overlay renderers only need attribute access, so SimpleNamespace is a
+        safe fallback when direct assignment is not possible.
+        """
+        if result is None:
+            return result
+
+        try:
+            cloned = copy.copy(result)
+        except Exception:
+            cloned = result
+
+        failed = False
+
+        for key, value in updates.items():
+            try:
+                setattr(cloned, key, value)
+            except Exception:
+                failed = True
+                break
+
+        if not failed:
+            return cloned
+
+        try:
+            return result._replace(**updates)
+        except Exception:
+            pass
+
+        data = {}
+
+        try:
+            data.update(vars(result))
+        except Exception:
+            pass
+
+        for name in (
+            "lines",
+            "signals",
+            "errors",
+            "backgrounds",
+            "background_ranges",
+            "plots",
+        ):
+            if name not in data and hasattr(result, name):
+                try:
+                    data[name] = getattr(result, name)
+                except Exception:
+                    pass
+
+        data.update(updates)
+        return SimpleNamespace(**data)
+
+    def _make_replay_lightweight_strategy_overlay(
+            result,
+            chart_bars: pd.DataFrame,
+            max_bars: int = 160,
+            max_signals: int = 25,
+    ):
+        """
+        Build a lightweight StrategyScriptResult for active replay playback.
+
+        StrategyEngine can calculate on the full loaded replay dataset, but
+        Plotly should not redraw every historical indicator point and every
+        signal marker on every replay tick.
+
+        Important alignment rule:
+        chart_bars represents the cursor-visible replay window. Indicator
+        series may come from the full loaded dataset, so we first trim each
+        series to len(chart_bars), then keep the recent tail. That avoids
+        drawing future indicator values while replay is in the middle of a day.
+        """
+        if result is None or chart_bars is None or chart_bars.empty:
+            return chart_bars, result
+
+        if len(chart_bars) <= max_bars:
+            return chart_bars, result
+
+        recent_bars = chart_bars.tail(max_bars).reset_index(drop=True)
+        cursor_len = len(chart_bars)
+
+        # Limit plotted indicator lines to the cursor-visible tail.
+        light_lines = getattr(result, "lines", None)
+
+        if isinstance(light_lines, dict):
+            trimmed_lines = {}
+
+            for name, series in light_lines.items():
+                try:
+                    s = pd.Series(series)
+                    trimmed_lines[name] = (
+                        s.iloc[: min(cursor_len, len(s))]
+                        .tail(max_bars)
+                        .reset_index(drop=True)
+                    )
+                except Exception:
+                    trimmed_lines[name] = series
+
+            light_lines = trimmed_lines
+
+        # Limit signal markers to the recent visible time window.
+        recent_signals = []
+
+        try:
+            start_time = pd.to_datetime(
+                recent_bars["time"].iloc[0],
+                errors="coerce",
+                format="mixed",
+            )
+            end_time = pd.to_datetime(
+                recent_bars["time"].iloc[-1],
+                errors="coerce",
+                format="mixed",
+            )
+
+            for sig in getattr(result, "signals", []) or []:
+                sig_time = pd.to_datetime(
+                    getattr(sig, "time", None),
+                    errors="coerce",
+                    format="mixed",
+                )
+
+                if pd.notna(sig_time) and pd.notna(start_time) and pd.notna(end_time):
+                    if start_time <= sig_time <= end_time:
+                        recent_signals.append(sig)
+
+            recent_signals = recent_signals[-max_signals:]
+
+        except Exception:
+            try:
+                recent_signals = list(getattr(result, "signals", []) or [])[-max_signals:]
+            except Exception:
+                recent_signals = []
+
+        return recent_bars, _clone_strategy_result_with_updates(
+            result,
+            lines=light_lines,
+            signals=recent_signals,
+        )
+
 
     @app.callback(
         Output("pair-title", "children"),
@@ -1951,7 +2107,6 @@ def register_callbacks(
             if selected_source != "live":
                 return no_update
 
-
         try:
             price_source = str(price_source or "replay").lower().strip()
             display_timeframe = str(watch_timeframe or "1 min")
@@ -1993,13 +2148,13 @@ def register_callbacks(
 
             if watch_view.is_empty:
                 message = watch_view.error or f"Loading {watch_view.chart_label} data..."
-                fig = watch_chart_render.empty_figure(
+                fig = watch_chart_renderer.empty_figure(
                     f"{symbol} | {display_timeframe} | {message}"
                 )
                 fig.update_layout(uirevision=f"watch-{symbol}-{source_label}-empty")
                 return fig
 
-            fig = watch_chart_render.base_candles(
+            fig = watch_chart_renderer.base_candles(
                 chart_bars=chart_bars,
                 symbol=symbol,
                 display_timeframe=display_timeframe,
@@ -2086,6 +2241,23 @@ def register_callbacks(
                                 )
                                 render_watch_chart._last_strategy_warning_key = warning_key
 
+                            overlay_start = time.perf_counter()
+
+                            overlay_bars = chart_bars
+                            overlay_result = strategy_result
+
+                            # Active replay uses a lightweight recent overlay.
+                            # Full indicator/background analysis returns when paused.
+                            if is_replay_playing:
+                                overlay_bars, overlay_result = _make_replay_lightweight_strategy_overlay(
+                                    strategy_result,
+                                    chart_bars,
+                                    max_bars=160,
+                                    max_signals=25,
+                                )
+
+                            # Background rectangles are expensive. Keep them out
+                            # of the active playback path.
                             if not is_replay_playing:
                                 fig = strategy_overlay_service.engine.add_backgrounds_to_figure(
                                     fig,
@@ -2095,14 +2267,26 @@ def register_callbacks(
 
                             fig = strategy_overlay_service.engine.add_plots_to_figure(
                                 fig,
-                                chart_bars,
-                                strategy_result,
+                                overlay_bars,
+                                overlay_result,
                             )
 
                             fig = strategy_overlay_service.engine.add_signals_to_figure(
                                 fig,
-                                strategy_result,
+                                overlay_result,
                             )
+
+                            overlay_ms = (time.perf_counter() - overlay_start) * 1000
+
+                            if overlay_ms > 120:
+                                print(
+                                    f"[WATCH STRATEGY OVERLAY SLOW] {overlay_ms:.1f} ms "
+                                    f"playing={is_replay_playing} "
+                                    f"bars={len(overlay_bars) if overlay_bars is not None else 0} "
+                                    f"signals={len(getattr(overlay_result, 'signals', []) or [])}",
+                                    flush=True,
+                                )
+
 
             except Exception as strategy_exc:
                 print(f"[STRATEGY OVERLAY ERROR] {strategy_exc}", flush=True)
@@ -2127,11 +2311,7 @@ def register_callbacks(
             except Exception:
                 strategy_key = ""
 
-            try:
-                info = replay_service.info()
-                idx = max(1, int(info.get("current_index", 1)))
-            except Exception:
-                idx = watch_view.current_index
+            idx = replay_idx_for_render or watch_view.current_index
 
             fig.update_layout(
                 uirevision=f"watch-{symbol}-{source_label}-{mode}-{range_key}",
@@ -2146,7 +2326,7 @@ def register_callbacks(
 
         except Exception as exc:
             print(f"[WATCH CHART RENDER ERROR] {exc}", flush=True)
-            fig = watch_chart_render.empty_figure(f"Replay loading... {exc}")
+            fig = watch_chart_renderer.empty_figure(f"Replay loading... {exc}")
             fig.update_layout(uirevision=f"watch-{symbol or DEFAULT_SYMBOL}-error")
             return fig
 
@@ -2166,9 +2346,9 @@ def register_callbacks(
             return no_update, no_update
 
         try:
-
-            max_idx = max(1, int(info.get("max_index", 1)))
-            idx = replay_idx_for_render
+            info = replay_service.info()
+            max_idx = max(1, int(info.get("max_index", 1) or 1))
+            idx = max(1, int(info.get("current_index", 1) or 1))
             return max_idx, idx
 
         except Exception as exc:
