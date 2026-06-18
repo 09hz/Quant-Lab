@@ -12,8 +12,6 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
-import copy
 import time
 
 
@@ -42,6 +40,15 @@ except Exception:
             from renderers.watch_chart_render import WatchChartRenderer
         except Exception:
             from renderer.watch_chart_renderer import WatchChartRenderer
+
+try:
+    from renderers.strategy_overlay_renderer import StrategyOverlayRenderer
+except Exception:
+    try:
+        from renderer.strategy_overlay_renderer import StrategyOverlayRenderer
+    except Exception:
+        # Last-resort fallback for unusual folder names during local patching.
+        from renderers.strategy_overlay_renderer import StrategyOverlayRenderer
 
 try:
     from core.StrategyFunctionRegistry import get_function_reference_markdown
@@ -342,6 +349,11 @@ def register_callbacks(
     bar_view_service = BarViewService()
     chart_viewport_service = ChartViewportService()
     watch_chart_renderer = WatchChartRenderer()
+    strategy_overlay_renderer = StrategyOverlayRenderer(
+        replay_max_bars=160,
+        replay_max_signals=25,
+        slow_log_ms=120,
+    )
     backtest_engine = BackTestEngine()
 
     # Strategy overlays are cached by StrategyOverlayService.
@@ -396,152 +408,6 @@ def register_callbacks(
         )
 
         return _read_strategy_doc_file(path, fallback).strip()
-
-    def _clone_strategy_result_with_updates(result, **updates):
-        """
-        Return a result-like object with selected fields replaced.
-
-        StrategyScriptResult has changed during development, so this helper
-        supports mutable dataclasses, namedtuples, and plain objects. The
-        overlay renderers only need attribute access, so SimpleNamespace is a
-        safe fallback when direct assignment is not possible.
-        """
-        if result is None:
-            return result
-
-        try:
-            cloned = copy.copy(result)
-        except Exception:
-            cloned = result
-
-        failed = False
-
-        for key, value in updates.items():
-            try:
-                setattr(cloned, key, value)
-            except Exception:
-                failed = True
-                break
-
-        if not failed:
-            return cloned
-
-        try:
-            return result._replace(**updates)
-        except Exception:
-            pass
-
-        data = {}
-
-        try:
-            data.update(vars(result))
-        except Exception:
-            pass
-
-        for name in (
-            "lines",
-            "signals",
-            "errors",
-            "backgrounds",
-            "background_ranges",
-            "plots",
-        ):
-            if name not in data and hasattr(result, name):
-                try:
-                    data[name] = getattr(result, name)
-                except Exception:
-                    pass
-
-        data.update(updates)
-        return SimpleNamespace(**data)
-
-    def _make_replay_lightweight_strategy_overlay(
-            result,
-            chart_bars: pd.DataFrame,
-            max_bars: int = 160,
-            max_signals: int = 25,
-    ):
-        """
-        Build a lightweight StrategyScriptResult for active replay playback.
-
-        StrategyEngine can calculate on the full loaded replay dataset, but
-        Plotly should not redraw every historical indicator point and every
-        signal marker on every replay tick.
-
-        Important alignment rule:
-        chart_bars represents the cursor-visible replay window. Indicator
-        series may come from the full loaded dataset, so we first trim each
-        series to len(chart_bars), then keep the recent tail. That avoids
-        drawing future indicator values while replay is in the middle of a day.
-        """
-        if result is None or chart_bars is None or chart_bars.empty:
-            return chart_bars, result
-
-        if len(chart_bars) <= max_bars:
-            return chart_bars, result
-
-        recent_bars = chart_bars.tail(max_bars).reset_index(drop=True)
-        cursor_len = len(chart_bars)
-
-        # Limit plotted indicator lines to the cursor-visible tail.
-        light_lines = getattr(result, "lines", None)
-
-        if isinstance(light_lines, dict):
-            trimmed_lines = {}
-
-            for name, series in light_lines.items():
-                try:
-                    s = pd.Series(series)
-                    trimmed_lines[name] = (
-                        s.iloc[: min(cursor_len, len(s))]
-                        .tail(max_bars)
-                        .reset_index(drop=True)
-                    )
-                except Exception:
-                    trimmed_lines[name] = series
-
-            light_lines = trimmed_lines
-
-        # Limit signal markers to the recent visible time window.
-        recent_signals = []
-
-        try:
-            start_time = pd.to_datetime(
-                recent_bars["time"].iloc[0],
-                errors="coerce",
-                format="mixed",
-            )
-            end_time = pd.to_datetime(
-                recent_bars["time"].iloc[-1],
-                errors="coerce",
-                format="mixed",
-            )
-
-            for sig in getattr(result, "signals", []) or []:
-                sig_time = pd.to_datetime(
-                    getattr(sig, "time", None),
-                    errors="coerce",
-                    format="mixed",
-                )
-
-                if pd.notna(sig_time) and pd.notna(start_time) and pd.notna(end_time):
-                    if start_time <= sig_time <= end_time:
-                        recent_signals.append(sig)
-
-            recent_signals = recent_signals[-max_signals:]
-
-        except Exception:
-            try:
-                recent_signals = list(getattr(result, "signals", []) or [])[-max_signals:]
-            except Exception:
-                recent_signals = []
-
-        return recent_bars, _clone_strategy_result_with_updates(
-            result,
-            lines=light_lines,
-            signals=recent_signals,
-        )
-
 
     @app.callback(
         Output("pair-title", "children"),
@@ -982,12 +848,25 @@ def register_callbacks(
             if not info_before.get("playing"):
                 return no_update
 
-            before_idx = int(info_before.get("current_index", 1))
+            before_idx = max(1, int(info_before.get("current_index", 1) or 1))
+            before_max_idx = max(1, int(info_before.get("max_index", 1) or 1))
 
             replay_service.tick()
 
             info_after = replay_service.info()
-            after_idx = int(info_after.get("current_index", 1))
+            after_idx = max(1, int(info_after.get("current_index", 1) or 1))
+            after_max_idx = max(1, int(info_after.get("max_index", before_max_idx) or before_max_idx))
+
+            # End-of-replay guard:
+            # Some replay engines leave `playing=True` at the final cursor.
+            # Force a pause and one final render so full overlays/backgrounds
+            # and paper markers are restored at the end of playback.
+            if after_idx >= after_max_idx:
+                try:
+                    replay_service.pause()
+                except Exception:
+                    pass
+                return int(render_trigger or 0) + 1
 
             if after_idx != before_idx:
                 return int(render_trigger or 0) + 1
@@ -2070,7 +1949,7 @@ def register_callbacks(
         Input("replay-render-trigger", "data"),
         Input("watch-load-request", "data"),
         Input("watch-chart-state", "data"),
-
+        Input("paper-trade-trigger", "data"),
         Input("strategy-script-store", "data"),
         Input("watch-timeframe-dropdown", "value"),
         Input("ui-interval", "n_intervals"),
@@ -2084,7 +1963,7 @@ def register_callbacks(
             _render_trigger,
             _load_request,
             watch_chart_state,
-
+            _paper_trade_trigger,
             strategy_store,
             watch_timeframe,
             _ui_n,
@@ -2107,6 +1986,18 @@ def register_callbacks(
             if selected_source != "live":
                 return no_update
 
+        # Paper trades should update the paper state immediately, but they
+        # should not force an expensive chart redraw while replay is actively
+        # playing. When paused, allow the redraw so markers appear immediately.
+        if trigger_id == "paper-trade-trigger":
+            selected_source = str(price_source or "replay").lower().strip()
+            if selected_source != "live":
+                try:
+                    if bool(replay_service.info().get("playing")):
+                        return no_update
+                except Exception:
+                    pass
+
         try:
             price_source = str(price_source or "replay").lower().strip()
             display_timeframe = str(watch_timeframe or "1 min")
@@ -2117,17 +2008,29 @@ def register_callbacks(
             )
             try:
                 replay_info_for_render = replay_service.info()
+                replay_idx_for_render = max(
+                    1,
+                    int(replay_info_for_render.get("current_index", 1) or 1),
+                )
+                replay_max_idx_for_render = max(
+                    1,
+                    int(replay_info_for_render.get("max_index", 1) or 1),
+                )
+                is_replay_finished_for_render = (
+                    not use_live_watch_data
+                    and replay_max_idx_for_render > 1
+                    and replay_idx_for_render >= replay_max_idx_for_render
+                )
                 is_replay_playing_for_render = (
                         not use_live_watch_data
                         and bool(replay_info_for_render.get("playing"))
-                )
-                replay_idx_for_render = max(
-                    1,
-                    int(replay_info_for_render.get("current_index", 1)),
+                        and not is_replay_finished_for_render
                 )
             except Exception:
                 is_replay_playing_for_render = False
+                is_replay_finished_for_render = False
                 replay_idx_for_render = 1
+                replay_max_idx_for_render = 1
 
 
             watch_view = bar_view_service.build_watch_view(
@@ -2241,51 +2144,14 @@ def register_callbacks(
                                 )
                                 render_watch_chart._last_strategy_warning_key = warning_key
 
-                            overlay_start = time.perf_counter()
-
-                            overlay_bars = chart_bars
-                            overlay_result = strategy_result
-
-                            # Active replay uses a lightweight recent overlay.
-                            # Full indicator/background analysis returns when paused.
-                            if is_replay_playing:
-                                overlay_bars, overlay_result = _make_replay_lightweight_strategy_overlay(
-                                    strategy_result,
-                                    chart_bars,
-                                    max_bars=160,
-                                    max_signals=25,
-                                )
-
-                            # Background rectangles are expensive. Keep them out
-                            # of the active playback path.
-                            if not is_replay_playing:
-                                fig = strategy_overlay_service.engine.add_backgrounds_to_figure(
-                                    fig,
-                                    chart_bars,
-                                    strategy_result,
-                                )
-
-                            fig = strategy_overlay_service.engine.add_plots_to_figure(
-                                fig,
-                                overlay_bars,
-                                overlay_result,
+                            fig = strategy_overlay_renderer.add_to_figure(
+                                fig=fig,
+                                engine=strategy_overlay_service.engine,
+                                chart_bars=chart_bars,
+                                strategy_result=strategy_result,
+                                is_replay_playing=is_replay_playing,
+                                context="WATCH",
                             )
-
-                            fig = strategy_overlay_service.engine.add_signals_to_figure(
-                                fig,
-                                overlay_result,
-                            )
-
-                            overlay_ms = (time.perf_counter() - overlay_start) * 1000
-
-                            if overlay_ms > 120:
-                                print(
-                                    f"[WATCH STRATEGY OVERLAY SLOW] {overlay_ms:.1f} ms "
-                                    f"playing={is_replay_playing} "
-                                    f"bars={len(overlay_bars) if overlay_bars is not None else 0} "
-                                    f"signals={len(getattr(overlay_result, 'signals', []) or [])}",
-                                    flush=True,
-                                )
 
 
             except Exception as strategy_exc:
@@ -2313,11 +2179,18 @@ def register_callbacks(
 
             idx = replay_idx_for_render or watch_view.current_index
 
+            paper_key = ""
+            if not is_replay_playing_for_render:
+                try:
+                    paper_key = str(_paper_trade_trigger or "")
+                except Exception:
+                    paper_key = ""
+
             fig.update_layout(
                 uirevision=f"watch-{symbol}-{source_label}-{mode}-{range_key}",
                 datarevision=(
                     f"watch-{symbol}-{source_label}-{mode}-{range_key}-"
-                    f"{idx}-{strategy_key}"
+                    f"{idx}-{strategy_key}-{paper_key}-{int(is_replay_playing_for_render)}"
                 ),
                 dragmode="pan",
             )
@@ -2896,9 +2769,11 @@ def register_callbacks(
         """
         Add paper-trade fill markers to a candlestick chart.
 
-        BUY markers appear above candles.
-        SELL markers appear below candles.
-        Multiple fills on the same candle/side are grouped into one marker.
+        v1G fix:
+        - Supports timestamp, filled_at, submitted_at, or time columns.
+        - Does not require order_id.
+        - Works on resampled chart bars by mapping each fill to the current
+          chart candle with merge_asof instead of exact minute equality.
         """
         if bars is None or bars.empty:
             return fig
@@ -2906,46 +2781,116 @@ def register_callbacks(
         if fills_df is None or fills_df.empty:
             return fig
 
-        required_fill_cols = {"symbol", "side", "quantity", "price", "timestamp", "order_id"}
-        if not required_fill_cols.issubset(set(fills_df.columns)):
+        fills = fills_df.copy()
+
+        if "side" not in fills.columns or "price" not in fills.columns:
+            return fig
+
+        if "quantity" not in fills.columns:
+            fills["quantity"] = 1
+
+        time_col = None
+        for candidate in ("timestamp", "filled_at", "submitted_at", "time"):
+            if candidate in fills.columns:
+                time_col = candidate
+                break
+
+        if time_col is None:
             return fig
 
         df_bars = bars.copy()
-        df_bars["time"] = pd.to_datetime(df_bars["time"], errors="coerce")
-        df_bars = df_bars.dropna(subset=["time"])
+
+        if "time" not in df_bars.columns:
+            return fig
+
+        df_bars["bar_time"] = pd.to_datetime(
+            df_bars["time"],
+            errors="coerce",
+            format="mixed",
+        )
+
+        for col in ("high", "low", "close"):
+            if col not in df_bars.columns:
+                return fig
+            df_bars[col] = pd.to_numeric(df_bars[col], errors="coerce")
+
+        df_bars = (
+            df_bars
+            .dropna(subset=["bar_time", "high", "low", "close"])
+            .sort_values("bar_time")
+            .reset_index(drop=True)
+        )
 
         if df_bars.empty:
             return fig
 
-        fills = fills_df.copy()
-        fills["timestamp"] = pd.to_datetime(fills["timestamp"], errors="coerce")
-        fills = fills.dropna(subset=["timestamp"])
+        fills["_fill_time"] = pd.to_datetime(
+            fills[time_col],
+            errors="coerce",
+            format="mixed",
+        )
+
+        fills["price"] = pd.to_numeric(fills["price"], errors="coerce")
+        fills["quantity"] = pd.to_numeric(fills["quantity"], errors="coerce").fillna(0)
+
+        fills = (
+            fills
+            .dropna(subset=["_fill_time", "price"])
+            .sort_values("_fill_time")
+            .reset_index(drop=True)
+        )
 
         if fills.empty:
             return fig
 
-        fills["candle_time"] = fills["timestamp"].dt.floor("min")
-        df_bars["candle_time"] = df_bars["time"].dt.floor("min")
+        try:
+            bar_steps = df_bars["bar_time"].diff().dropna()
+            if not bar_steps.empty:
+                median_step = bar_steps.median()
+                tolerance = max(median_step * 2, pd.Timedelta(minutes=2))
+            else:
+                tolerance = pd.Timedelta(minutes=2)
+        except Exception:
+            tolerance = pd.Timedelta(minutes=2)
 
-        merged = fills.merge(
-            df_bars[["candle_time", "high", "low", "close"]],
-            on="candle_time",
-            how="inner",
-        )
+        try:
+            merged = pd.merge_asof(
+                fills,
+                df_bars[["bar_time", "high", "low", "close"]],
+                left_on="_fill_time",
+                right_on="bar_time",
+                direction="backward",
+                tolerance=tolerance,
+            )
+        except Exception as marker_merge_exc:
+            print(f"[WATCH TRADE MARKER MERGE ERROR] {marker_merge_exc}", flush=True)
+            return fig
+
+        merged = merged.dropna(subset=["bar_time", "high", "low", "close"]).copy()
 
         if merged.empty:
             return fig
 
+        if "order_id" not in merged.columns:
+            merged["order_id"] = range(1, len(merged) + 1)
+
         grouped_rows = []
 
-        for (candle_time, side), group in merged.groupby(["candle_time", "side"]):
-            side = str(side).upper()
+        for (bar_time, side), group in merged.groupby(["bar_time", "side"]):
+            side = str(side).upper().strip()
+
+            if side not in {"BUY", "SELL"}:
+                continue
 
             total_qty = float(group["quantity"].sum())
             if total_qty <= 0:
                 continue
 
-            avg_price = float((group["price"] * group["quantity"]).sum() / total_qty)
+            try:
+                avg_price = float((group["price"] * group["quantity"]).sum() / total_qty)
+            except Exception:
+                avg_price = float(group["price"].iloc[-1])
+
             order_ids = ", ".join(str(x) for x in group["order_id"].tolist())
             count = len(group)
 
@@ -2954,16 +2899,18 @@ def register_callbacks(
             close = float(group["close"].iloc[0])
 
             candle_range = max(high - low, abs(close) * 0.002, 0.01)
-            offset = candle_range * 0.35
+            offset = candle_range * 0.45
 
             if side == "BUY":
                 y = high + offset
                 marker_symbol = "triangle-up"
                 label = f"BUY x{count}" if count > 1 else "BUY"
+                text_position = "top center"
             else:
                 y = low - offset
                 marker_symbol = "triangle-down"
                 label = f"SELL x{count}" if count > 1 else "SELL"
+                text_position = "bottom center"
 
             realized = 0.0
             if "realized_pnl" in group.columns:
@@ -2991,7 +2938,8 @@ def register_callbacks(
 
             hover = (
                 f"<b>{label}</b><br>"
-                f"Time: {candle_time}<br>"
+                f"Fill time: {group['_fill_time'].iloc[-1]}<br>"
+                f"Chart candle: {bar_time}<br>"
                 f"Orders: {order_ids}<br>"
                 f"Quantity: {total_qty:g}<br>"
                 f"Avg Fill: ${avg_price:,.2f}<br>"
@@ -3002,12 +2950,13 @@ def register_callbacks(
 
             grouped_rows.append(
                 {
-                    "time": candle_time,
+                    "time": bar_time,
                     "side": side,
                     "y": y,
                     "symbol": marker_symbol,
                     "label": label,
                     "hover": hover,
+                    "textposition": text_position,
                 }
             )
 
@@ -3027,7 +2976,7 @@ def register_callbacks(
                     mode="markers+text",
                     marker=dict(
                         symbol="triangle-up",
-                        size=14,
+                        size=16,
                         color="#22c55e",
                         line=dict(width=1, color="#ffffff"),
                     ),
@@ -3047,7 +2996,7 @@ def register_callbacks(
                     mode="markers+text",
                     marker=dict(
                         symbol="triangle-down",
-                        size=14,
+                        size=16,
                         color="#ef4444",
                         line=dict(width=1, color="#ffffff"),
                     ),

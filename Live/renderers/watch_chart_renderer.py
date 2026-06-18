@@ -8,7 +8,7 @@ from utils.chart_utils import create_candlestick_figure
 
 class WatchChartRenderer:
     """
-    Plotly renderer for the Watch chart.
+    Plotly renderers for the Watch chart.
 
     This is intentionally a thin visual layer. It should not load replay data,
     mutate replay state, run strategy scripts, or touch paper broker state.
