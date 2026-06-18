@@ -1,21 +1,19 @@
 from __future__ import annotations
 
 from datetime import timedelta
-from typing import Any
 
 import pandas as pd
-from dash import no_update
+import plotly.graph_objects as go
 
 
 class ChartViewportService:
     """
-    Explicit viewport state model for chart pan/zoom/follow behavior.
+    Owns chart viewport behavior: range buttons, manual zoom/pan state,
+    visible-window y-axis fitting, and future follow/manual/range modes.
 
-    This keeps replay follow-mode, range buttons, and user zoom from fighting
-    each other.
+    This service intentionally does not load data, mutate replay state,
+    run strategies, or touch paper trading state.
     """
-
-    VALID_RANGE_KEYS = {"1D", "1W", "1M", "3M", "1Y", "5Y", "MAX"}
 
     RANGE_DAYS = {
         "1D": 1,
@@ -26,50 +24,44 @@ class ChartViewportService:
         "5Y": 365 * 5,
     }
 
-    def default_state(self, range_key: str = "1D") -> dict[str, Any]:
+    VALID_RANGE_KEYS = {"1D", "1W", "1M", "3M", "1Y", "5Y", "MAX"}
+
+    def safe_range_key(self, value, default: str = "1D") -> str:
+        value = str(value or default).upper().strip()
+        if value in self.VALID_RANGE_KEYS:
+            return value
+        return default
+
+    def default_state(self, range_key: str = "1D") -> dict:
         return {
-            "mode": "follow",
+            "mode": "live",
             "range_key": self.safe_range_key(range_key),
             "x_range": None,
-            "y_mode": "auto_visible",
             "y_range": None,
         }
 
-    def safe_range_key(self, value: str | None, default: str = "1D") -> str:
-        value = str(value or default).upper()
-        return value if value in self.VALID_RANGE_KEYS else default
+    def clean_relayout_range(self, relayout_data):
+        """
+        Convert Plotly relayoutData into viewport state.
 
-    def range_key_from_button(
-        self,
-        trigger_id: str | None,
-        prefix: str,
-        default: str = "1D",
-    ) -> str:
-        if not trigger_id:
-            return default
+        Returns:
+            dict when viewport state changed
+            None when relayoutData should be ignored
+        """
 
-        raw = str(trigger_id).replace(prefix, "").lower()
-        mapping = {
-            "1d": "1D",
-            "1w": "1W",
-            "1m": "1M",
-            "3m": "3M",
-            "1y": "1Y",
-            "5y": "5Y",
-            "max": "MAX",
-        }
-        return mapping.get(raw, default)
-
-    def parse_relayout(self, relayout_data):
         if not relayout_data:
-            return no_update
+            return None
 
         if (
             relayout_data.get("xaxis.autorange") is True
             or relayout_data.get("yaxis.autorange") is True
             or relayout_data.get("autosize") is True
         ):
-            return self.default_state()
+            return {
+                "mode": "live",
+                "x_range": None,
+                "y_range": None,
+            }
 
         x0 = relayout_data.get("xaxis.range[0]")
         x1 = relayout_data.get("xaxis.range[1]")
@@ -79,87 +71,78 @@ class ChartViewportService:
         if x0 is not None and x1 is not None:
             return {
                 "mode": "manual",
-                "range_key": "1D",
                 "x_range": [x0, x1],
-                "y_mode": "manual" if y0 is not None and y1 is not None else "auto_visible",
                 "y_range": [y0, y1] if y0 is not None and y1 is not None else None,
             }
 
         if y0 is not None and y1 is not None:
             return {
                 "mode": "manual",
-                "range_key": "1D",
                 "x_range": None,
-                "y_mode": "manual",
                 "y_range": [y0, y1],
             }
 
-        return no_update
+        return None
 
-    def visible_x_range(self, bars: pd.DataFrame, state: dict | None):
-        if bars is None or bars.empty or "time" not in bars.columns:
+    def clean_bars_for_view(self, bars: pd.DataFrame | None) -> pd.DataFrame:
+        if bars is None or bars.empty:
+            return pd.DataFrame(columns=["time", "open", "high", "low", "close", "volume"])
+
+        df = bars.copy()
+
+        if "time" not in df.columns:
+            return pd.DataFrame(columns=["time", "open", "high", "low", "close", "volume"])
+
+        df["time"] = pd.to_datetime(df["time"], errors="coerce", format="mixed")
+
+        for col in ["high", "low"]:
+            if col not in df.columns:
+                return pd.DataFrame(columns=["time", "open", "high", "low", "close", "volume"])
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        df = df.dropna(subset=["time", "high", "low"]).copy()
+        return df
+
+    def visible_window_from_bars(self, bars: pd.DataFrame, range_key: str):
+        df = self.clean_bars_for_view(bars)
+
+        if df.empty:
             return None
 
-        state = state or self.default_state()
-        mode = state.get("mode", "follow")
-
-        if mode == "manual":
-            return state.get("x_range")
-
-        range_key = self.safe_range_key(state.get("range_key"), "1D")
-        times = pd.to_datetime(bars["time"], errors="coerce").dropna()
-
-        if times.empty:
-            return None
-
-        end_time = times.max()
+        range_key = self.safe_range_key(range_key)
+        end_time = df["time"].max()
 
         if range_key == "MAX":
-            start_time = times.min()
+            start_time = df["time"].min()
         else:
             days = self.RANGE_DAYS.get(range_key, 1)
-            start_time = max(end_time - timedelta(days=days), times.min())
+            start_time = end_time - timedelta(days=days)
+            start_time = max(start_time, df["time"].min())
 
         return [start_time, end_time]
 
-    def apply_to_figure(self, fig, bars: pd.DataFrame, state: dict | None, default_range="1D"):
-        state = state or self.default_state(default_range)
+    def fit_y_axis_to_visible_bars(
+        self,
+        fig: go.Figure,
+        bars: pd.DataFrame,
+        x_range=None,
+    ) -> go.Figure:
+        """
+        Fit y-axis only to visible candles. This prevents candles from becoming
+        flat or unreadable after zoom/range changes.
+        """
 
-        if bars is None or bars.empty:
-            return fig
-
-        mode = state.get("mode", "follow")
-        x_range = self.visible_x_range(bars, state)
-
-        if x_range:
-            fig.update_xaxes(range=x_range, fixedrange=False)
-
-        if mode == "manual" and state.get("y_range"):
-            fig.update_yaxes(range=state.get("y_range"), fixedrange=False)
-            return fig
-
-        return self.fit_y_axis_to_visible_bars(fig, bars, x_range)
-
-    def fit_y_axis_to_visible_bars(self, fig, bars: pd.DataFrame, x_range=None):
-        if bars is None or bars.empty:
-            return fig
-
-        df = bars.copy()
-        if "time" not in df.columns:
-            return fig
-
-        df["time"] = pd.to_datetime(df["time"], errors="coerce")
-        df["high"] = pd.to_numeric(df.get("high"), errors="coerce")
-        df["low"] = pd.to_numeric(df.get("low"), errors="coerce")
-        df = df.dropna(subset=["time", "high", "low"])
+        df = self.clean_bars_for_view(bars)
 
         if df.empty:
             return fig
 
         visible = df
+
         if x_range:
             x0 = pd.to_datetime(x_range[0], errors="coerce")
             x1 = pd.to_datetime(x_range[1], errors="coerce")
+
             if pd.notna(x0) and pd.notna(x1):
                 visible = df[(df["time"] >= x0) & (df["time"] <= x1)]
 
@@ -175,4 +158,39 @@ class ChartViewportService:
             pad = (high - low) * 0.08
 
         fig.update_yaxes(range=[low - pad, high + pad], fixedrange=False)
+        return fig
+
+    def apply_chart_view(
+        self,
+        fig: go.Figure,
+        bars: pd.DataFrame,
+        chart_state: dict | None,
+        default_range: str = "1D",
+    ) -> go.Figure:
+        state = chart_state or {}
+        mode = state.get("mode", "live")
+        range_key = self.safe_range_key(state.get("range_key"), default_range)
+
+        if bars is None or bars.empty:
+            return fig
+
+        if mode == "manual":
+            x_range = state.get("x_range")
+            y_range = state.get("y_range")
+
+            if x_range:
+                fig.update_xaxes(range=x_range, fixedrange=False)
+                fig = self.fit_y_axis_to_visible_bars(fig, bars, x_range)
+
+            if y_range:
+                fig.update_yaxes(range=y_range, fixedrange=False)
+
+            return fig
+
+        x_range = self.visible_window_from_bars(bars, range_key)
+
+        if x_range:
+            fig.update_xaxes(range=x_range, fixedrange=False)
+
+        fig = self.fit_y_axis_to_visible_bars(fig, bars, x_range)
         return fig

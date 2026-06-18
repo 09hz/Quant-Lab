@@ -26,6 +26,8 @@ from core.BackTestEngine import BackTestEngine
 
 from services.strategy_overlay_service import StrategyOverlayService
 from services.bar_view_service import BarViewService
+from services.chart_viewport_service import ChartViewportService
+
 from renderer.watch_chart_render import WatchChartRenderer
 
 try:
@@ -325,6 +327,7 @@ def register_callbacks(
     strategy_engine = StrategyEngine()
     strategy_overlay_service = StrategyOverlayService()
     bar_view_service = BarViewService()
+    chart_viewport_service = ChartViewportService()
     watch_chart_render = WatchChartRenderer()
     backtest_engine = BackTestEngine()
 
@@ -2099,7 +2102,7 @@ def register_callbacks(
             except Exception as strategy_exc:
                 print(f"[STRATEGY OVERLAY ERROR] {strategy_exc}", flush=True)
 
-            fig = _apply_chart_view(
+            fig = chart_viewport_service.apply_chart_view(
                 fig,
                 chart_bars,
                 watch_chart_state,
