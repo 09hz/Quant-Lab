@@ -124,6 +124,15 @@ class StrategyEngine:
     SUPPORTED_INDICATORS = {"sma", "ema", "rsi", "highest", "lowest", "atr"}
     SUPPORTED_CONDITION_FUNCTIONS = {"crossover", "crossunder"}
 
+    # Rendering safeguards. These prevent Plotly/Dash from freezing when a
+    # strategy produces too many markers or overlay lines during replay.
+    MAX_RENDERED_STRATEGY_LINES = 6
+    MAX_RENDERED_STRATEGY_SIGNALS = 250
+
+    # Signal-generation safeguard. In position-aware mode, repeated true
+    # conditions only create one BUY while flat and one SELL while long.
+    POSITION_AWARE_SIGNALS = True
+
     def run(self, script: str, bars: pd.DataFrame) -> StrategyScriptResult:
         result = StrategyScriptResult()
 
@@ -139,6 +148,7 @@ class StrategyEngine:
 
         series_context = self._build_series_context(clean_bars)
         conditions: dict[str, pd.Series] = {}
+        signal_rules: list[tuple[str, str, str]] = []
 
         for raw_line in str(script or "").splitlines():
             line = str(raw_line or "").strip()
@@ -159,14 +169,22 @@ class StrategyEngine:
 
             assign_match = self.ASSIGN_RE.match(line)
             if assign_match:
-                self._handle_assignment(
-                    assign_match,
-                    clean_bars,
-                    series_context,
-                    result,
-                    line,
-                )
-                continue
+                func_name = self._normalize_function_name(assign_match.group("func"))
+
+                # Crossover/crossunder with numeric thresholds also match ASSIGN_RE
+                # syntactically, for example:
+                #     rsiRecover = crossover(rsiSlow, 35)
+                # Treat only supported indicators as indicator assignments.
+                # Let all other assignments fall through to the expression parser.
+                if func_name in self.SUPPORTED_INDICATORS:
+                    self._handle_assignment(
+                        assign_match,
+                        clean_bars,
+                        series_context,
+                        result,
+                        line,
+                    )
+                    continue
 
             expr_assignment = self._match_expression_assignment(line)
             if expr_assignment is not None:
@@ -193,19 +211,109 @@ class StrategyEngine:
 
             signal_match = self.SIGNAL_RE.match(line)
             if signal_match:
-                self._handle_signal(
-                    signal_match,
-                    clean_bars,
-                    series_context,
-                    conditions,
-                    result,
-                    line,
-                )
+                side = signal_match.group("side").upper().strip()
+                expr = signal_match.group("expr").strip()
+                signal_rules.append((side, expr, line))
                 continue
 
             result.errors.append(f"Could not parse line: {line}")
 
+        self._build_signals_from_rules(
+            signal_rules=signal_rules,
+            bars=clean_bars,
+            series_context=series_context,
+            conditions=conditions,
+            result=result,
+        )
+
         return result
+
+
+    def filter_result_to_bars(
+        self,
+        result: StrategyScriptResult,
+        source_bars: pd.DataFrame,
+        target_bars: pd.DataFrame,
+    ) -> StrategyScriptResult:
+        """
+        Return a lightweight StrategyScriptResult aligned to target_bars.
+
+        This lets Dash calculate strategy lines/signals once on the full loaded
+        dataset, then during replay render only the current visible/cursor
+        window without recalculating every indicator and condition each tick.
+        """
+
+        if result is None:
+            return StrategyScriptResult()
+
+        if source_bars is None or source_bars.empty or target_bars is None or target_bars.empty:
+            return StrategyScriptResult(
+                errors=list(result.errors or []),
+            )
+
+        try:
+            source = self._clean_bars(source_bars)
+            target = self._clean_bars(target_bars)
+        except Exception:
+            return result
+
+        if source.empty or target.empty or "time" not in source.columns or "time" not in target.columns:
+            return result
+
+        target_times = pd.to_datetime(target["time"], errors="coerce")
+        target_min = target_times.min()
+        target_max = target_times.max()
+
+        if pd.isna(target_min) or pd.isna(target_max):
+            return result
+
+        filtered = StrategyScriptResult(
+            lines={},
+            plots=list(result.plots or []),
+            signals=[],
+            errors=list(result.errors or []),
+        )
+
+        source_times = pd.to_datetime(source["time"], errors="coerce")
+        target_frame = pd.DataFrame(
+            {
+                "time": target_times,
+                "_target_index": target.index,
+            }
+        )
+
+        for name, series in dict(result.lines or {}).items():
+            try:
+                values = pd.Series(series).reindex(source.index)
+                line_frame = pd.DataFrame(
+                    {
+                        "time": source_times,
+                        "_value": values,
+                    }
+                ).dropna(subset=["time"])
+
+                merged = target_frame.merge(line_frame, on="time", how="left")
+                filtered.lines[name] = pd.Series(
+                    merged["_value"].values,
+                    index=target.index,
+                    name=name,
+                )
+            except Exception:
+                try:
+                    filtered.lines[name] = pd.Series(series).reindex(target.index)
+                except Exception:
+                    pass
+
+        for sig in list(result.signals or []):
+            try:
+                sig_time = pd.to_datetime(sig.time, errors="coerce")
+                if pd.notna(sig_time) and target_min <= sig_time <= target_max:
+                    filtered.signals.append(sig)
+            except Exception:
+                continue
+
+        return filtered
+
 
     def add_plots_to_figure(
         self,
@@ -223,7 +331,7 @@ class StrategyEngine:
 
         x_values = clean_bars["time"] if "time" in clean_bars.columns else clean_bars.index
 
-        for name in result.plots:
+        for name in list(result.plots or [])[: self.MAX_RENDERED_STRATEGY_LINES]:
             series = result.lines.get(name)
 
             if series is None:
@@ -255,8 +363,13 @@ class StrategyEngine:
         if result is None or not result.signals:
             return fig
 
-        buys = [sig for sig in result.signals if str(sig.side).upper() == "BUY"]
-        sells = [sig for sig in result.signals if str(sig.side).upper() == "SELL"]
+        signals = list(result.signals or [])
+
+        if len(signals) > self.MAX_RENDERED_STRATEGY_SIGNALS:
+            signals = signals[-self.MAX_RENDERED_STRATEGY_SIGNALS:]
+
+        buys = [sig for sig in signals if str(sig.side).upper() == "BUY"]
+        sells = [sig for sig in signals if str(sig.side).upper() == "SELL"]
 
         if buys:
             fig.add_trace(
@@ -518,50 +631,152 @@ class StrategyEngine:
         if name not in result.plots:
             result.plots.append(name)
 
-    def _handle_signal(
+    def _build_signals_from_rules(
         self,
-        match: re.Match,
+        signal_rules: list[tuple[str, str, str]],
         bars: pd.DataFrame,
         series_context: dict[str, pd.Series],
         conditions: dict[str, pd.Series],
         result: StrategyScriptResult,
-        line: str,
     ) -> None:
-        side = match.group("side").upper().strip()
-        expr = match.group("expr").strip()
+        """
+        Evaluate all buy/sell rules once, then create a position-aware signal stream.
 
-        condition = self._evaluate_condition_expression(
-            expr=expr,
-            bars=bars,
-            series_context=series_context,
-            conditions=conditions,
-        )
-        condition = self._to_bool_series(condition, bars)
+        This prevents scripts like:
 
-        if condition is None:
-            result.errors.append(f"Could not parse signal condition: {line}")
+            buy when close > fast
+            sell when close < fast
+
+        from producing a BUY marker on every candle while the condition remains true.
+        Instead:
+            - BUY fires only while flat.
+            - SELL fires only while long.
+        """
+
+        if not signal_rules:
             return
 
-        for idx, is_signal in condition.fillna(False).items():
-            if not bool(is_signal):
+        evaluated_rules: list[tuple[str, pd.Series, str]] = []
+
+        for side, expr, original_line in signal_rules:
+            condition = self._evaluate_condition_expression(
+                expr=expr,
+                bars=bars,
+                series_context=series_context,
+                conditions=conditions,
+            )
+            condition = self._to_bool_series(condition, bars)
+
+            if condition is None:
+                result.errors.append(f"Could not parse signal condition: {original_line}")
                 continue
 
+            evaluated_rules.append(
+                (
+                    str(side or "").upper().strip(),
+                    condition.reindex(bars.index).fillna(False).astype(bool),
+                    original_line,
+                )
+            )
+
+        if not evaluated_rules:
+            return
+
+        close = pd.to_numeric(bars["close"], errors="coerce")
+        times = bars["time"] if "time" in bars.columns else bars.index
+
+        if not self.POSITION_AWARE_SIGNALS:
+            for side, condition, original_line in evaluated_rules:
+                for idx, is_signal in condition.items():
+                    if not bool(is_signal):
+                        continue
+
+                    if idx >= len(close):
+                        continue
+
+                    price = close.iloc[idx]
+                    if pd.isna(price):
+                        continue
+
+                    signal_time = times.iloc[idx] if hasattr(times, "iloc") else times[idx]
+
+                    result.signals.append(
+                        StrategySignal(
+                            index=int(idx),
+                            time=signal_time,
+                            side=side,
+                            price=float(price),
+                            rule=original_line,
+                        )
+                    )
+
+            result.signals.sort(key=lambda sig: sig.index)
+            return
+
+        in_position = False
+
+        buy_rules = [
+            (condition, original_line)
+            for side, condition, original_line in evaluated_rules
+            if side == "BUY"
+        ]
+        sell_rules = [
+            (condition, original_line)
+            for side, condition, original_line in evaluated_rules
+            if side == "SELL"
+        ]
+
+        for idx in bars.index:
+            if idx >= len(close):
+                continue
+
+            price = close.iloc[idx]
+            if pd.isna(price):
+                continue
+
+            signal_time = times.iloc[idx] if hasattr(times, "iloc") else times[idx]
+
+            if in_position:
+                sell_rule = self._first_triggered_rule(idx, sell_rules)
+                if sell_rule is not None:
+                    result.signals.append(
+                        StrategySignal(
+                            index=int(idx),
+                            time=signal_time,
+                            side="SELL",
+                            price=float(price),
+                            rule=sell_rule,
+                        )
+                    )
+                    in_position = False
+                continue
+
+            buy_rule = self._first_triggered_rule(idx, buy_rules)
+            if buy_rule is not None:
+                result.signals.append(
+                    StrategySignal(
+                        index=int(idx),
+                        time=signal_time,
+                        side="BUY",
+                        price=float(price),
+                        rule=buy_rule,
+                    )
+                )
+                in_position = True
+
+    def _first_triggered_rule(
+        self,
+        idx: int,
+        rules: list[tuple[pd.Series, str]],
+    ) -> str | None:
+        for condition, original_line in rules:
             try:
-                price = float(bars.loc[idx, "close"])
+                if bool(condition.loc[idx]):
+                    return original_line
             except Exception:
                 continue
 
-            signal_time = bars.loc[idx, "time"] if "time" in bars.columns else idx
-
-            result.signals.append(
-                StrategySignal(
-                    index=int(idx),
-                    time=signal_time,
-                    side=side,
-                    price=price,
-                    rule=line,
-                )
-            )
+        return None
 
     def _resolve_expression_value(
         self,
