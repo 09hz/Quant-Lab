@@ -25,6 +25,8 @@ from core.StrategyEngine import StrategyEngine
 from core.BackTestEngine import BackTestEngine
 
 from services.strategy_overlay_service import StrategyOverlayService
+from services.bar_view_service import BarViewService
+from renderer.watch_chart_render import WatchChartRenderer
 
 try:
     from core.StrategyFunctionRegistry import get_function_reference_markdown
@@ -322,18 +324,14 @@ def register_callbacks(
 ):
     strategy_engine = StrategyEngine()
     strategy_overlay_service = StrategyOverlayService()
+    bar_view_service = BarViewService()
+    watch_chart_render = WatchChartRenderer()
     backtest_engine = BackTestEngine()
 
     # Strategy overlay cache:
     # Heavy strategy calculation should not run on every replay clock tick.
     # The render callback uses this cache and only recalculates when script,
     # symbol, timeframe, loaded data size, or data endpoints change.
-    strategy_overlay_cache = {
-        "key": None,
-        "source_bars": pd.DataFrame(),
-        "result": None,
-        "last_warning_key": None,
-    }
 
     def _trading_days_between(start_date, end_date):
         start = pd.to_datetime(start_date, errors="coerce")
@@ -1953,125 +1951,58 @@ def register_callbacks(
                     and _is_today_or_latest_replay_date(replay_date)
             )
 
-            info = replay_service.info()
-            max_idx = max(1, int(info.get("max_index", 1)))
-            idx = max(1, int(info.get("current_index", 1)))
-
-            visible = pd.DataFrame(
-                columns=["time", "open", "high", "low", "close", "volume"]
-            )
-            current_price = None
-            updated_at = datetime.now()
-            chart_label = "Replay Cursor"
-
-            if use_live_watch_data:
-                try:
-                    rt.request_symbol(symbol)
-                except Exception:
-                    pass
-
-                try:
-                    snap = rt.get_snapshot(symbol, "1 min")
-                except Exception as snap_exc:
-                    if "No loaded state" in str(snap_exc):
-                        fig = _empty_figure(
-                            f"{symbol} | {display_timeframe} | Loading Live Market data..."
-                        )
-                        fig.update_layout(uirevision=f"watch-{symbol}-live-loading")
-                        return fig, max_idx, idx, [], []
-
-                    raise
-
-                if snap.bars is not None and not snap.bars.empty:
-                    visible = snap.bars.copy()
-
-                current_price = snap.last
-                updated_at = snap.updated_at or datetime.now()
-                chart_label = "Live Market"
-
-            else:
-                try:
-                    visible = replay_service.visible_bars()
-                except Exception as replay_exc:
-                    print(f"[WATCH RENDER] visible_bars failed: {replay_exc}", flush=True)
-                    visible = pd.DataFrame(
-                        columns=["time", "open", "high", "low", "close", "volume"]
-                    )
-
-                if visible is not None and not visible.empty:
-                    current_price = float(visible.iloc[-1]["close"])
-
-                updated_at = datetime.now()
-                chart_label = "Replay Cursor"
-
-            if visible is None or visible.empty:
-                fig = _empty_figure(
-                    f"{symbol} | {display_timeframe} | Loading {chart_label} data..."
-                )
-                fig.update_layout(uirevision=f"watch-{symbol}-empty")
-                return fig, max_idx, idx, [], []
-
-            visible = visible.copy()
-
-            if "time" in visible.columns:
-                visible["time"] = pd.to_datetime(
-                    visible["time"],
-                    errors="coerce",
-                    format="mixed",
-                )
-
-            required_cols = ["time", "open", "high", "low", "close"]
-            missing_cols = [col for col in required_cols if col not in visible.columns]
-
-            if missing_cols:
-                fig = _empty_figure(
-                    f"{symbol} | {display_timeframe} | Missing candle columns: {missing_cols}"
-                )
-                fig.update_layout(uirevision=f"watch-{symbol}-missing-bars")
-                return fig, max_idx, idx, [], []
-
-            visible = visible.dropna(
-                subset=["time", "open", "high", "low", "close"]
-            ).copy()
-
-            if visible.empty:
-                fig = _empty_figure(
-                    f"{symbol} | {display_timeframe} | Waiting for valid candles..."
-                )
-                fig.update_layout(uirevision=f"watch-{symbol}-invalid-bars")
-                return fig, max_idx, idx, [], []
-
-            if "volume" not in visible.columns:
-                visible["volume"] = 0
-
-            if current_price is None:
-                current_price = float(visible.iloc[-1]["close"])
-
-            chart_bars = _resample_watch_bars(
-                visible,
-                display_timeframe,
+            # ------------------------------------------------------------
+            # v1B refactor:
+            # BarViewService now owns live/replay selection, bar cleaning,
+            # cursor slicing, current price extraction, and resampling.
+            # ------------------------------------------------------------
+            watch_view = bar_view_service.build_watch_view(
+                rt=rt,
+                replay_service=replay_service,
+                symbol=symbol,
+                display_timeframe=display_timeframe,
+                use_live_watch_data=use_live_watch_data,
             )
 
-            if chart_bars is None or chart_bars.empty:
-                fig = _empty_figure(
-                    f"{symbol} | {display_timeframe} | Waiting for valid candles..."
+            max_idx = watch_view.max_index
+            idx = watch_view.current_index
+            visible = watch_view.visible_bars
+            chart_bars = watch_view.chart_bars
+            current_price = watch_view.current_price
+            updated_at = watch_view.updated_at or datetime.now()
+
+            source_label = watch_view.source
+            if source_label not in {"live", "replay"}:
+                source_label = "live" if use_live_watch_data else "replay"
+
+            if watch_view.is_empty:
+                message = watch_view.error or f"Loading {watch_view.chart_label} data..."
+                fig = watch_chart_render.empty_figure(
+                    f"{symbol} | {display_timeframe} | {message}"
                 )
-                fig.update_layout(uirevision=f"watch-{symbol}-empty-{display_timeframe}")
+                fig.update_layout(uirevision=f"watch-{symbol}-{source_label}-empty")
                 return fig, max_idx, idx, [], []
 
-            fig = create_candlestick_figure(
-                chart_bars,
-                symbol,
-                display_timeframe,
+            fig = watch_chart_render.base_candles(
+                chart_bars=chart_bars,
+                symbol=symbol,
+                display_timeframe=display_timeframe,
                 current_price=current_price,
             )
 
-            # Paper trade markers only belong on the Watch tab.
+            # ------------------------------------------------------------
+            # Paper trade markers only belong on Watch.
+            # Keep this unchanged for v1B.
+            # ------------------------------------------------------------
             if paper_trading_service is not None:
                 try:
                     fills_df = paper_trading_service.fills_df()
 
-                    if fills_df is not None and not fills_df.empty and "symbol" in fills_df.columns:
+                    if (
+                            fills_df is not None
+                            and not fills_df.empty
+                            and "symbol" in fills_df.columns
+                    ):
                         fills_df = fills_df[
                             fills_df["symbol"].astype(str).str.upper() == symbol.upper()
                             ]
@@ -2081,13 +2012,12 @@ def register_callbacks(
                 except Exception as exc:
                     print(f"[WATCH TRADE MARKER ERROR] {exc}", flush=True)
 
-
-            # Strategy Lab indicator overlays.
-            # Heavy strategy calculation is cached by StrategyOverlayService so replay ticks
-            # do not repeatedly parse scripts, calculate indicators, generate signals,
-            # or merge background ranges.
-            source_label = "live" if use_live_watch_data else "replay"
-
+            # ------------------------------------------------------------
+            # Strategy Lab overlays.
+            # Heavy strategy calculation stays cached in StrategyOverlayService.
+            # Use full loaded bars for replay strategy calculation, not only
+            # cursor-visible bars.
+            # ------------------------------------------------------------
             try:
                 strategy_store = strategy_store or {}
                 script_text = str(strategy_store.get("script") or "").strip()
@@ -2100,14 +2030,12 @@ def register_callbacks(
                     except Exception:
                         is_replay_playing = False
 
-                    if use_live_watch_data:
-                        strategy_source_raw = visible.copy()
-                    else:
-                        strategy_source_raw = _get_backtest_bars()
-                        if strategy_source_raw is None or strategy_source_raw.empty:
-                            strategy_source_raw = visible.copy()
+                    strategy_source_raw = watch_view.full_bars.copy()
 
-                    strategy_source_bars = _resample_watch_bars(
+                    if strategy_source_raw is None or strategy_source_raw.empty:
+                        strategy_source_raw = visible.copy()
+
+                    strategy_source_bars = bar_view_service.resample_bars(
                         strategy_source_raw,
                         display_timeframe,
                     )
@@ -2132,8 +2060,15 @@ def register_callbacks(
                                 tuple(strategy_result.errors or []),
                             )
 
-                            if strategy_result.errors and getattr(render_watch_tab, "_last_strategy_warning_key",
-                                                                  None) != warning_key:
+                            if (
+                                    strategy_result.errors
+                                    and getattr(
+                                render_watch_tab,
+                                "_last_strategy_warning_key",
+                                None,
+                            )
+                                    != warning_key
+                            ):
                                 print(
                                     "[STRATEGY SCRIPT WARNINGS] "
                                     + " | ".join(strategy_result.errors[:12]),
@@ -2141,8 +2076,8 @@ def register_callbacks(
                                 )
                                 render_watch_tab._last_strategy_warning_key = warning_key
 
-                            # Background rectangles are expensive. Render them only when
-                            # replay is paused/manual, not while the clock is playing.
+                            # Background rectangles are expensive.
+                            # v1B keeps them disabled while replay is actively playing.
                             if not is_replay_playing:
                                 fig = strategy_overlay_service.engine.add_backgrounds_to_figure(
                                     fig,
@@ -2175,8 +2110,6 @@ def register_callbacks(
             range_key = _safe_range_key(state.get("range_key"), "1D")
             mode = state.get("mode", "live")
 
-            # source_label is defined before the strategy overlay cache block.
-
             strategy_key = ""
             try:
                 strategy_key = str((strategy_store or {}).get("nonce", ""))
@@ -2193,7 +2126,7 @@ def register_callbacks(
             )
 
             company = rt.get_company_name(symbol)
-            open_val = float(visible.iloc[0]["open"]) if not visible.empty else None
+            open_val = float(visible.iloc[0]["open"]) if visible is not None and not visible.empty else None
 
             metrics = _build_metrics_strip(
                 symbol,
@@ -2215,7 +2148,7 @@ def register_callbacks(
 
         except Exception as exc:
             print(f"[WATCH RENDER ERROR] {exc}", flush=True)
-            fig = _empty_figure(f"Replay loading... {exc}")
+            fig = watch_chart_render.empty_figure(f"Replay loading... {exc}")
             fig.update_layout(uirevision=f"watch-{symbol or DEFAULT_SYMBOL}-error")
             return fig, 100, 1, [], []
 
