@@ -1905,19 +1905,16 @@ def register_callbacks(
             fig = _empty_figure(f"Loading dashboard... {exc}")
             return f"Loading dashboard... {exc}", fig, [], []
 
+
     # ------------------------------------------------------------
     # Watch chart render
     # ------------------------------------------------------------
     @app.callback(
         Output("watch-chart", "figure"),
-        Output("replay-slider", "max", allow_duplicate=True),
-        Output("replay-slider", "value", allow_duplicate=True),
-        Output("watch-metrics-strip", "children"),
-        Output("watch-stats-grid", "children"),
         Input("replay-render-trigger", "data"),
         Input("watch-load-request", "data"),
         Input("watch-chart-state", "data"),
-        Input("paper-trade-trigger", "data"),
+
         Input("strategy-script-store", "data"),
         Input("watch-timeframe-dropdown", "value"),
         Input("ui-interval", "n_intervals"),
@@ -1927,11 +1924,11 @@ def register_callbacks(
         State("replay-date", "date"),
         prevent_initial_call=True,
     )
-    def render_watch_tab(
+    def render_watch_chart(
             _render_trigger,
             _load_request,
             watch_chart_state,
-            _paper_trade_trigger,
+
             strategy_store,
             watch_timeframe,
             _ui_n,
@@ -1941,9 +1938,19 @@ def register_callbacks(
             replay_date,
     ):
         if active_tab != "watch":
-            return no_update, no_update, no_update, no_update, no_update
+            return no_update
 
         symbol = (symbol or DEFAULT_SYMBOL).upper().strip()
+        trigger_id = ctx.triggered_id
+
+        # Replay already drives Watch chart updates through replay-render-trigger.
+        # Do not let the general UI interval cause duplicate chart redraws while
+        # Watch is using replay data.
+        if trigger_id == "ui-interval":
+            selected_source = str(price_source or "replay").lower().strip()
+            if selected_source != "live":
+                return no_update
+
 
         try:
             price_source = str(price_source or "replay").lower().strip()
@@ -1953,12 +1960,21 @@ def register_callbacks(
                     price_source == "live"
                     and _is_today_or_latest_replay_date(replay_date)
             )
+            try:
+                replay_info_for_render = replay_service.info()
+                is_replay_playing_for_render = (
+                        not use_live_watch_data
+                        and bool(replay_info_for_render.get("playing"))
+                )
+                replay_idx_for_render = max(
+                    1,
+                    int(replay_info_for_render.get("current_index", 1)),
+                )
+            except Exception:
+                is_replay_playing_for_render = False
+                replay_idx_for_render = 1
 
-            # ------------------------------------------------------------
-            # v1B refactor:
-            # BarViewService now owns live/replay selection, bar cleaning,
-            # cursor slicing, current price extraction, and resampling.
-            # ------------------------------------------------------------
+
             watch_view = bar_view_service.build_watch_view(
                 rt=rt,
                 replay_service=replay_service,
@@ -1967,12 +1983,9 @@ def register_callbacks(
                 use_live_watch_data=use_live_watch_data,
             )
 
-            max_idx = watch_view.max_index
-            idx = watch_view.current_index
             visible = watch_view.visible_bars
             chart_bars = watch_view.chart_bars
             current_price = watch_view.current_price
-            updated_at = watch_view.updated_at or datetime.now()
 
             source_label = watch_view.source
             if source_label not in {"live", "replay"}:
@@ -1984,7 +1997,7 @@ def register_callbacks(
                     f"{symbol} | {display_timeframe} | {message}"
                 )
                 fig.update_layout(uirevision=f"watch-{symbol}-{source_label}-empty")
-                return fig, max_idx, idx, [], []
+                return fig
 
             fig = watch_chart_render.base_candles(
                 chart_bars=chart_bars,
@@ -1993,11 +2006,11 @@ def register_callbacks(
                 current_price=current_price,
             )
 
-            # ------------------------------------------------------------
             # Paper trade markers only belong on Watch.
-            # Keep this unchanged for v1B.
-            # ------------------------------------------------------------
-            if paper_trading_service is not None:
+            # During active replay playback, do not query fills and redraw markers on
+            # every frame. Paper state still updates immediately; visual markers refresh
+            # when replay is paused, stepped, reset, or otherwise redrawn.
+            if paper_trading_service is not None and not is_replay_playing_for_render:
                 try:
                     fills_df = paper_trading_service.fills_df()
 
@@ -2015,12 +2028,7 @@ def register_callbacks(
                 except Exception as exc:
                     print(f"[WATCH TRADE MARKER ERROR] {exc}", flush=True)
 
-            # ------------------------------------------------------------
             # Strategy Lab overlays.
-            # Heavy strategy calculation stays cached in StrategyOverlayService.
-            # Use full loaded bars for replay strategy calculation, not only
-            # cursor-visible bars.
-            # ------------------------------------------------------------
             try:
                 strategy_store = strategy_store or {}
                 script_text = str(strategy_store.get("script") or "").strip()
@@ -2028,8 +2036,7 @@ def register_callbacks(
 
                 if strategy_enabled and script_text:
                     try:
-                        replay_info_for_source = replay_service.info()
-                        is_replay_playing = bool(replay_info_for_source.get("playing"))
+                        is_replay_playing = is_replay_playing_for_render
                     except Exception:
                         is_replay_playing = False
 
@@ -2066,7 +2073,7 @@ def register_callbacks(
                             if (
                                     strategy_result.errors
                                     and getattr(
-                                render_watch_tab,
+                                render_watch_chart,
                                 "_last_strategy_warning_key",
                                 None,
                             )
@@ -2077,10 +2084,8 @@ def register_callbacks(
                                     + " | ".join(strategy_result.errors[:12]),
                                     flush=True,
                                 )
-                                render_watch_tab._last_strategy_warning_key = warning_key
+                                render_watch_chart._last_strategy_warning_key = warning_key
 
-                            # Background rectangles are expensive.
-                            # v1B keeps them disabled while replay is actively playing.
                             if not is_replay_playing:
                                 fig = strategy_overlay_service.engine.add_backgrounds_to_figure(
                                     fig,
@@ -2110,7 +2115,10 @@ def register_callbacks(
             )
 
             state = watch_chart_state or {}
-            range_key = _safe_range_key(state.get("range_key"), "1D")
+            range_key = chart_viewport_service.safe_range_key(
+                state.get("range_key"),
+                "1D",
+            )
             mode = state.get("mode", "live")
 
             strategy_key = ""
@@ -2119,17 +2127,116 @@ def register_callbacks(
             except Exception:
                 strategy_key = ""
 
+            try:
+                info = replay_service.info()
+                idx = max(1, int(info.get("current_index", 1)))
+            except Exception:
+                idx = watch_view.current_index
+
             fig.update_layout(
                 uirevision=f"watch-{symbol}-{source_label}-{mode}-{range_key}",
                 datarevision=(
                     f"watch-{symbol}-{source_label}-{mode}-{range_key}-"
-                    f"{idx}-{strategy_key}-{_paper_trade_trigger}"
+                    f"{idx}-{strategy_key}"
                 ),
                 dragmode="pan",
             )
 
+            return fig
+
+        except Exception as exc:
+            print(f"[WATCH CHART RENDER ERROR] {exc}", flush=True)
+            fig = watch_chart_render.empty_figure(f"Replay loading... {exc}")
+            fig.update_layout(uirevision=f"watch-{symbol or DEFAULT_SYMBOL}-error")
+            return fig
+
+    # ------------------------------------------------------------
+    # Watch replay slider sync
+    # ------------------------------------------------------------
+    @app.callback(
+        Output("replay-slider", "max", allow_duplicate=True),
+        Output("replay-slider", "value", allow_duplicate=True),
+        Input("replay-render-trigger", "data"),
+        Input("watch-load-request", "data"),
+        State("main-tabs", "value"),
+        prevent_initial_call=True,
+    )
+    def sync_watch_replay_slider(_render_trigger, _load_request, active_tab):
+        if active_tab != "watch":
+            return no_update, no_update
+
+        try:
+
+            max_idx = max(1, int(info.get("max_index", 1)))
+            idx = replay_idx_for_render
+            return max_idx, idx
+
+        except Exception as exc:
+            print(f"[WATCH SLIDER SYNC ERROR] {exc}", flush=True)
+            return no_update, no_update
+
+    # ------------------------------------------------------------
+    # Watch metrics/stats render
+    # ------------------------------------------------------------
+    @app.callback(
+        Output("watch-metrics-strip", "children"),
+        Output("watch-stats-grid", "children"),
+        Input("replay-render-trigger", "data"),
+        Input("watch-load-request", "data"),
+        Input("watch-timeframe-dropdown", "value"),
+        Input("ui-interval", "n_intervals"),
+        State("main-tabs", "value"),
+        State("watch-symbol-dropdown", "value"),
+        State("paper-price-source", "value"),
+        State("replay-date", "date"),
+        prevent_initial_call=True,
+    )
+    def render_watch_metrics_and_stats(
+            _render_trigger,
+            _load_request,
+            watch_timeframe,
+            _ui_n,
+            active_tab,
+            symbol,
+            price_source,
+            replay_date,
+    ):
+        if active_tab != "watch":
+            return no_update, no_update
+
+        symbol = (symbol or DEFAULT_SYMBOL).upper().strip()
+
+        try:
+            price_source = str(price_source or "replay").lower().strip()
+            display_timeframe = str(watch_timeframe or "1 min")
+
+            use_live_watch_data = (
+                    price_source == "live"
+                    and _is_today_or_latest_replay_date(replay_date)
+            )
+
+            watch_view = bar_view_service.build_watch_view(
+                rt=rt,
+                replay_service=replay_service,
+                symbol=symbol,
+                display_timeframe=display_timeframe,
+                use_live_watch_data=use_live_watch_data,
+            )
+
+            if watch_view.is_empty:
+                return [], []
+
+            visible = watch_view.visible_bars
+            chart_bars = watch_view.chart_bars
+            current_price = watch_view.current_price
+            updated_at = watch_view.updated_at or datetime.now()
+
             company = rt.get_company_name(symbol)
-            open_val = float(visible.iloc[0]["open"]) if visible is not None and not visible.empty else None
+            open_val = (
+                float(visible.iloc[0]["open"])
+                if visible is not None and not visible.empty
+                else None
+            )
 
             metrics = _build_metrics_strip(
                 symbol,
@@ -2141,19 +2248,11 @@ def register_callbacks(
 
             stats = _build_stats_grid_from_bars(chart_bars)
 
-            return (
-                fig,
-                max_idx,
-                idx,
-                metrics,
-                stats,
-            )
+            return metrics, stats
 
         except Exception as exc:
-            print(f"[WATCH RENDER ERROR] {exc}", flush=True)
-            fig = watch_chart_render.empty_figure(f"Replay loading... {exc}")
-            fig.update_layout(uirevision=f"watch-{symbol or DEFAULT_SYMBOL}-error")
-            return fig, 100, 1, [], []
+            print(f"[WATCH METRICS RENDER ERROR] {exc}", flush=True)
+            return [], []
 
     @app.callback(
         Output("strategy-script-store", "data"),
