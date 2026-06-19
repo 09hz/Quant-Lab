@@ -1,0 +1,32 @@
+# Background Regime Test
+# Tests bgcolor green/red market regime shading.
+
+fast = ta.ema(close, 9)
+slow = ta.ema(close, 21)
+trend = ta.ema(close, 50)
+r = ta.rsi(close, 14)
+atr = ta.atr(close, 14)
+
+bullCross = ta.crossover(fast, slow)
+bearCross = ta.crossunder(fast, slow)
+
+inSession = session("0930-1600")
+aboveTrend = close > trend
+belowTrend = close < trend
+fastAboveSlow = fast > slow
+fastBelowSlow = fast < slow
+notOverbought = r < 75
+enoughVolatility = atr > 0.05
+
+bullMarket = inSession and aboveTrend and fastAboveSlow and notOverbought and enoughVolatility
+bearMarket = inSession and belowTrend and fastBelowSlow
+
+bgcolor bullMarket color="green"
+bgcolor bearMarket color="red"
+
+plot fast
+plot slow
+plot trend
+
+buy when bullCross and bullMarket
+sell when bearCross or bearMarket

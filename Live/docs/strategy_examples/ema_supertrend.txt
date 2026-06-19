@@ -1,0 +1,25 @@
+# Trend Filtered EMA + RSI + ATR Session Filter
+
+fast = ta.ema(close, 9)
+slow = ta.ema(close, 21)
+trend = ta.ema(close, 50)
+r = ta.rsi(close, 14)
+atr = ta.atr(close, 14)
+
+bullCross = ta.crossover(fast, slow)
+bearCross = ta.crossunder(fast, slow)
+
+inSession = session("0930-1600")
+aboveTrend = close > trend
+notOverbought = r < 70
+enoughVolatility = atr > 0.25
+
+longSignal = inSession and bullCross and aboveTrend and notOverbought and enoughVolatility
+exitSignal = bearCross or r > 80
+
+plot fast
+plot slow
+plot trend
+
+buy when longSignal
+sell when exitSignal

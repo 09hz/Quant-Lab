@@ -1,0 +1,6 @@
+# RSI Mean Reversion
+
+r = ta.rsi(close, 14)
+
+buy when ta.crossunder(r, 30)
+sell when ta.crossover(r, 70)

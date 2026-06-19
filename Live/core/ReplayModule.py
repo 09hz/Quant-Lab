@@ -55,8 +55,12 @@ class ReplayEngine:
             raise ValueError(f"Missing required columns: {missing}")
 
         out = out[required].copy()
-        out["time"] = pd.to_datetime(out["time"], errors="coerce")
-        out = out.dropna(subset=["time"]).sort_values("time").drop_duplicates(subset="time")
+        out["time"] = pd.to_datetime(out["time"], errors="coerce", format="mixed")
+        out = (
+            out.dropna(subset=["time"])
+            .sort_values("time")
+            .drop_duplicates(subset="time")
+        )
 
         out["open"] = pd.to_numeric(out["open"], errors="coerce")
         out["high"] = pd.to_numeric(out["high"], errors="coerce")
@@ -70,18 +74,42 @@ class ReplayEngine:
             raise ValueError("Replay data became empty after cleaning.")
 
         self.bars = out
-        self.current_index = len(out)
+
+        # Start replay at the beginning. The Watch chart can still show whatever
+        # view you choose, but Play needs room to advance.
+        self.current_index = 1
+
         self.speed = 1.0
         self.playing = False
         self.progress = 0.0
         self.last_tick_time = None
 
+    def all_bars(self) -> pd.DataFrame:
+        """
+        Return the full loaded replay dataset.
+
+        Backtests and Max view should use this, while visible_bars() remains
+        cursor-based for replay playback.
+        """
+        return self.bars.copy()
+
     def play(self) -> None:
         if self.bars.empty:
             return
+
+        max_index = len(self.bars)
+
+        # Do not auto-restart when the replay is already finished.
+        # Users should control restart manually with rewind/slider/reload.
+        if self.current_index >= max_index:
+            self.current_index = max_index
+            self.playing = False
+            self.progress = 0.0
+            self.last_tick_time = None
+            return
+
         self.playing = True
         self.last_tick_time = time.perf_counter()
-
     def pause(self) -> None:
         self.playing = False
         self.last_tick_time = None
@@ -110,13 +138,23 @@ class ReplayEngine:
         self.last_tick_time = time.perf_counter() if self.playing else None
 
     def set_speed(self, speed: float) -> None:
-        self.speed = max(0.25, float(speed))
+        self.speed = max(0.25, float(speed or 1.0))
 
     def tick(self) -> None:
         if not self.playing or self.bars.empty:
             return
 
+        max_index = len(self.bars)
+
+        if self.current_index >= max_index:
+            self.current_index = max_index
+            self.playing = False
+            self.progress = 0.0
+            self.last_tick_time = None
+            return
+
         now = time.perf_counter()
+
         if self.last_tick_time is None:
             self.last_tick_time = now
             return
@@ -126,14 +164,18 @@ class ReplayEngine:
 
         self.progress += elapsed * self.speed * self.base_bars_per_second
         step = int(self.progress)
+
         if step < 1:
             return
 
         self.progress -= step
-        self.current_index = min(len(self.bars), self.current_index + step)
+        self.current_index = min(max_index, self.current_index + step)
 
-        if self.current_index >= len(self.bars):
-            self.pause()
+        if self.current_index >= max_index:
+            self.current_index = max_index
+            self.playing = False
+            self.progress = 0.0
+            self.last_tick_time = None
 
     def visible_bars(self) -> pd.DataFrame:
         if self.bars.empty:
