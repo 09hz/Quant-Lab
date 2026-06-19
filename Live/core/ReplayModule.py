@@ -97,14 +97,19 @@ class ReplayEngine:
         if self.bars.empty:
             return
 
-        # If replay is already at the final candle, restart from the beginning
-        # so Play always does something useful.
-        if self.current_index >= len(self.bars):
-            self.current_index = 1
+        max_index = len(self.bars)
+
+        # Do not auto-restart when the replay is already finished.
+        # Users should control restart manually with rewind/slider/reload.
+        if self.current_index >= max_index:
+            self.current_index = max_index
+            self.playing = False
+            self.progress = 0.0
+            self.last_tick_time = None
+            return
 
         self.playing = True
         self.last_tick_time = time.perf_counter()
-
     def pause(self) -> None:
         self.playing = False
         self.last_tick_time = None
@@ -139,7 +144,17 @@ class ReplayEngine:
         if not self.playing or self.bars.empty:
             return
 
+        max_index = len(self.bars)
+
+        if self.current_index >= max_index:
+            self.current_index = max_index
+            self.playing = False
+            self.progress = 0.0
+            self.last_tick_time = None
+            return
+
         now = time.perf_counter()
+
         if self.last_tick_time is None:
             self.last_tick_time = now
             return
@@ -149,14 +164,18 @@ class ReplayEngine:
 
         self.progress += elapsed * self.speed * self.base_bars_per_second
         step = int(self.progress)
+
         if step < 1:
             return
 
         self.progress -= step
-        self.current_index = min(len(self.bars), self.current_index + step)
+        self.current_index = min(max_index, self.current_index + step)
 
-        if self.current_index >= len(self.bars):
-            self.pause()
+        if self.current_index >= max_index:
+            self.current_index = max_index
+            self.playing = False
+            self.progress = 0.0
+            self.last_tick_time = None
 
     def visible_bars(self) -> pd.DataFrame:
         if self.bars.empty:

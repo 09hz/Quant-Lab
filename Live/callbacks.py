@@ -30,25 +30,9 @@ from services.strategy_overlay_service import StrategyOverlayService
 from services.bar_view_service import BarViewService
 from services.chart_viewport_service import ChartViewportService
 
-try:
-    from renderers.watch_chart_renderer import WatchChartRenderer
-except Exception:
-    try:
-        from renderer.watch_chart_render import WatchChartRenderer
-    except Exception:
-        try:
-            from renderers.watch_chart_render import WatchChartRenderer
-        except Exception:
-            from renderer.watch_chart_renderer import WatchChartRenderer
+from renderers.watch_chart_renderer import WatchChartRenderer
+from renderers.strategy_overlay_renderer import StrategyOverlayRenderer
 
-try:
-    from renderers.strategy_overlay_renderer import StrategyOverlayRenderer
-except Exception:
-    try:
-        from renderer.strategy_overlay_renderer import StrategyOverlayRenderer
-    except Exception:
-        # Last-resort fallback for unusual folder names during local patching.
-        from renderers.strategy_overlay_renderer import StrategyOverlayRenderer
 
 try:
     from core.StrategyFunctionRegistry import get_function_reference_markdown
@@ -768,7 +752,6 @@ def register_callbacks(
         Input("replay-pause", "n_clicks"),
         Input("replay-step", "n_clicks"),
         Input("replay-rewind", "n_clicks"),
-        Input("replay-slider", "value"),
         State("replay-render-trigger", "data"),
         State("main-tabs", "value"),
         prevent_initial_call=True,
@@ -778,7 +761,6 @@ def register_callbacks(
             pause_clicks,
             step_clicks,
             rewind_clicks,
-            slider_value,
             render_trigger,
             active_tab,
     ):
@@ -813,10 +795,6 @@ def register_callbacks(
                 idx = max(1, int(replay_service.info().get("current_index", 1)))
                 return f"Replay rewound to {idx}", render_trigger + 1
 
-            if trigger == "replay-slider":
-                idx = max(1, min(int(slider_value or 1), max_index))
-                current_idx = max(1, int(replay_service.info().get("current_index", 1)))
-
                 # Ignore programmatic slider updates from render_watch_tab.
                 # Only treat it as user input when the value actually changes.
                 if idx == current_idx:
@@ -831,6 +809,56 @@ def register_callbacks(
             print(f"[REPLAY CONTROL ERROR] {exc}", flush=True)
             return f"Replay control error: {exc}", no_update
 
+    @app.callback(
+        Output("watch-status", "children", allow_duplicate=True),
+        Output("replay-render-trigger", "data", allow_duplicate=True),
+        Input("replay-slider", "value"),
+        State("replay-render-trigger", "data"),
+        State("main-tabs", "value"),
+        prevent_initial_call=True,
+    )
+    def seek_replay_from_slider(slider_value, render_trigger, active_tab):
+        """
+        Manual replay seek.
+
+        Moving the slider should immediately move the replay cursor and redraw the
+        chart, even while replay is paused. This keeps user control separate from
+        Play/Pause/Step button logic.
+        """
+        if active_tab != "watch":
+            return no_update, no_update
+
+        if slider_value is None:
+            return no_update, no_update
+
+        try:
+            info = replay_service.info()
+            max_index = max(1, int(info.get("max_index", 1) or 1))
+            current_idx = max(1, int(info.get("current_index", 1) or 1))
+
+            idx = max(1, min(int(slider_value or 1), max_index))
+
+            if idx == current_idx:
+                return no_update, no_update
+
+            # Manual slider movement should give the user control.
+            # Pause playback so the clock does not immediately fight the seek.
+            try:
+                replay_service.pause()
+            except Exception:
+                pass
+
+            replay_service.set_index(idx)
+
+            return (
+                f"Replay moved to {idx:,} / {max_index:,}",
+                int(render_trigger or 0) + 1,
+            )
+
+        except Exception as exc:
+            print(f"[REPLAY SLIDER SEEK ERROR] {exc}", flush=True)
+            return f"Replay slider error: {exc}", no_update
+        
     @app.callback(
         Output("replay-render-trigger", "data", allow_duplicate=True),
         Input("replay-clock", "n_intervals"),
@@ -868,7 +896,10 @@ def register_callbacks(
                     pass
                 return int(render_trigger or 0) + 1
 
-            if after_idx != before_idx:
+            playing_before = bool(info_before.get("playing"))
+            playing_after = bool(info_after.get("playing"))
+
+            if after_idx != before_idx or playing_before != playing_after:
                 return int(render_trigger or 0) + 1
 
             return no_update
