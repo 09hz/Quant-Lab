@@ -19,7 +19,10 @@ from config import (
     UI_INTERVAL_MS,
 )
 from core.RealTime import RealTimeIB, TIMEFRAME_MAP
-from services.market_data.ibkr_provider import IBKRMarketDataProvider
+from services.market_data.provider_factory import (
+    build_market_data_provider,
+    get_market_data_provider_name,
+)
 from core.ReplayModule import ReplayEngine
 from services.replay_service import ReplayService
 from services.paper_cache import PaperStateCache
@@ -41,10 +44,23 @@ except Exception:
     RiskGuard = None
 
 
-rt = RealTimeIB(host="127.0.0.1", port=4001)
-rt.start(DEFAULT_SYMBOL, DEFAULT_TIMEFRAME)
+market_data_provider_name = get_market_data_provider_name(default="ibkr")
 
-market_data_provider = IBKRMarketDataProvider(rt)
+# RealTimeIB is still constructed for IBKR mode and for local symbol/company
+# metadata compatibility. In CSV/local mode, the IBKR network connection is
+# not started, so replay development can run without TWS/Gateway.
+rt = RealTimeIB(host="127.0.0.1", port=4001)
+
+if market_data_provider_name == "ibkr":
+    rt.start(DEFAULT_SYMBOL, DEFAULT_TIMEFRAME)
+else:
+    print(
+        f"[MARKET DATA] provider={market_data_provider_name}; "
+        "IBKR autostart skipped.",
+        flush=True,
+    )
+
+market_data_provider = build_market_data_provider(rt=rt)
 
 replay_engine = ReplayEngine()
 replay_service = ReplayService(market_data_provider, replay_engine)
@@ -68,7 +84,7 @@ if PaperTradingService and PaperBroker and RiskGuard:
         ),
     )
 
-SYMBOL_OPTIONS = rt.get_symbol_options()
+SYMBOL_OPTIONS = market_data_provider.get_symbol_options() or rt.get_symbol_options()
 
 app = Dash(__name__, suppress_callback_exceptions=True)
 app.title = APP_TITLE
