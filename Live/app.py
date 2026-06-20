@@ -19,6 +19,7 @@ from config import (
     UI_INTERVAL_MS,
 )
 from core.RealTime import RealTimeIB, TIMEFRAME_MAP
+from services.market_data.ibkr_provider import IBKRMarketDataProvider
 from core.ReplayModule import ReplayEngine
 from services.replay_service import ReplayService
 from services.paper_cache import PaperStateCache
@@ -43,8 +44,10 @@ except Exception:
 rt = RealTimeIB(host="127.0.0.1", port=4001)
 rt.start(DEFAULT_SYMBOL, DEFAULT_TIMEFRAME)
 
+market_data_provider = IBKRMarketDataProvider(rt)
+
 replay_engine = ReplayEngine()
-replay_service = ReplayService(rt, replay_engine)
+replay_service = ReplayService(market_data_provider, replay_engine)
 
 paper_trading_service = None
 paper_state_cache = PaperStateCache(cache_dir="cache/paper")

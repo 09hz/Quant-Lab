@@ -5,7 +5,6 @@ from typing import Optional
 
 import pandas as pd
 
-from core.RealTime import RealTimeIB
 from core.ReplayModule import ReplayEngine
 from services.bar_store import BarStore
 
@@ -38,11 +37,11 @@ class ReplayService:
 
     def __init__(
         self,
-        rt: RealTimeIB,
+        market_data_provider,
         engine: ReplayEngine,
         bar_store: Optional[BarStore] = None,
     ):
-        self.rt = rt
+        self.market_data_provider = market_data_provider
         self.engine = engine
         self.bar_store = bar_store or BarStore()
         self.memory_cache: dict[tuple[str, str, str], pd.DataFrame] = {}
@@ -61,7 +60,7 @@ class ReplayService:
         timeframe: str,
         replay_date: Optional[str],
     ) -> tuple[str, str, str]:
-        symbol = self.rt._sanitize_symbol(symbol)
+        symbol = self.market_data_provider.sanitize_symbol(symbol)
         timeframe = timeframe or "1 min"
         date_key = replay_date or "latest"
         return symbol, timeframe, date_key
@@ -76,7 +75,7 @@ class ReplayService:
         self.clear_memory_cache()
 
     def clear_symbol_cache(self, symbol: str) -> None:
-        symbol = self.rt._sanitize_symbol(symbol)
+        symbol = self.market_data_provider.sanitize_symbol(symbol)
 
         for key in [key for key in self.memory_cache if key[0] == symbol]:
             del self.memory_cache[key]
@@ -227,7 +226,7 @@ class ReplayService:
     # ------------------------------------------------------------------
     # Data source loading
     # ------------------------------------------------------------------
-    def _load_from_rt_or_ib(
+    def _load_from_provider(
         self,
         symbol: str,
         timeframe: str,
@@ -258,11 +257,11 @@ class ReplayService:
                 flush=True,
             )
 
-            df = self.rt.load_history_range(
-                symbol,
-                timeframe,
-                start_dt,
-                end_dt,
+            df = self.market_data_provider.get_history(
+                symbol=symbol,
+                timeframe=timeframe,
+                start=start_dt,
+                end=end_dt,
             )
 
             print(
@@ -281,7 +280,7 @@ class ReplayService:
 
         # If the live app already has bars for this symbol, use them.
         try:
-            snap = self.rt.get_snapshot(symbol, timeframe)
+            snap = self.market_data_provider.get_snapshot(symbol, timeframe)
 
             if snap.bars is not None and not snap.bars.empty:
                 print(
@@ -294,7 +293,7 @@ class ReplayService:
         except Exception as snap_exc:
             print(f"[REPLAY SOURCE] live snapshot unavailable: {snap_exc}", flush=True)
 
-        df = self.rt.load_history(symbol, timeframe)
+        df = self.market_data_provider.get_history(symbol, timeframe)
 
         print(
             f"[RT HISTORY RESULT] {symbol} {timeframe} rows={0 if df is None else len(df)}",
@@ -319,7 +318,7 @@ class ReplayService:
         replay_date: Optional[str] = None,
         force_refresh: bool = False,
     ) -> pd.DataFrame:
-        symbol = self.rt._sanitize_symbol(symbol)
+        symbol = self.market_data_provider.sanitize_symbol(symbol)
         timeframe = timeframe or "1 min"
         key = self._make_cache_key(symbol, timeframe, replay_date)
 
@@ -376,7 +375,7 @@ class ReplayService:
 
                     print(
                         f"[REPLAY CACHE INVALIDATE DISK] {key} reason={reason}; "
-                        "will refresh from IB/live source",
+                        "will refresh from provider source",
                         flush=True,
                     )
                 else:
@@ -389,9 +388,9 @@ class ReplayService:
                         self.memory_cache[key] = prepared.copy()
                         return prepared.copy()
 
-        print(f"[REPLAY CACHE] IB/live load {key}", flush=True)
+        print(f"[REPLAY CACHE] provider load {key}", flush=True)
 
-        hist = self._load_from_rt_or_ib(
+        hist = self._load_from_provider(
             symbol=symbol,
             timeframe=timeframe,
             replay_date=replay_date,
@@ -482,7 +481,7 @@ class ReplayService:
               read from the same multi-day dataset.
         """
 
-        symbol = self.rt._sanitize_symbol(symbol)
+        symbol = self.market_data_provider.sanitize_symbol(symbol)
 
         start = pd.to_datetime(start_date, errors="coerce")
         end = pd.to_datetime(end_date, errors="coerce")
@@ -593,7 +592,7 @@ class ReplayService:
         if force_reload is not None:
             force_refresh = force_reload
 
-        symbol = self.rt._sanitize_symbol(symbol)
+        symbol = self.market_data_provider.sanitize_symbol(symbol)
         timeframe = timeframe or "1 min"
 
         hist = self.get_history(
