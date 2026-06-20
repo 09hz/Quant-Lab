@@ -2232,3 +2232,91 @@ input[type="radio"] + label,
 input[type="checkbox"] + label {
     color: #e8edf5 !important;
 }
+/* ============================================================
+   BACKTEST INPUT FIX - CASH / QUANTITY FIELD SIZING
+   ============================================================ */
+
+/* Keep the backtest controls from squeezing into tiny boxes */
+#backtest-initial-cash,
+#backtest-quantity {
+    width: 100% !important;
+    min-width: 130px !important;
+    max-width: 220px !important;
+    box-sizing: border-box !important;
+}
+
+/* Initial cash needs more room than quantity */
+#backtest-initial-cash {
+    min-width: 170px !important;
+}
+
+/* Quantity can be smaller but should not collapse */
+#backtest-quantity {
+    min-width: 110px !important;
+}
+
+/* Backtest input containers */
+.backtest-controls,
+.strategy-backtest-controls,
+.backtest-input-row,
+.backtest-card-grid {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: end;
+    gap: 12px;
+}
+
+/* Children inside the backtest control row */
+.backtest-controls > *,
+.strategy-backtest-controls > *,
+.backtest-input-row > * {
+    flex: 0 1 auto;
+    min-width: 120px;
+}
+
+/* Labels above backtest inputs */
+.backtest-controls label,
+.strategy-backtest-controls label,
+.backtest-input-row label,
+.backtest-controls .control-label,
+.strategy-backtest-controls .control-label,
+.backtest-input-row .control-label {
+    display: block;
+    margin-bottom: 6px;
+    color: #cbd5e1 !important;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+/* Backtest button should not squeeze either */
+#strategy-run-backtest {
+    min-width: 150px !important;
+    min-height: 40px !important;
+    white-space: nowrap !important;
+}
+
+/* Mobile/smaller layout safety */
+@media (max-width: 900px) {
+    #backtest-initial-cash,
+    #backtest-quantity,
+    #strategy-run-backtest {
+        max-width: none !important;
+        width: 100% !important;
+    }
+
+    .backtest-controls,
+    .strategy-backtest-controls,
+    .backtest-input-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .backtest-controls > *,
+    .strategy-backtest-controls > *,
+    .backtest-input-row > * {
+        width: 100%;
+        min-width: 0;
+    }
+}
