@@ -1,55 +1,97 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 from typing import Any
 
+from services.market_data.base import MarketDataProvider
 from services.market_data.csv_provider import CSVMarketDataProvider
 from services.market_data.ibkr_provider import IBKRMarketDataProvider
-from services.market_data.base import MarketDataProvider
 
-
-SUPPORTED_MARKET_DATA_PROVIDERS = {"ibkr", "csv", "local"}
+try:
+    from services.market_data.tradier_provider import TradierMarketDataProvider
+except Exception:
+    TradierMarketDataProvider = None
 
 
 def get_market_data_provider_name(default: str = "ibkr") -> str:
-    name = os.getenv("MARKET_DATA_PROVIDER", default)
-    name = str(name or default).strip().lower()
+    """
+    Return the configured market data provider name.
 
-    if name == "local":
-        return "csv"
+    Supported values:
+        ibkr
+        csv
+        tradier
+    """
+    return str(os.getenv("MARKET_DATA_PROVIDER", default) or default).strip().lower()
 
-    if name not in SUPPORTED_MARKET_DATA_PROVIDERS:
-        print(
-            f"[MARKET DATA] Unsupported MARKET_DATA_PROVIDER={name!r}; using {default!r}.",
-            flush=True,
-        )
-        return str(default or "ibkr").strip().lower()
 
-    return name
+def should_start_ibkr(provider_name: str | None = None) -> bool:
+    """
+    Return True when the app should start the IBKR realtime adapter.
+
+    CSV and Tradier modes should not autostart IBKR.
+    """
+    provider = str(provider_name or get_market_data_provider_name()).strip().lower()
+    return provider in {"ibkr", "ib", "interactive_brokers", "interactive-brokers"}
+
+
+def should_autostart_ibkr(provider_name: str | None = None) -> bool:
+    """Compatibility alias."""
+    return should_start_ibkr(provider_name)
+
+
+def should_start_ibkr_connection(provider_name: str | None = None) -> bool:
+    """Compatibility alias."""
+    return should_start_ibkr(provider_name)
 
 
 def build_market_data_provider(
     *,
     rt: Any | None = None,
-    default: str = "ibkr",
+    provider_name: str | None = None,
 ) -> MarketDataProvider:
     """
     Build the active market data provider.
 
-    Environment:
-        MARKET_DATA_PROVIDER=ibkr  # default
-        MARKET_DATA_PROVIDER=csv
-        CSV_MARKET_DATA_ROOT=cache/replay
+    IBKR mode wraps the existing RealTimeIB object.
+    CSV mode reads from local cache/replay files.
+    Tradier mode uses TRADIER_ACCESS_TOKEN and TRADIER_ENV.
     """
-    provider_name = get_market_data_provider_name(default=default)
+    provider = str(provider_name or get_market_data_provider_name()).strip().lower()
 
-    if provider_name == "ibkr":
+    if provider in {"ibkr", "ib", "interactive_brokers", "interactive-brokers"}:
         if rt is None:
-            raise ValueError("IBKR provider requires rt=RealTimeIB(...)")
+            raise ValueError("IBKR market data provider requires rt=RealTimeIB(...).")
         return IBKRMarketDataProvider(rt)
 
-    if provider_name in {"csv", "local"}:
+    if provider in {"csv", "local", "file", "files"}:
         root_dir = os.getenv("CSV_MARKET_DATA_ROOT", "cache/replay")
         return CSVMarketDataProvider(root_dir=root_dir)
 
-    raise ValueError(f"Unsupported market data provider: {provider_name}")
+    if provider == "tradier":
+        if TradierMarketDataProvider is None:
+            raise ImportError(
+                "TradierMarketDataProvider could not be imported. "
+                "Check Live/services/market_data/tradier_provider.py."
+            )
+
+        return TradierMarketDataProvider(
+            access_token=os.getenv("TRADIER_ACCESS_TOKEN", ""),
+            environment=os.getenv("TRADIER_ENV", "sandbox"),
+            timeout=float(os.getenv("TRADIER_TIMEOUT_SECONDS", "30")),
+        )
+
+    raise ValueError(
+        f"Unsupported MARKET_DATA_PROVIDER={provider!r}. "
+        "Supported providers: ibkr, csv, tradier."
+    )
+
+
+def describe_market_data_provider(provider: MarketDataProvider) -> dict[str, Any]:
+    """
+    Return lightweight provider metadata for diagnostics/UI.
+    """
+    return {
+        "name": getattr(provider, "name", provider.__class__.__name__),
+        "class": provider.__class__.__name__,
+    }
