@@ -169,7 +169,7 @@ class BarViewService:
     def build_watch_view(
         self,
         *,
-        rt: Any,
+        market_data_provider: Any,
         replay_service: Any,
         symbol: str,
         display_timeframe: str,
@@ -189,11 +189,13 @@ class BarViewService:
         if use_live_watch_data:
             try:
                 try:
-                    rt.request_symbol(symbol)
+                    request_symbol = getattr(market_data_provider, "request_symbol", None)
+                    if callable(request_symbol):
+                        request_symbol(symbol)
                 except Exception:
                     pass
 
-                snap = rt.get_snapshot(symbol, "1 min")
+                snap = market_data_provider.get_snapshot(symbol, "1 min")
                 live_bars = self.clean_bars(getattr(snap, "bars", None))
                 chart_bars = self.resample_bars(live_bars, display_timeframe)
 

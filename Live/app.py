@@ -225,6 +225,7 @@ register_callbacks(
     TIMEFRAME_MAP,
     paper_trading_service=paper_trading_service,
     paper_state_cache=paper_state_cache,
+    market_data_provider=market_data_provider,
 )
 
 if __name__ == "__main__":

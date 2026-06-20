@@ -327,6 +327,7 @@ def register_callbacks(
         timeframe_map,
         paper_trading_service=None,
         paper_state_cache=None,
+        market_data_provider=None,
 ):
     strategy_engine = StrategyEngine()
     strategy_overlay_service = StrategyOverlayService()
@@ -339,6 +340,12 @@ def register_callbacks(
         slow_log_ms=120,
     )
     backtest_engine = BackTestEngine()
+
+    # Keep this patch backward-compatible. During the transition, callbacks may
+    # still receive the raw RealTimeIB object as rt, while replay/live bar paths
+    # move through MarketDataProvider.
+    if market_data_provider is None:
+        market_data_provider = rt
 
     # Strategy overlays are cached by StrategyOverlayService.
 
@@ -2065,7 +2072,7 @@ def register_callbacks(
 
 
             watch_view = bar_view_service.build_watch_view(
-                rt=rt,
+                market_data_provider=market_data_provider,
                 replay_service=replay_service,
                 symbol=symbol,
                 display_timeframe=display_timeframe,
@@ -2300,7 +2307,7 @@ def register_callbacks(
             )
 
             watch_view = bar_view_service.build_watch_view(
-                rt=rt,
+                market_data_provider=market_data_provider,
                 replay_service=replay_service,
                 symbol=symbol,
                 display_timeframe=display_timeframe,
