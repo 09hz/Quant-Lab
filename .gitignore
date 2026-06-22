@@ -6,3 +6,28 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*.class
+
+# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+*.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local environment secrets
+.env
+*.env.local
+Live/.env
+Live/*.env.local
+
+*$py.class
+
+# Local AI/debug scratch files
+llm_check.txt
+ai_advisor_context.txt

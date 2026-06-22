@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+# Load local .env values before app services read configuration.
+try:
+    from services.config.env_loader import load_app_env
+
+    load_app_env(override=True, verbose=True)
+except Exception as _env_load_exc:
+    print(f"[ENV] local .env load skipped: {_env_load_exc}")
+
+
 import sys
 import asyncio
 from datetime import date
@@ -146,7 +155,7 @@ app.layout = html.Div(
                     ],
                 ),
                 dcc.Tab(
-                    label="Charts",
+                    label="Settings",
                     value="charts",
                     className="main-tab",
                     selected_className="main-tab-selected",
