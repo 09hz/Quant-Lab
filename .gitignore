@@ -11,3 +11,11 @@ __pycache__/
 __pycache__/
 *.py[cod]
 *.class
+
+# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+*.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
