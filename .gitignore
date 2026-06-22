@@ -27,3 +27,7 @@ Live/.env
 Live/*.env.local
 
 *$py.class
+
+# Local AI/debug scratch files
+llm_check.txt
+ai_advisor_context.txt

@@ -1,5 +1,23 @@
 from __future__ import annotations
 
+# --- Local .env loader for IDE/CLI runs ---
+# This makes AI advisor scripts behave like Live/app.py when launched from an IDE
+# or a fresh terminal that does not already contain the AI/LLM environment vars.
+from pathlib import Path as _EnvPath
+import sys as _env_sys
+
+_LIVE_DIR = _EnvPath(__file__).resolve().parents[1]
+if str(_LIVE_DIR) not in _env_sys.path:
+    _env_sys.path.insert(0, str(_LIVE_DIR))
+
+try:
+    from services.config.env_loader import load_app_env as _load_app_env
+
+    _load_app_env(override=True, verbose=False)
+except Exception as _env_exc:
+    print(f"[WARN] Could not load local .env settings: {_env_exc}")
+# --- End local .env loader ---
+
 import argparse
 import json
 from pathlib import Path

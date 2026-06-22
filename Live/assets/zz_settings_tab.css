@@ -258,3 +258,37 @@
 /* =============================================================================
    End Settings AI safety locks (Patch 10)
    ============================================================================= */
+
+/* =============================================================================
+   Settings runtime diagnostics (Patch 13)
+   ============================================================================= */
+
+.settings-runtime-card {
+    border-color: rgba(96, 165, 250, 0.18);
+}
+
+.settings-runtime-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(240px, 1fr));
+    gap: 10px 14px;
+}
+
+.settings-runtime-grid .settings-row {
+    min-width: 0;
+}
+
+.settings-runtime-grid .settings-value,
+.settings-runtime-grid .settings-note {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+@media (max-width: 980px) {
+    .settings-runtime-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* =============================================================================
+   End Settings runtime diagnostics (Patch 13)
+   ============================================================================= */
