@@ -1,3 +1,5 @@
+import os
+from pathlib import Path
 from dash import dcc, html
 from datetime import date, timedelta
 
@@ -741,55 +743,403 @@ def build_quotes_tab(symbol_options, default_symbol):
         ],
     )
 
+# =============================================================================
+# Settings tab foundation (Patch 09)
+# =============================================================================
 
-def build_charts_tab(symbol_options, timeframe_map, default_symbol, default_timeframe):
+def _settings_env_value(name: str, default: str = "not set", *, mask: bool = False) -> str:
+    """
+    Return a display-safe environment setting.
+
+    Secrets are never rendered directly into the Dash page.
+    """
+    try:
+        value = os.getenv(name)
+    except Exception:
+        value = None
+
+    if value is None or str(value).strip() == "":
+        return default
+
+    if mask:
+        return "configured (hidden)"
+
+    return str(value)
+
+
+def _settings_bool_text(value: bool) -> str:
+    return "Yes" if bool(value) else "No"
+
+
+def _settings_env_bool(name: str, default: bool = False) -> bool:
+    """
+    Parse a boolean environment variable safely.
+    """
+    try:
+        value = os.getenv(name)
+    except Exception:
+        value = None
+
+    if value is None or str(value).strip() == "":
+        return bool(default)
+
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _settings_row(label: str, value, note: str | None = None):
+    children = [
+        html.Div(str(label), className="settings-label"),
+        html.Div(str(value), className="settings-value"),
+    ]
+
+    if note:
+        children.append(html.Div(str(note), className="settings-note"))
+
+    return html.Div(className="settings-row", children=children)
+
+
+def _settings_command(text: str):
+    return html.Code(str(text), className="settings-command")
+
+
+def _settings_status_pill(text: str, tone: str = "neutral"):
+    return html.Span(str(text), className=f"settings-status-pill settings-status-{tone}")
+
+
+def _settings_lock_row(label: str, enabled: bool, *, safe_when: bool = False, note: str | None = None):
+    """
+    Render a future-AI safety lock row.
+
+    safe_when means the value that should be considered the safe state.
+    Example:
+        AI_ALLOW_ORDER_PLACEMENT=false is safe, so safe_when=False.
+        AI_ADVISORY_ONLY=true is safe, so safe_when=True.
+    """
+    is_safe = bool(enabled) is bool(safe_when)
+    tone = "good" if is_safe else "danger"
+    value_text = "ON" if enabled else "OFF"
+
+    children = [
+        html.Div(str(label), className="settings-lock-label"),
+        html.Div(
+            children=[
+                _settings_status_pill(value_text, tone),
+                html.Span(" safe" if is_safe else " review", className=f"settings-lock-text settings-lock-{tone}"),
+            ],
+            className="settings-lock-value",
+        ),
+    ]
+
+    if note:
+        children.append(html.Div(str(note), className="settings-lock-note"))
+
+    return html.Div(className="settings-lock-row", children=children)
+
+
+def _settings_cache_summary(root_text: str) -> dict:
+    """
+    Return a lightweight local data cache summary.
+
+    This only counts files and size. It does not parse CSV data and should stay
+    fast enough to run during Dash layout construction.
+    """
+    root = Path(str(root_text or "cache/replay")).expanduser()
+
+    if not root.is_absolute():
+        root = Path.cwd() / root
+
+    summary = {
+        "root": str(root),
+        "exists": root.exists(),
+        "files": 0,
+        "bytes": 0,
+    }
+
+    if not root.exists():
+        return summary
+
+    extensions = {".csv", ".parquet", ".pq", ".feather"}
+
+    try:
+        for path in root.rglob("*"):
+            if path.is_file() and path.suffix.lower() in extensions:
+                summary["files"] += 1
+                try:
+                    summary["bytes"] += path.stat().st_size
+                except OSError:
+                    pass
+    except Exception:
+        # Avoid breaking app startup just because a cache path cannot be read.
+        pass
+
+    return summary
+
+
+def _settings_format_bytes(value: int) -> str:
+    try:
+        size = float(value)
+    except Exception:
+        return "0 B"
+
+    units = ["B", "KB", "MB", "GB", "TB"]
+    unit = 0
+
+    while size >= 1024 and unit < len(units) - 1:
+        size /= 1024
+        unit += 1
+
+    if unit == 0:
+        return f"{int(size)} {units[unit]}"
+
+    return f"{size:.2f} {units[unit]}"
+
+
+def _settings_build_ai_lock_card():
+    """
+    Read-only future AI safety settings.
+
+    These controls are intentionally display-only. Runtime AI switching and
+    secret editing should not happen in Dash browser state.
+    """
+    ai_enabled = _settings_env_bool("AI_FEATURES_ENABLED", False)
+    ai_advisory_only = _settings_env_bool("AI_ADVISORY_ONLY", True)
+    ai_allow_orders = _settings_env_bool("AI_ALLOW_ORDER_PLACEMENT", False)
+    ai_allow_broker_access = _settings_env_bool("AI_ALLOW_BROKER_ACCESS", False)
+    ai_allow_external_tools = _settings_env_bool("AI_ALLOW_EXTERNAL_TOOLS", False)
+    ai_require_confirmation = _settings_env_bool("AI_REQUIRE_HUMAN_CONFIRMATION", True)
+
+    llm_provider = _settings_env_value("LLM_PROVIDER", "none")
+    llm_base_url = _settings_env_value("LLM_BASE_URL", "not configured")
+    openai_key = _settings_env_value("OPENAI_API_KEY", "not configured", mask=True)
+
+    if not ai_enabled:
+        ai_state = _settings_status_pill("AI disabled", "good")
+    elif ai_advisory_only and not ai_allow_orders and not ai_allow_broker_access:
+        ai_state = _settings_status_pill("AI advisory-only", "warn")
+    else:
+        ai_state = _settings_status_pill("AI needs review", "danger")
+
     return html.Div(
-        className="tab-panel charts-tab-panel",
+        className="settings-card settings-ai-lock-card",
         children=[
             html.Div(
-                className="controls-row",
+                className="settings-card-title-row",
+                children=[
+                    html.Div("Future AI Safety Locks", className="settings-card-title"),
+                    ai_state,
+                ],
+            ),
+            html.Div(
+                "This section is read-only. It reserves a safe place for future AI controls without enabling AI trading.",
+                className="settings-card-description",
+            ),
+            _settings_row("LLM provider", llm_provider),
+            _settings_row("LLM base URL", llm_base_url, "Use localhost/LAN only until authentication exists."),
+            _settings_row("OpenAI API key", openai_key, "Masked. Never show API keys in the browser."),
+            html.Div(className="settings-lock-list", children=[
+                _settings_lock_row(
+                    "AI features",
+                    ai_enabled,
+                    safe_when=False,
+                    note="Default safe state is OFF.",
+                ),
+                _settings_lock_row(
+                    "Advisory-only mode",
+                    ai_advisory_only,
+                    safe_when=True,
+                    note="AI may explain/suggest, but should not execute.",
+                ),
+                _settings_lock_row(
+                    "Order placement allowed",
+                    ai_allow_orders,
+                    safe_when=False,
+                    note="Must remain OFF until broker-safety code and confirmations exist.",
+                ),
+                _settings_lock_row(
+                    "Broker/account access",
+                    ai_allow_broker_access,
+                    safe_when=False,
+                    note="Must remain OFF until explicit permission gates exist.",
+                ),
+                _settings_lock_row(
+                    "External tools/network actions",
+                    ai_allow_external_tools,
+                    safe_when=False,
+                    note="Must remain OFF until allowlists and audit logs exist.",
+                ),
+                _settings_lock_row(
+                    "Human confirmation required",
+                    ai_require_confirmation,
+                    safe_when=True,
+                    note="Should remain ON for any future AI-assisted action.",
+                ),
+            ]),
+        ],
+    )
+
+
+def build_charts_tab(symbol_options, timeframe_map, default_symbol, default_timeframe):
+    """
+    Compatibility name.
+
+    The old Charts tab is now the Settings tab. The function name is intentionally
+    kept as build_charts_tab so existing app imports do not break.
+    """
+    provider = _settings_env_value("MARKET_DATA_PROVIDER", "ibkr")
+    csv_root = _settings_env_value("CSV_MARKET_DATA_ROOT", "cache/replay")
+    ibkr_host = _settings_env_value("IBKR_HOST", "127.0.0.1")
+    ibkr_port = _settings_env_value("IBKR_PORT", "not set")
+    ibkr_client_id = _settings_env_value("IBKR_CLIENT_ID", "not set")
+    tradier_env = _settings_env_value("TRADIER_ENV", "sandbox")
+    tradier_token = _settings_env_value("TRADIER_ACCESS_TOKEN", "not configured", mask=True)
+
+    cache = _settings_cache_summary(csv_root)
+
+    return html.Div(
+        className="tab-panel settings-tab-panel",
+        children=[
+            html.Div(
+                className="settings-header",
+                children=[
+                    html.Div("Settings", className="settings-title"),
+                    html.Div(
+                        "Read-only app configuration, provider status, local data summary, and future safety locks.",
+                        className="settings-subtitle",
+                    ),
+                ],
+            ),
+
+            html.Div(
+                className="settings-grid",
                 children=[
                     html.Div(
-                        className="control-box control-symbol",
+                        className="settings-card",
                         children=[
-                            html.Label("Instrument"),
-                            dcc.Dropdown(
-                                id="charts-symbol-dropdown",
-                                options=symbol_options,
-                                value=default_symbol,
-                                placeholder="Search ticker, symbol, or company...",
-                                searchable=True,
-                                clearable=False,
-                                className="black-dropdown",
+                            html.Div("Market Data Provider", className="settings-card-title"),
+                            _settings_row("Active provider", provider),
+                            _settings_row("CSV cache root", csv_root),
+                            _settings_row(
+                                "Provider selection",
+                                "Restart required",
+                                "For now, change MARKET_DATA_PROVIDER before launching Dash.",
                             ),
                         ],
                     ),
+
                     html.Div(
-                        className="control-box control-timeframe",
+                        className="settings-card",
                         children=[
-                            html.Label("Interval"),
-                            dcc.Dropdown(
-                                id="charts-timeframe-dropdown",
-                                options=make_timeframe_options(timeframe_map),
-                                value=default_timeframe,
-                                clearable=False,
-                                searchable=True,
-                                className="black-dropdown",
+                            html.Div("IBKR / Gateway", className="settings-card-title"),
+                            _settings_row("Host", ibkr_host),
+                            _settings_row("Port", ibkr_port, "Your Gateway live port is commonly 4001."),
+                            _settings_row("Client ID", ibkr_client_id),
+                            _settings_row(
+                                "Connection note",
+                                "External",
+                                "IB Gateway/TWS must be running for exports or live IBKR data.",
                             ),
+                        ],
+                    ),
+
+                    html.Div(
+                        className="settings-card",
+                        children=[
+                            html.Div("Tradier", className="settings-card-title"),
+                            _settings_row("Environment", tradier_env),
+                            _settings_row("Access token", tradier_token),
+                            _settings_row(
+                                "Status",
+                                "Scaffold only",
+                                "Do not enable Tradier until the account/API token is ready.",
+                            ),
+                        ],
+                    ),
+
+                    html.Div(
+                        className="settings-card",
+                        children=[
+                            html.Div("Local Data Cache", className="settings-card-title"),
+                            _settings_row("Root path", cache["root"]),
+                            _settings_row("Exists", _settings_bool_text(cache["exists"])),
+                            _settings_row("Data files", cache["files"]),
+                            _settings_row("Approx size", _settings_format_bytes(cache["bytes"])),
                         ],
                     ),
                 ],
             ),
-            html.Div(id="charts-status", className="status-text"),
+
+            _settings_build_ai_lock_card(),
+
             html.Div(
-                className="chart-card",
+                className="settings-card settings-wide-card",
                 children=[
+                    html.Div("Useful Commands", className="settings-card-title"),
+                    html.Div("Inspect cache:", className="settings-command-label"),
+                    _settings_command("python .\\Live\\scripts\\inspect_market_data_cache.py"),
+                    html.Div("Check active provider:", className="settings-command-label"),
+                    _settings_command(
+                        "python .\\Live\\scripts\\check_market_data_provider.py "
+                        "--provider csv --symbol MSFT --timeframe \"1 min\""
+                    ),
+                    html.Div("Export IB Gateway history:", className="settings-command-label"),
+                    _settings_command(
+                        "python .\\Live\\scripts\\export_ibkr_history_to_csv.py "
+                        "--symbol MSFT --timeframe \"1 min\" --start 2026-06-15 "
+                        "--end 2026-06-19 --port 4001 --client-id 31"
+                    ),
+                ],
+            ),
+
+            html.Div(
+                className="settings-card settings-wide-card settings-security-card",
+                children=[
+                    html.Div("Security Rules", className="settings-card-title"),
+                    html.Ul(
+                        children=[
+                            html.Li("Never commit .env or real API tokens."),
+                            html.Li("Secrets are masked in this tab and should stay out of browser storage."),
+                            html.Li("Provider switching remains restart-based until a safe runtime config layer exists."),
+                            html.Li("This Settings tab is read-only; it does not place orders or change broker state."),
+                            html.Li("Future AI features must stay advisory-only until explicit safety gates exist."),
+                            html.Li("AI code must never call broker/order functions directly."),
+                        ],
+                    ),
+                ],
+            ),
+
+            # Legacy hidden Charts IDs.
+            #
+            # Existing callbacks may still reference these old IDs. Keeping them
+            # hidden avoids breaking callback registration while the visible tab
+            # becomes Settings.
+            html.Div(
+                className="settings-legacy-charts-hidden",
+                style={"display": "none"},
+                children=[
+                    dcc.Dropdown(
+                        id="charts-symbol-dropdown",
+                        options=symbol_options,
+                        value=default_symbol,
+                        searchable=True,
+                        clearable=False,
+                    ),
+                    dcc.Dropdown(
+                        id="charts-timeframe-dropdown",
+                        options=make_timeframe_options(timeframe_map),
+                        value=default_timeframe,
+                        clearable=False,
+                        searchable=True,
+                    ),
+                    html.Div(id="charts-status"),
                     dcc.Graph(
                         id="charts-main-graph",
-                        className="chart-graph",
                         config=CHART_CONFIG,
                     ),
                 ],
             ),
         ],
     )
+
+# =============================================================================
+# End Settings tab foundation (Patch 09)
+# =============================================================================

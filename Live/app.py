@@ -146,7 +146,7 @@ app.layout = html.Div(
                     ],
                 ),
                 dcc.Tab(
-                    label="Charts",
+                    label="Settings",
                     value="charts",
                     className="main-tab",
                     selected_className="main-tab-selected",
