@@ -19,3 +19,11 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Local environment secrets
+.env
+*.env.local
+Live/.env
+Live/*.env.local
+
+*$py.class

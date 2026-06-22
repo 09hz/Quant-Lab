@@ -2,6 +2,8 @@ import os
 from pathlib import Path
 from dash import dcc, html
 from datetime import date, timedelta
+import sys
+from datetime import datetime
 
 
 CHART_CONFIG = {
@@ -767,6 +769,15 @@ def _settings_env_value(name: str, default: str = "not set", *, mask: bool = Fal
     return str(value)
 
 
+def _settings_env_present(name: str) -> bool:
+    try:
+        value = os.getenv(name)
+    except Exception:
+        value = None
+
+    return value is not None and str(value).strip() != ""
+
+
 def _settings_bool_text(value: bool) -> str:
     return "Yes" if bool(value) else "No"
 
@@ -894,6 +905,103 @@ def _settings_format_bytes(value: int) -> str:
     return f"{size:.2f} {units[unit]}"
 
 
+def _settings_llm_status() -> tuple[str, str, str]:
+    """
+    Return a display status for the LLM based only on the Dash process env.
+
+    This does not call any external LLM API. It only explains whether the current
+    process appears configured enough for advisory LLM use.
+    """
+    ai_enabled = _settings_env_bool("AI_FEATURES_ENABLED", False)
+    provider = _settings_env_value("LLM_PROVIDER", "none").strip().lower()
+    key_configured = _settings_env_present("OPENAI_API_KEY") or _settings_env_present("LLM_API_KEY")
+    model = _settings_env_value("LLM_MODEL", "")
+
+    if not ai_enabled:
+        return ("AI disabled", "good", "AI_FEATURES_ENABLED is false or missing in this Dash process.")
+
+    if provider in {"", "none", "noop", "disabled"}:
+        return ("LLM provider missing", "warn", "AI is enabled, but LLM_PROVIDER is none/missing.")
+
+    if provider in {"openai", "openai-compatible", "compatible"} and not key_configured:
+        return ("API key missing", "danger", "This Dash process does not see OPENAI_API_KEY or LLM_API_KEY.")
+
+    if provider in {"openai", "openai-compatible", "compatible"} and not model:
+        return ("model missing", "warn", "This Dash process does not see LLM_MODEL.")
+
+    return ("configured", "warn", "Configuration is present. Use check_llm_provider.py to test a real API call.")
+
+
+def _settings_build_runtime_card():
+    """
+    Show what the running Dash process actually sees.
+
+    This is intentionally read-only. Environment variables are process-scoped on
+    Windows/PowerShell, so this card helps catch cases where the user tests a
+    script in one terminal but launches Dash from another terminal.
+    """
+    try:
+        generated_at = datetime.now().isoformat(timespec="seconds")
+    except Exception:
+        generated_at = "unknown"
+
+    try:
+        pid = os.getpid()
+    except Exception:
+        pid = "unknown"
+
+    try:
+        cwd = str(Path.cwd())
+    except Exception:
+        cwd = "unknown"
+
+    try:
+        python_exe = sys.executable
+    except Exception:
+        python_exe = "unknown"
+
+    llm_status, llm_tone, llm_note = _settings_llm_status()
+
+    return html.Div(
+        className="settings-card settings-wide-card settings-runtime-card",
+        children=[
+            html.Div(
+                className="settings-card-title-row",
+                children=[
+                    html.Div("Settings Runtime Diagnostics", className="settings-card-title"),
+                    _settings_status_pill(llm_status, llm_tone),
+                ],
+            ),
+            html.Div(
+                "This shows what the running Dash process sees right now. If you changed PowerShell $env values, restart Dash from that same terminal.",
+                className="settings-card-description",
+            ),
+            html.Div(
+                className="settings-runtime-grid",
+                children=[
+                    _settings_row("Generated at", generated_at),
+                    _settings_row("Process ID", pid),
+                    _settings_row("Working directory", cwd),
+                    _settings_row("Python executable", python_exe),
+                    _settings_row("LLM readiness note", llm_note),
+                    _settings_row("Restart required", "Yes", "Dash does not automatically inherit env changes made after launch."),
+                    _settings_row("MARKET_DATA_PROVIDER", _settings_env_value("MARKET_DATA_PROVIDER", "ibkr")),
+                    _settings_row("CSV_MARKET_DATA_ROOT", _settings_env_value("CSV_MARKET_DATA_ROOT", "cache/replay")),
+                    _settings_row("IBKR_HOST", _settings_env_value("IBKR_HOST", "127.0.0.1")),
+                    _settings_row("IBKR_PORT", _settings_env_value("IBKR_PORT", "not set")),
+                    _settings_row("IBKR_CLIENT_ID", _settings_env_value("IBKR_CLIENT_ID", "not set")),
+                    _settings_row("LLM_PROVIDER", _settings_env_value("LLM_PROVIDER", "none")),
+                    _settings_row("LLM_BASE_URL", _settings_env_value("LLM_BASE_URL", "not configured")),
+                    _settings_row("LLM_MODEL", _settings_env_value("LLM_MODEL", "not configured")),
+                    _settings_row("LLM_CHAT_TOKEN_PARAM", _settings_env_value("LLM_CHAT_TOKEN_PARAM", "auto")),
+                    _settings_row("LLM_SEND_TEMPERATURE", _settings_env_value("LLM_SEND_TEMPERATURE", "auto")),
+                    _settings_row("OPENAI_API_KEY", _settings_env_value("OPENAI_API_KEY", "not configured", mask=True)),
+                ],
+            ),
+        ],
+    )
+
+
 def _settings_build_ai_lock_card():
     """
     Read-only future AI safety settings.
@@ -910,6 +1018,7 @@ def _settings_build_ai_lock_card():
 
     llm_provider = _settings_env_value("LLM_PROVIDER", "none")
     llm_base_url = _settings_env_value("LLM_BASE_URL", "not configured")
+    llm_model = _settings_env_value("LLM_MODEL", "not configured")
     openai_key = _settings_env_value("OPENAI_API_KEY", "not configured", mask=True)
 
     if not ai_enabled:
@@ -935,13 +1044,14 @@ def _settings_build_ai_lock_card():
             ),
             _settings_row("LLM provider", llm_provider),
             _settings_row("LLM base URL", llm_base_url, "Use localhost/LAN only until authentication exists."),
+            _settings_row("LLM model", llm_model),
             _settings_row("OpenAI API key", openai_key, "Masked. Never show API keys in the browser."),
             html.Div(className="settings-lock-list", children=[
                 _settings_lock_row(
                     "AI features",
                     ai_enabled,
                     safe_when=False,
-                    note="Default safe state is OFF.",
+                    note="Default safe state is OFF. ON is acceptable only for advisory diagnostics.",
                 ),
                 _settings_lock_row(
                     "Advisory-only mode",
@@ -1009,6 +1119,8 @@ def build_charts_tab(symbol_options, timeframe_map, default_symbol, default_time
                 ],
             ),
 
+            _settings_build_runtime_card(),
+
             html.Div(
                 className="settings-grid",
                 children=[
@@ -1074,6 +1186,16 @@ def build_charts_tab(symbol_options, timeframe_map, default_symbol, default_time
                 className="settings-card settings-wide-card",
                 children=[
                     html.Div("Useful Commands", className="settings-card-title"),
+                    html.Div("Check what this terminal sees:", className="settings-command-label"),
+                    _settings_command(
+                        "python -c \"import os; print(os.getenv('AI_FEATURES_ENABLED'), os.getenv('LLM_PROVIDER'), bool(os.getenv('OPENAI_API_KEY')))\""
+                    ),
+                    html.Div("Check AI safety policy:", className="settings-command-label"),
+                    _settings_command("python .\\Live\\scripts\\check_ai_safety_policy.py"),
+                    html.Div("Check LLM provider:", className="settings-command-label"),
+                    _settings_command(
+                        "python .\\Live\\scripts\\check_llm_provider.py --provider openai --prompt \"Reply with exactly: LLM_OK\" --max-output-tokens 20"
+                    ),
                     html.Div("Inspect cache:", className="settings-command-label"),
                     _settings_command("python .\\Live\\scripts\\inspect_market_data_cache.py"),
                     html.Div("Check active provider:", className="settings-command-label"),
