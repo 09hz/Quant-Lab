@@ -132,21 +132,10 @@ def build_dashboard_tab(symbol_options, timeframe_map, default_symbol, default_t
         ],
     )
 
-
-def _build_strategy_lab_panel():
+def _build_strategy_editor_panel():
     return html.Div(
-        className="strategy-lab-panel watch-workspace-panel",
+        className="strategy-editor-panel strategy-section-panel",
         children=[
-            html.Div(
-                className="strategy-lab-header",
-                children=[
-                    html.Div("Strategy Lab", className="strategy-lab-title"),
-                    html.Div(
-                        "Indicator script only · No auto-trading yet",
-                        className="strategy-lab-subtitle",
-                    ),
-                ],
-            ),
             dcc.Textarea(
                 id="strategy-script-input",
                 value=(
@@ -194,160 +183,334 @@ def _build_strategy_lab_panel():
                 className="strategy-status",
                 children="Strategy Lab ready.",
             ),
+        ],
+    )
+
+
+def _build_strategy_backtest_panel():
+    return html.Div(
+        className="strategy-backtest-panel strategy-section-panel",
+        children=[
+            html.Div("Backtest", className="strategy-backtest-title"),
             html.Div(
-                className="strategy-backtest-panel",
+                className="strategy-backtest-controls",
                 children=[
-                    html.Div("Backtest", className="strategy-backtest-title"),
                     html.Div(
-                        className="strategy-backtest-controls",
+                        className="control-box strategy-backtest-input-box",
                         children=[
-                            html.Div(
-                                className="control-box strategy-backtest-input-box",
-                                children=[
-                                    html.Label("Initial Cash"),
-                                    dcc.Input(
-                                        id="backtest-initial-cash",
-                                        type="number",
-                                        min=100,
-                                        step=100,
-                                        value=100000,
-                                        className="paper-input",
-                                        debounce=True,
-                                    ),
-                                ],
-                            ),
-                            html.Div(
-                                className="control-box strategy-backtest-input-box",
-                                children=[
-                                    html.Label("Quantity"),
-                                    dcc.Input(
-                                        id="backtest-quantity",
-                                        type="number",
-                                        min=1,
-                                        step=1,
-                                        value=10,
-                                        className="paper-input",
-                                        debounce=True,
-                                    ),
-                                ],
-                            ),
-                            html.Button(
-                                "Run Backtest",
-                                id="strategy-run-backtest",
-                                n_clicks=0,
-                                className="strategy-run-btn",
+                            html.Label("Initial Cash"),
+                            dcc.Input(
+                                id="backtest-initial-cash",
+                                type="number",
+                                min=100,
+                                step=100,
+                                value=100000,
+                                className="paper-input",
+                                debounce=True,
                             ),
                         ],
                     ),
                     html.Div(
-                        id="backtest-status",
-                        className="strategy-status",
-                        children="Backtest ready.",
+                        className="control-box strategy-backtest-input-box",
+                        children=[
+                            html.Label("Quantity"),
+                            dcc.Input(
+                                id="backtest-quantity",
+                                type="number",
+                                min=1,
+                                step=1,
+                                value=10,
+                                className="paper-input",
+                                debounce=True,
+                            ),
+                        ],
+                    ),
+                    html.Button(
+                        "Run Backtest",
+                        id="strategy-run-backtest",
+                        n_clicks=0,
+                        className="strategy-run-btn",
+                    ),
+                ],
+            ),
+            html.Div(
+                id="backtest-status",
+                className="strategy-status",
+                children="Backtest ready.",
+            ),
+            html.Div(
+                id="backtest-results-panel",
+                className="backtest-results-panel",
+                children=[
+                    html.Div("Run a backtest to see results.", className="paper-empty"),
+                ],
+            ),
+        ],
+    )
+
+
+def _strategy_build_ai_advisor_panel():
+    """
+    Build a read-only AI Advisor panel for the Strategy tab.
+
+    The callback behind this panel uses AIAdvisorService, which enforces the
+    central AI safety policy. This panel does not expose secrets, broker access,
+    tool calling, or order placement.
+    """
+    template_options = [
+        {"label": "Strategy explainer", "value": "strategy_explain"},
+        {"label": "Backtest summary", "value": "backtest_summary"},
+        {"label": "Provider status", "value": "provider_status"},
+        {"label": "Error/debug", "value": "error_debug"},
+        {"label": "General", "value": "general"},
+    ]
+
+    return html.Div(
+        className="strategy-ai-advisor-card strategy-section-panel",
+        children=[
+            html.Div(
+                className="strategy-ai-advisor-title-row",
+                children=[
+                    html.Div("AI Strategy Advisor", className="strategy-backtest-title"),
+                    html.Div(id="strategy-ai-advisor-status", className="strategy-ai-advisor-status"),
+                ],
+            ),
+            html.Div(
+                "Read-only strategy assistant. It can explain scripts, backtests, logs, and provider status. "
+                "It cannot place trades, access broker/account data, or call external tools.",
+                className="strategy-ai-advisor-note",
+            ),
+            html.Div(
+                className="strategy-ai-advisor-controls",
+                children=[
+                    html.Div(
+                        className="strategy-ai-advisor-field",
+                        children=[
+                            html.Label("Template", className="strategy-input-label"),
+                            dcc.Dropdown(
+                                id="strategy-ai-advisor-template",
+                                options=template_options,
+                                value="strategy_explain",
+                                clearable=False,
+                                searchable=False,
+                                className="black-dropdown strategy-ai-advisor-dropdown",
+                            ),
+                        ],
                     ),
                     html.Div(
-                        id="backtest-results-panel",
-                        className="backtest-results-panel",
+                        className="strategy-ai-advisor-field strategy-ai-advisor-token-field",
                         children=[
-                            html.Div("Run a backtest to see results.", className="paper-empty"),
+                            html.Label("Max output tokens", className="strategy-input-label"),
+                            dcc.Input(
+                                id="strategy-ai-advisor-max-output",
+                                type="number",
+                                min=20,
+                                max=1200,
+                                step=20,
+                                value=300,
+                                className="strategy-ai-advisor-input",
+                            ),
                         ],
                     ),
                 ],
             ),
             html.Div(
-                className="strategy-help-panel",
+                className="strategy-ai-advisor-field",
+                children=[
+                    html.Label("Question", className="strategy-input-label"),
+                    dcc.Textarea(
+                        id="strategy-ai-advisor-prompt",
+                        value="",
+                        placeholder="Ask about your strategy script, backtest result, or error log.",
+                        className="strategy-ai-advisor-textarea",
+                    ),
+                ],
+            ),
+            html.Div(
+                className="strategy-ai-advisor-field",
+                children=[
+                    html.Label("Optional read-only context", className="strategy-input-label"),
+                    dcc.Textarea(
+                        id="strategy-ai-advisor-context",
+                        value="",
+                        placeholder="Optional: paste a strategy script, backtest summary, or log snippet. Do not paste secrets.",
+                        className="strategy-ai-advisor-textarea strategy-ai-advisor-context",
+                    ),
+                ],
+            ),
+            html.Div(
+                className="strategy-ai-advisor-actions",
+                children=[
+                    html.Button(
+                        "Ask Advisor",
+                        id="strategy-ai-advisor-ask",
+                        n_clicks=0,
+                        className="strategy-ai-advisor-button",
+                    ),
+                    html.Div(
+                        "Safety policy stays in control. Order placement and broker access remain blocked.",
+                        className="strategy-ai-advisor-action-note",
+                    ),
+                ],
+            ),
+            html.Div(
+                id="strategy-ai-advisor-response",
+                className="strategy-ai-advisor-response",
+                children=html.Div(
+                    "Ask a strategy question or paste read-only context to test the advisory AI path.",
+                    className="strategy-ai-advisor-placeholder",
+                ),
+            ),
+        ],
+    )
+
+
+def _build_strategy_help_panel():
+    return html.Div(
+        className="strategy-help-panel strategy-section-panel",
+        children=[
+            html.Div(
+                className="strategy-help-header",
+                children=[
+                    html.Div("Strategy Help", className="strategy-help-title"),
+                    html.Div(
+                        "Language guide, function reference, and examples",
+                        className="strategy-help-subtitle",
+                    ),
+                ],
+            ),
+            html.Div(
+                className="strategy-help-controls",
                 children=[
                     html.Div(
-                        className="strategy-help-header",
+                        className="strategy-help-example-control",
                         children=[
-                            html.Div("Strategy Help", className="strategy-help-title"),
-                            html.Div(
-                                "Language guide, function reference, and examples",
-                                className="strategy-help-subtitle",
+                            html.Label("Load Example"),
+                            dcc.Dropdown(
+                                id="strategy-example-dropdown",
+                                options=[
+                                    {
+                                        "label": "EMA Crossover",
+                                        "value": "ema_crossover.txt",
+                                    },
+                                    {
+                                        "label": "Fast SMA Test",
+                                        "value": "sma_fast_test.txt",
+                                    },
+                                    {
+                                        "label": "RSI Mean Reversion",
+                                        "value": "rsi_mean_reversion.txt",
+                                    },
+                                    {
+                                        "label": "Boolean Crossover",
+                                        "value": "boolean_crossover.txt",
+                                    },
+                                    {
+                                        "label": "EMA + ATR Filter",
+                                        "value": "ema_supertrend.txt",
+                                    },
+                                    {
+                                        "label": "Background Regime Filter",
+                                        "value": "background_regime_test.txt",
+                                    },
+                                ],
+                                value="ema_crossover.txt",
+                                clearable=False,
+                                searchable=False,
+                                className="black-dropdown",
                             ),
                         ],
                     ),
                     html.Div(
-                        className="strategy-help-controls",
+                        className="strategy-help-button-row",
                         children=[
-                            html.Div(
-                                className="strategy-help-example-control",
-                                children=[
-                                    html.Label("Load Example"),
-                                    dcc.Dropdown(
-                                        id="strategy-example-dropdown",
-                                        options=[
-                                            {
-                                                "label": "EMA Crossover",
-                                                "value": "ema_crossover.txt",
-                                            },
-                                            {
-                                                "label": "Fast SMA Test",
-                                                "value": "sma_fast_test.txt",
-                                            },
-                                            {
-                                                "label": "RSI Mean Reversion",
-                                                "value": "rsi_mean_reversion.txt",
-                                            },
-                                            {
-                                                "label": "Boolean Crossover",
-                                                "value": "boolean_crossover.txt",
-                                            },
-                                            {
-                                                "label": "EMA + ATR Filter",
-                                                "value": "ema_supertrend.txt",
-                                            },
-                                            {
-                                                "label": "Background Regime Filter",
-                                                "value": "background_regime_test.txt",
-                                            },
-                                        ],
-                                        value="ema_crossover.txt",
-                                        clearable=False,
-                                        searchable=False,
-                                        className="black-dropdown",
-                                    ),
-                                ],
+                            html.Button(
+                                "Insert Example",
+                                id="strategy-insert-example",
+                                n_clicks=0,
+                                className="strategy-run-btn strategy-help-btn",
                             ),
-                            html.Div(
-                                className="strategy-help-button-row",
-                                children=[
-                                    html.Button(
-                                        "Insert Example",
-                                        id="strategy-insert-example",
-                                        n_clicks=0,
-                                        className="strategy-run-btn strategy-help-btn",
-                                    ),
-                                    html.Button(
-                                        "Language Guide",
-                                        id="strategy-show-language-guide",
-                                        n_clicks=0,
-                                        className="range-btn strategy-help-btn",
-                                    ),
-                                    html.Button(
-                                        "Function Reference",
-                                        id="strategy-show-function-reference",
-                                        n_clicks=0,
-                                        className="range-btn strategy-help-btn",
-                                    ),
-                                ],
+                            html.Button(
+                                "Language Guide",
+                                id="strategy-show-language-guide",
+                                n_clicks=0,
+                                className="range-btn strategy-help-btn",
+                            ),
+                            html.Button(
+                                "Function Reference",
+                                id="strategy-show-function-reference",
+                                n_clicks=0,
+                                className="range-btn strategy-help-btn",
                             ),
                         ],
                     ),
+                ],
+            ),
+            html.Div(
+                id="strategy-help-content",
+                className="strategy-help-content",
+                children=[
                     html.Div(
-                        id="strategy-help-content",
-                        className="strategy-help-content",
-                        children=[
-                            html.Div(
-                                "Choose an example, insert it into the editor, or open the language guide.",
-                                className="paper-empty",
-                            ),
-                        ],
+                        "Choose an example, insert it into the editor, or open the language guide.",
+                        className="paper-empty",
                     ),
                 ],
             ),
         ],
     )
 
+
+def _build_strategy_lab_panel():
+    return html.Div(
+        className="strategy-lab-panel watch-workspace-panel",
+        children=[
+            html.Div(
+                className="strategy-lab-header",
+                children=[
+                    html.Div("Strategy Lab", className="strategy-lab-title"),
+                    html.Div(
+                        "Script editor · Backtest · AI advisor · Help",
+                        className="strategy-lab-subtitle",
+                    ),
+                ],
+            ),
+            dcc.Tabs(
+                id="strategy-lab-inner-tabs",
+                value="strategy-editor",
+                className="strategy-inner-tabs",
+                children=[
+                    dcc.Tab(
+                        label="Editor",
+                        value="strategy-editor",
+                        className="strategy-inner-tab",
+                        selected_className="strategy-inner-tab-selected",
+                        children=[_build_strategy_editor_panel()],
+                    ),
+                    dcc.Tab(
+                        label="Backtest",
+                        value="strategy-backtest",
+                        className="strategy-inner-tab",
+                        selected_className="strategy-inner-tab-selected",
+                        children=[_build_strategy_backtest_panel()],
+                    ),
+                    dcc.Tab(
+                        label="AI Advisor",
+                        value="strategy-ai-advisor",
+                        className="strategy-inner-tab",
+                        selected_className="strategy-inner-tab-selected",
+                        children=[_strategy_build_ai_advisor_panel()],
+                    ),
+                    dcc.Tab(
+                        label="Help",
+                        value="strategy-help",
+                        className="strategy-inner-tab",
+                        selected_className="strategy-inner-tab-selected",
+                        children=[_build_strategy_help_panel()],
+                    ),
+                ],
+            ),
+        ],
+    )
 
 def _build_paper_trading_panel():
     return html.Div(
@@ -1087,7 +1250,6 @@ def _settings_build_ai_lock_card():
         ],
     )
 
-
 def build_charts_tab(symbol_options, timeframe_map, default_symbol, default_timeframe):
     """
     Compatibility name.
@@ -1181,7 +1343,6 @@ def build_charts_tab(symbol_options, timeframe_map, default_symbol, default_time
             ),
 
             _settings_build_ai_lock_card(),
-
             html.Div(
                 className="settings-card settings-wide-card",
                 children=[

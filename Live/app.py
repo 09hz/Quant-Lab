@@ -253,5 +253,18 @@ register_callbacks(
     market_data_provider=market_data_provider,
 )
 
+# =============================================================================
+# Settings AI Advisor callback registration (Patch 16)
+# =============================================================================
+try:
+    from services.ai.advisor_callbacks import register_ai_advisor_callbacks
+
+    register_ai_advisor_callbacks(app)
+except Exception as exc:
+    print(f"[AI ADVISOR] Settings callback registration skipped: {exc}")
+# =============================================================================
+# End Settings AI Advisor callback registration (Patch 16)
+# =============================================================================
+
 if __name__ == "__main__":
     app.run(debug=False)
