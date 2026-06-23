@@ -31,7 +31,7 @@ Live/*.env.local
 # Local AI/debug scratch files
 llm_check.txt
 ai_advisor_context.txt
-# Local strategy/AI context scratch exports
+# Local strategy/AI context scratch exports_service
 strategy_context_exports/
 ai_advisor_context.txt
 llm_check.txt
@@ -39,7 +39,7 @@ llm_check.txt
 research_briefs/
 newsroom_exports/
 
-# Local AI/research scratch exports
+# Local AI/research scratch exports_service
 research_context_exports/
 strategy_context_exports/
 ai_advisor_context.txt

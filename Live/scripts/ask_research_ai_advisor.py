@@ -57,7 +57,7 @@ def main() -> int:
 
     if args.export_context or args.dry_run:
         paths = pack.write_exports()
-        print("[OK] Context exports:")
+        print("[OK] Context exports_service:")
         for kind, path in paths.items():
             print(f"  {kind}: {path}")
 

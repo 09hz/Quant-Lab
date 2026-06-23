@@ -13,7 +13,7 @@ try:
 except Exception:
     load_app_env = None
 
-from services.exports import (
+from services.exports_service import (
     ExportManager,
     load_context_file,
     write_backtest_report_markdown,
@@ -52,7 +52,7 @@ def build_demo_strategy_context() -> dict:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Check Export Center framework.")
-    parser.add_argument("--root", default="exports", help="Export root directory.")
+    parser.add_argument("--root", default="exports_service", help="Export root directory.")
     parser.add_argument("--no-write", action="store_true", help="Build reports but do not write files.")
     parser.add_argument("--load", default="", help="Load a context file and print a short summary.")
     args = parser.parse_args()
@@ -132,7 +132,7 @@ def main() -> int:
         print(f"  - {record.format:8s} {record.bytes_written:8d} bytes  {record.path}")
 
     print("\n[OK] Export Center framework is available.")
-    print("Do not commit the generated exports/ folder.")
+    print("Do not commit the generated exports_service/ folder.")
     return 0
 
 
