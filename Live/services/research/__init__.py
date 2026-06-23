@@ -36,3 +36,9 @@ try:
     )
 except Exception:
     pass
+# Patch 31 optional exports.
+try:
+    from .fred_newsroom_adapter import build_fred_newsroom_items, extend_results_with_fred
+except Exception:
+    build_fred_newsroom_items = None
+    extend_results_with_fred = None

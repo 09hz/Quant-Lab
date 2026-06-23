@@ -11,33 +11,58 @@ try:
 except Exception:
     build_source_search_links = None
 
+try:
+    from services.research.fred_newsroom_adapter import extend_results_with_fred
+except Exception:
+    extend_results_with_fred = None
+
 def _topic_text(topic: str | None) -> str:
     topic = str(topic or "").strip()
     return topic or "market conditions"
 
 def _build_results(topic: str, sources: list[str] | None) -> list[dict[str, Any]]:
-    if build_source_search_links is None:
-        return []
-    links = build_source_search_links(topic, sources or None, include_skipped=True)
     results: list[dict[str, Any]] = []
-    for idx, link in enumerate(links, start=1):
-        metadata = dict(getattr(link, "metadata", {}) or {})
-        kind = getattr(link, "result_type", "research_link")
-        selectable = bool(metadata.get("selectable", kind != "skipped" and bool(getattr(link, "url", ""))))
-        results.append({
-            "id": f"research-{idx}",
-            "title": getattr(link, "title", "Untitled"),
-            "source": getattr(link, "source", "Source"),
-            "url": getattr(link, "url", ""),
-            "summary": getattr(link, "summary", ""),
-            "topic": topic,
-            "kind": kind,
-            "confidence": getattr(link, "confidence", "manual-search"),
-            "needs_manual_search": bool(getattr(link, "needs_manual_search", False)),
-            "selectable": selectable,
-            "metadata": metadata,
-            "fetched_at": datetime.now().isoformat(timespec="seconds"),
-        })
+
+    if build_source_search_links is not None:
+        links = build_source_search_links(topic, sources or None, include_skipped=True)
+        for idx, link in enumerate(links, start=1):
+            metadata = dict(getattr(link, "metadata", {}) or {})
+            kind = getattr(link, "result_type", "research_link")
+            selectable = bool(metadata.get("selectable", kind != "skipped" and bool(getattr(link, "url", ""))))
+            results.append({
+                "id": f"research-{idx}",
+                "title": getattr(link, "title", "Untitled"),
+                "source": getattr(link, "source", "Source"),
+                "url": getattr(link, "url", ""),
+                "summary": getattr(link, "summary", ""),
+                "topic": topic,
+                "kind": kind,
+                "confidence": getattr(link, "confidence", "manual-search"),
+                "needs_manual_search": bool(getattr(link, "needs_manual_search", False)),
+                "selectable": selectable,
+                "metadata": metadata,
+                "fetched_at": datetime.now().isoformat(timespec="seconds"),
+            })
+
+    if extend_results_with_fred is not None:
+        try:
+            results = extend_results_with_fred(topic, sources or None, results)
+        except Exception as exc:
+            results.insert(0, {
+                "id": "fred-ui-extension-error",
+                "title": "FRED structured data unavailable",
+                "source": "FRED",
+                "url": "https://fred.stlouisfed.org/",
+                "summary": f"FRED UI integration could not build structured cards: {exc}",
+                "topic": topic,
+                "kind": "fred-data-warning",
+                "confidence": "low",
+                "needs_manual_search": True,
+                "selectable": False,
+                "metadata": {"connector": "fred", "error": str(exc)},
+                "fetched_at": datetime.now().isoformat(timespec="seconds"),
+            })
+
     return results
 
 def _render_result_cards(results: list[dict[str, Any]]) -> list[Any]:
