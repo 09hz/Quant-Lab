@@ -21,3 +21,18 @@ try:
     from services.research.source_relevance import QueryProfile, SourceRoute, classify_query, route_sources_for_query
 except Exception:
     pass
+
+# Patch 30 — FRED connector exports
+try:
+    from .fred_connector import (
+        FredObservationSummary,
+        FredSeriesCandidate,
+        build_fred_research_brief,
+        curated_fred_candidates,
+        format_fred_brief_markdown,
+        get_fred_api_key,
+        search_fred_series,
+        summarize_fred_series,
+    )
+except Exception:
+    pass
