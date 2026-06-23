@@ -50,3 +50,8 @@ reports/
 strategy_context_exports/
 ai_advisor_context.txt
 research_brief_exports/
+
+# Patch 24 local AI context scratch
+strategy_runtime_context_exports/
+current_strategy_context.md
+current_strategy_context.json

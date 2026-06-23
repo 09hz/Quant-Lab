@@ -15,3 +15,15 @@ __all__ = [
     "ask_ai_advisor",
     "build_ai_advisor_service",
 ]
+
+# Patch 24 export
+try:
+    from services.ai.current_strategy_context import (
+        StrategyRuntimeContext,
+        build_strategy_runtime_context,
+        summarize_bars,
+    )
+except Exception:
+    StrategyRuntimeContext = None
+    build_strategy_runtime_context = None
+    summarize_bars = None
