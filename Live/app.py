@@ -292,5 +292,18 @@ except Exception as exc:
 # End Newsroom callback registration
 # =============================================================================
 
+# =============================================================================
+# Watch live-day guard callback registration
+# =============================================================================
+try:
+    from services.watch.live_guard_callbacks import register_watch_live_guard_callbacks
+
+    register_watch_live_guard_callbacks(app)
+except Exception as exc:
+    print(f"[WATCH LIVE GUARD] callback registration skipped: {exc}")
+# =============================================================================
+# End Watch live-day guard callback registration
+# =============================================================================
+
 if __name__ == "__main__":
     app.run(debug=False)
