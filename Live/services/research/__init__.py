@@ -11,3 +11,13 @@ __all__ = [
     "ResearchContextPack",
     "ResearchContextBuilder",
 ]
+try:
+    from services.research.query_planner import PlannedQuery, plan_query
+    from services.research.search_links import ResearchLink, build_source_search_links
+    from services.research.result_validator import ValidationResult, validate_research_url
+except Exception:
+    pass
+try:
+    from services.research.source_relevance import QueryProfile, SourceRoute, classify_query, route_sources_for_query
+except Exception:
+    pass

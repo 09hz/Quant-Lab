@@ -278,5 +278,19 @@ except Exception as exc:
 # End AI Advisor callback registration
 # =============================================================================
 
+
+# =============================================================================
+# Newsroom callback registration
+# =============================================================================
+try:
+    from services.research.newsroom_callbacks import register_newsroom_callbacks
+
+    register_newsroom_callbacks(app)
+except Exception as exc:
+    print(f"[NEWSROOM] callback registration skipped: {exc}")
+# =============================================================================
+# End Newsroom callback registration
+# =============================================================================
+
 if __name__ == "__main__":
     app.run(debug=False)

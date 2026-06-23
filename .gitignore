@@ -54,4 +54,4 @@ research_brief_exports/
 # Patch 24 local AI context scratch
 strategy_runtime_context_exports/
 current_strategy_context.md
-current_strategy_context.json
+current_strategy_context.json\n\n# Local research/newsroom exports\n/research_brief_exports/\n/newsroom_exports/\n
