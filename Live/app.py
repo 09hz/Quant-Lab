@@ -35,6 +35,11 @@ from services.market_data.provider_factory import (
 from core.ReplayModule import ReplayEngine
 from services.replay_service import ReplayService
 from services.paper_cache import PaperStateCache
+
+try:
+    from services.ai.strategy_context_callbacks import register_strategy_ai_context_callbacks
+except Exception:
+    register_strategy_ai_context_callbacks = None
 from ui.tabs_ui import (
     build_dashboard_tab,
     build_watch_tab,
@@ -254,16 +259,23 @@ register_callbacks(
 )
 
 # =============================================================================
-# Settings AI Advisor callback registration (Patch 16)
+# AI Advisor callback registration
 # =============================================================================
 try:
     from services.ai.advisor_callbacks import register_ai_advisor_callbacks
 
     register_ai_advisor_callbacks(app)
 except Exception as exc:
-    print(f"[AI ADVISOR] Settings callback registration skipped: {exc}")
+    print(f"[AI ADVISOR] callback registration skipped: {exc}")
+
+try:
+    from services.ai.strategy_context_callbacks import register_strategy_ai_context_callbacks
+
+    register_strategy_ai_context_callbacks(app)
+except Exception as exc:
+    print(f"[STRATEGY AI CONTEXT] callback registration skipped: {exc}")
 # =============================================================================
-# End Settings AI Advisor callback registration (Patch 16)
+# End AI Advisor callback registration
 # =============================================================================
 
 if __name__ == "__main__":

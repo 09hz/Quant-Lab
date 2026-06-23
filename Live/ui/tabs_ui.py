@@ -251,215 +251,132 @@ def _build_strategy_backtest_panel():
 
 
 def _strategy_build_ai_advisor_panel():
-    """
-    Build a read-only AI Advisor panel for the Strategy tab.
-
-    The callback behind this panel uses AIAdvisorService, which enforces the
-    central AI safety policy. This panel does not expose secrets, broker access,
-    tool calling, or order placement.
-    """
-    template_options = [
-        {"label": "Strategy explainer", "value": "strategy_explain"},
-        {"label": "Backtest summary", "value": "backtest_summary"},
-        {"label": "Provider status", "value": "provider_status"},
-        {"label": "Error/debug", "value": "error_debug"},
-        {"label": "General", "value": "general"},
-    ]
-
     return html.Div(
-        className="strategy-ai-advisor-card strategy-section-panel",
         children=[
             html.Div(
-                className="strategy-ai-advisor-title-row",
                 children=[
-                    html.Div("AI Strategy Advisor", className="strategy-backtest-title"),
-                    html.Div(id="strategy-ai-advisor-status", className="strategy-ai-advisor-status"),
-                ],
-            ),
-            html.Div(
-                "Read-only strategy assistant. It can explain scripts, backtests, logs, and provider status. "
-                "It cannot place trades, access broker/account data, or call external tools.",
-                className="strategy-ai-advisor-note",
-            ),
-            html.Div(
-                className="strategy-ai-advisor-controls",
-                children=[
-                    html.Div(
-                        className="strategy-ai-advisor-field",
-                        children=[
-                            html.Label("Template", className="strategy-input-label"),
-                            dcc.Dropdown(
-                                id="strategy-ai-advisor-template",
-                                options=template_options,
-                                value="strategy_explain",
-                                clearable=False,
-                                searchable=False,
-                                className="black-dropdown strategy-ai-advisor-dropdown",
-                            ),
-                        ],
-                    ),
-                    html.Div(
-                        className="strategy-ai-advisor-field strategy-ai-advisor-token-field",
-                        children=[
-                            html.Label("Max output tokens", className="strategy-input-label"),
-                            dcc.Input(
-                                id="strategy-ai-advisor-max-output",
-                                type="number",
-                                min=20,
-                                max=1200,
-                                step=20,
-                                value=300,
-                                className="strategy-ai-advisor-input",
-                            ),
-                        ],
+                    html.H4("AI Advisor", className="strategy-ai-title"),
+                    html.P(
+                        "Ask advisory-only questions about the current strategy. "
+                        "Use Attach Current Strategy Context when you want the AI to include "
+                        "the current script, symbol, timeframe, dates, and visible backtest result.",
+                        className="strategy-ai-subtitle",
                     ),
                 ],
+                className="strategy-ai-header",
             ),
             html.Div(
-                className="strategy-ai-advisor-field",
                 children=[
-                    html.Label("Question", className="strategy-input-label"),
+                    html.Label("Template", className="strategy-ai-label"),
+                    dcc.Dropdown(
+                        id="strategy-ai-advisor-template",
+                        options=[
+                            {"label": "General", "value": "general"},
+                            {"label": "Provider/status", "value": "provider_status"},
+                            {"label": "Backtest summary", "value": "backtest_summary"},
+                            {"label": "Strategy explainer", "value": "strategy_explainer"},
+                        ],
+                        value="general",
+                        clearable=False,
+                        className="strategy-ai-dropdown",
+                    ),
+                ],
+                className="strategy-ai-field",
+            ),
+            html.Div(
+                children=[
+                    html.Label("Prompt", className="strategy-ai-label"),
                     dcc.Textarea(
                         id="strategy-ai-advisor-prompt",
                         value="",
-                        placeholder="Ask about your strategy script, backtest result, or error log.",
-                        className="strategy-ai-advisor-textarea",
+                        placeholder="Ask about your strategy, backtest, symbol, or research context...",
+                        className="strategy-ai-textarea",
                     ),
                 ],
+                className="strategy-ai-field",
             ),
             html.Div(
-                className="strategy-ai-advisor-field",
                 children=[
-                    html.Label("Optional read-only context", className="strategy-input-label"),
+                    html.Label("Attached context", className="strategy-ai-label"),
                     dcc.Textarea(
                         id="strategy-ai-advisor-context",
                         value="",
-                        placeholder="Optional: paste a strategy script, backtest summary, or log snippet. Do not paste secrets.",
-                        className="strategy-ai-advisor-textarea strategy-ai-advisor-context",
+                        placeholder="Attached Strategy/Backtest/Research context will appear here.",
+                        className="strategy-ai-contextarea",
                     ),
                 ],
+                className="strategy-ai-field",
             ),
             html.Div(
-                className="strategy-ai-advisor-actions",
                 children=[
+                    html.Button(
+                        "Attach Current Strategy Context",
+                        id="strategy-ai-context-attach",
+                        n_clicks=0,
+                        className="secondary-button",
+                    ),
+                    html.Button(
+                        "Clear Context",
+                        id="strategy-ai-context-clear",
+                        n_clicks=0,
+                        className="secondary-button",
+                    ),
+                    html.Button(
+                        "Export Context JSON",
+                        id="strategy-export-context-json",
+                        n_clicks=0,
+                        className="secondary-button",
+                    ),
+                    html.Button(
+                        "Export Context Markdown",
+                        id="strategy-export-context-md",
+                        n_clicks=0,
+                        className="secondary-button",
+                    ),
+                    dcc.Download(id="strategy-context-download-json"),
+                    dcc.Download(id="strategy-context-download-md"),
+                ],
+                className="strategy-ai-context-actions",
+            ),
+            html.Div(
+                id="strategy-ai-context-status",
+                className="strategy-ai-context-status",
+                children="No Strategy context attached yet.",
+            ),
+            html.Div(
+                children=[
+                    html.Label("Max output tokens", className="strategy-ai-label"),
+                    dcc.Input(
+                        id="strategy-ai-advisor-max-output",
+                        type="number",
+                        value=500,
+                        min=20,
+                        max=2000,
+                        step=10,
+                        className="strategy-ai-number",
+                    ),
                     html.Button(
                         "Ask Advisor",
                         id="strategy-ai-advisor-ask",
                         n_clicks=0,
-                        className="strategy-ai-advisor-button",
-                    ),
-                    html.Div(
-                        "Safety policy stays in control. Order placement and broker access remain blocked.",
-                        className="strategy-ai-advisor-action-note",
+                        className="primary-button",
                     ),
                 ],
+                className="strategy-ai-actions",
             ),
             html.Div(
+                id="strategy-ai-advisor-status",
+                className="strategy-ai-status",
+                children="AI Advisor is advisory-only. Broker access and order placement remain blocked.",
+            ),
+            html.Pre(
                 id="strategy-ai-advisor-response",
-                className="strategy-ai-advisor-response",
-                children=html.Div(
-                    "Ask a strategy question or paste read-only context to test the advisory AI path.",
-                    className="strategy-ai-advisor-placeholder",
-                ),
+                className="strategy-ai-response",
+                children="",
             ),
         ],
+        className="strategy-ai-advisor-panel",
     )
-
-
-def _build_strategy_help_panel():
-    return html.Div(
-        className="strategy-help-panel strategy-section-panel",
-        children=[
-            html.Div(
-                className="strategy-help-header",
-                children=[
-                    html.Div("Strategy Help", className="strategy-help-title"),
-                    html.Div(
-                        "Language guide, function reference, and examples",
-                        className="strategy-help-subtitle",
-                    ),
-                ],
-            ),
-            html.Div(
-                className="strategy-help-controls",
-                children=[
-                    html.Div(
-                        className="strategy-help-example-control",
-                        children=[
-                            html.Label("Load Example"),
-                            dcc.Dropdown(
-                                id="strategy-example-dropdown",
-                                options=[
-                                    {
-                                        "label": "EMA Crossover",
-                                        "value": "ema_crossover.txt",
-                                    },
-                                    {
-                                        "label": "Fast SMA Test",
-                                        "value": "sma_fast_test.txt",
-                                    },
-                                    {
-                                        "label": "RSI Mean Reversion",
-                                        "value": "rsi_mean_reversion.txt",
-                                    },
-                                    {
-                                        "label": "Boolean Crossover",
-                                        "value": "boolean_crossover.txt",
-                                    },
-                                    {
-                                        "label": "EMA + ATR Filter",
-                                        "value": "ema_supertrend.txt",
-                                    },
-                                    {
-                                        "label": "Background Regime Filter",
-                                        "value": "background_regime_test.txt",
-                                    },
-                                ],
-                                value="ema_crossover.txt",
-                                clearable=False,
-                                searchable=False,
-                                className="black-dropdown",
-                            ),
-                        ],
-                    ),
-                    html.Div(
-                        className="strategy-help-button-row",
-                        children=[
-                            html.Button(
-                                "Insert Example",
-                                id="strategy-insert-example",
-                                n_clicks=0,
-                                className="strategy-run-btn strategy-help-btn",
-                            ),
-                            html.Button(
-                                "Language Guide",
-                                id="strategy-show-language-guide",
-                                n_clicks=0,
-                                className="range-btn strategy-help-btn",
-                            ),
-                            html.Button(
-                                "Function Reference",
-                                id="strategy-show-function-reference",
-                                n_clicks=0,
-                                className="range-btn strategy-help-btn",
-                            ),
-                        ],
-                    ),
-                ],
-            ),
-            html.Div(
-                id="strategy-help-content",
-                className="strategy-help-content",
-                children=[
-                    html.Div(
-                        "Choose an example, insert it into the editor, or open the language guide.",
-                        className="paper-empty",
-                    ),
-                ],
-            ),
-        ],
-    )
-
 
 def _build_strategy_lab_panel():
     return html.Div(
@@ -973,3 +890,85 @@ def build_newsroom_tab(*args, **kwargs):
         from ui.newsroom_ui import build_newsroom_tab as _build_newsroom_tab
         return _build_newsroom_tab()
 # <<< PATCH_21_NEWSROOM_SETTINGS_COMPAT
+
+# =============================================================================
+# Strategy Lab Help Panel Restore
+# =============================================================================
+def _build_strategy_help_panel():
+    return html.Div(
+        className="strategy-help-panel strategy-section-panel",
+        children=[
+            html.Div(
+                className="strategy-help-header",
+                children=[
+                    html.Div("Strategy Help", className="strategy-help-title"),
+                    html.Div(
+                        "Language guide, function reference, and examples",
+                        className="strategy-help-subtitle",
+                    ),
+                ],
+            ),
+            html.Div(
+                className="strategy-help-controls",
+                children=[
+                    html.Div(
+                        className="strategy-help-example-control",
+                        children=[
+                            html.Label("Load Example"),
+                            dcc.Dropdown(
+                                id="strategy-example-dropdown",
+                                options=[
+                                    {"label": "EMA Crossover", "value": "ema_crossover.txt"},
+                                    {"label": "Fast SMA Test", "value": "sma_fast_test.txt"},
+                                    {"label": "RSI Mean Reversion", "value": "rsi_mean_reversion.txt"},
+                                    {"label": "Boolean Crossover", "value": "boolean_crossover.txt"},
+                                    {"label": "EMA + ATR Filter", "value": "ema_supertrend.txt"},
+                                    {"label": "Background Regime Filter", "value": "background_regime_test.txt"},
+                                ],
+                                value="ema_crossover.txt",
+                                clearable=False,
+                                searchable=False,
+                                className="black-dropdown",
+                            ),
+                        ],
+                    ),
+                    html.Div(
+                        className="strategy-help-button-row",
+                        children=[
+                            html.Button(
+                                "Insert Example",
+                                id="strategy-insert-example",
+                                n_clicks=0,
+                                className="strategy-run-btn strategy-help-btn",
+                            ),
+                            html.Button(
+                                "Language Guide",
+                                id="strategy-show-language-guide",
+                                n_clicks=0,
+                                className="range-btn strategy-help-btn",
+                            ),
+                            html.Button(
+                                "Function Reference",
+                                id="strategy-show-function-reference",
+                                n_clicks=0,
+                                className="range-btn strategy-help-btn",
+                            ),
+                        ],
+                    ),
+                ],
+            ),
+            html.Div(
+                id="strategy-help-content",
+                className="strategy-help-content",
+                children=[
+                    html.Div(
+                        "Choose an example, insert it into the editor, or open the language guide.",
+                        className="paper-empty",
+                    ),
+                ],
+            ),
+        ],
+    )
+# =============================================================================
+# End Strategy Lab Help Panel Restore
+# =============================================================================

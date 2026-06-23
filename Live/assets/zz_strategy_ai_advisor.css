@@ -252,3 +252,31 @@
 /* =============================================================================
    End Strategy Lab tabs + AI Advisor panel (Patch 17)
    ============================================================================= */
+
+/* Patch 26 - Strategy AI context attach/export controls */
+
+.strategy-ai-context-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin: 8px 0 10px 0;
+}
+
+.strategy-ai-context-actions button,
+.strategy-ai-context-actions .dash-download {
+  min-height: 34px;
+}
+
+.strategy-ai-context-status {
+  color: #9fb3c8;
+  font-size: 0.85rem;
+  margin: 4px 0 8px 0;
+}
+
+.strategy-ai-export-note {
+  color: #8da2b8;
+  font-size: 0.82rem;
+  line-height: 1.35;
+  margin-top: 4px;
+}
