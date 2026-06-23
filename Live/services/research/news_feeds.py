@@ -1,22 +1,20 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
+from datetime import datetime
+from email.utils import parsedate_to_datetime
 from html import unescape
+import re
 from typing import Any
 from urllib.request import Request, urlopen
-import re
-import xml.etree.ElementTree as ET
-
-from .source_registry import ResearchSource, build_default_source_registry
+from xml.etree import ElementTree as ET
 
 
 @dataclass
 class NewsItem:
-    source_id: str
-    source_name: str
     title: str
-    link: str
+    source: str
+    url: str = ""
     published: str = ""
     summary: str = ""
 
@@ -24,41 +22,56 @@ class NewsItem:
         return asdict(self)
 
 
-def _clean_text(value: str | None, max_len: int = 800) -> str:
+DEFAULT_FEEDS: list[dict[str, str]] = [
+    {
+        "key": "federal_reserve_press",
+        "source": "Federal Reserve Press Releases",
+        "url": "https://www.federalreserve.gov/feeds/press_all.xml",
+    },
+    {
+        "key": "sec_press",
+        "source": "SEC Press Releases",
+        "url": "https://www.sec.gov/news/pressreleases.rss",
+    },
+    {
+        "key": "bls_latest",
+        "source": "BLS Latest Numbers",
+        "url": "https://www.bls.gov/feed/bls_latest.rss",
+    },
+]
+
+
+def strip_html(text: str) -> str:
+    text = unescape(str(text or ""))
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = re.sub(r"\s+", " ", text)
+    return text.strip()
+
+
+def _node_text(node: ET.Element | None, default: str = "") -> str:
+    if node is None or node.text is None:
+        return default
+    return strip_html(node.text)
+
+
+def _parse_date(value: str) -> str:
+    value = str(value or "").strip()
     if not value:
         return ""
-    text = re.sub(r"<[^>]+>", " ", str(value))
-    text = unescape(text)
-    text = re.sub(r"\s+", " ", text).strip()
-    if len(text) > max_len:
-        return text[: max_len - 3].rstrip() + "..."
-    return text
+    try:
+        return parsedate_to_datetime(value).isoformat()
+    except Exception:
+        return value
 
 
-def _child_text(element: ET.Element, names: list[str]) -> str:
-    for name in names:
-        child = element.find(name)
-        if child is not None and child.text:
-            return child.text
-
-    wanted = {name.split("}")[-1].lower() for name in names}
-    for child in list(element):
-        tag = child.tag.split("}")[-1].lower()
-        if tag in wanted and child.text:
-            return child.text
-    return ""
-
-
-def fetch_news_feed(source: ResearchSource, per_feed: int = 5, timeout: float = 10.0) -> list[NewsItem]:
-    if not source.rss_url:
-        return []
-
+def fetch_rss_feed(url: str, source: str = "", per_feed: int = 5, timeout: float = 12) -> list[NewsItem]:
     request = Request(
-        source.rss_url,
+        url,
         headers={
-            "User-Agent": "AlgoTraderResearchBot/0.1 local-development",
-            "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml;q=0.9, */*;q=0.5",
+            "User-Agent": "AlgoTraderResearchBot/0.1 research-only contact=local",
+            "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml",
         },
+        method="GET",
     )
 
     with urlopen(request, timeout=timeout) as response:
@@ -68,96 +81,43 @@ def fetch_news_feed(source: ResearchSource, per_feed: int = 5, timeout: float = 
     items: list[NewsItem] = []
 
     for item in root.findall(".//item"):
-        title = _clean_text(_child_text(item, ["title"]), 300)
-        link = _clean_text(_child_text(item, ["link"]), 1000)
-        published = _clean_text(_child_text(item, ["pubDate", "published", "updated"]), 200)
-        summary = _clean_text(_child_text(item, ["description", "summary", "content"]), 800)
-        if title:
-            items.append(
-                NewsItem(
-                    source_id=source.id,
-                    source_name=source.name,
-                    title=title,
-                    link=link,
-                    published=published,
-                    summary=summary,
-                )
-            )
         if len(items) >= per_feed:
-            return items
-
-    atom_entries = root.findall(".//{http://www.w3.org/2005/Atom}entry") + root.findall(".//entry")
-    for entry in atom_entries:
-        title = _clean_text(_child_text(entry, ["{http://www.w3.org/2005/Atom}title", "title"]), 300)
-        link = ""
-        for child in list(entry):
-            tag = child.tag.split("}")[-1].lower()
-            if tag == "link":
-                link = child.attrib.get("href", "") or (child.text or "")
-                break
-        published = _clean_text(
-            _child_text(entry, ["{http://www.w3.org/2005/Atom}published", "{http://www.w3.org/2005/Atom}updated", "published", "updated"]),
-            200,
-        )
-        summary = _clean_text(_child_text(entry, ["{http://www.w3.org/2005/Atom}summary", "summary", "content"]), 800)
+            break
+        title = _node_text(item.find("title"))
+        link = _node_text(item.find("link"))
+        published = _parse_date(_node_text(item.find("pubDate")) or _node_text(item.find("date")))
+        summary = _node_text(item.find("description"))
         if title:
-            items.append(
-                NewsItem(
-                    source_id=source.id,
-                    source_name=source.name,
-                    title=title,
-                    link=link,
-                    published=published,
-                    summary=summary,
-                )
-            )
-        if len(items) >= per_feed:
-            return items
-
-    return items[:per_feed]
-
-
-def fetch_news_feeds(per_feed: int = 3, timeout: float = 10.0) -> tuple[list[NewsItem], list[str]]:
-    news: list[NewsItem] = []
-    errors: list[str] = []
-
-    for source in build_default_source_registry():
-        if not source.rss_url:
-            continue
-        try:
-            news.extend(fetch_news_feed(source, per_feed=per_feed, timeout=timeout))
-        except Exception as exc:
-            errors.append(f"{source.name}: {exc}")
-
-    return news, errors
-
-
-def news_items_markdown(items: list[NewsItem], errors: list[str] | None = None) -> str:
-    lines = [
-        "# Economic News Brief",
-        "",
-        f"Generated: {datetime.now(timezone.utc).isoformat()}",
-        "",
-    ]
+            items.append(NewsItem(title=title, source=source or "RSS", url=link, published=published, summary=summary))
 
     if not items:
-        lines.append("No news items were fetched.")
-    else:
-        for item in items:
-            lines.append(f"## {item.title}")
-            lines.append(f"- Source: {item.source_name}")
-            if item.published:
-                lines.append(f"- Published: {item.published}")
-            if item.link:
-                lines.append(f"- Link: {item.link}")
-            if item.summary:
-                lines.append("")
-                lines.append(item.summary)
-            lines.append("")
+        ns = {"atom": "http://www.w3.org/2005/Atom"}
+        for entry in root.findall(".//atom:entry", ns):
+            if len(items) >= per_feed:
+                break
+            title = _node_text(entry.find("atom:title", ns))
+            link_node = entry.find("atom:link", ns)
+            link = link_node.attrib.get("href", "") if link_node is not None else ""
+            published = _parse_date(_node_text(entry.find("atom:updated", ns)) or _node_text(entry.find("atom:published", ns)))
+            summary = _node_text(entry.find("atom:summary", ns))
+            if title:
+                items.append(NewsItem(title=title, source=source or "Atom", url=link, published=published, summary=summary))
 
-    if errors:
-        lines.append("## Feed errors")
-        for error in errors:
-            lines.append(f"- {error}")
+    return items
 
-    return "\n".join(lines)
+
+def fetch_default_news(per_feed: int = 3, timeout: float = 12) -> list[NewsItem]:
+    results: list[NewsItem] = []
+    for feed in DEFAULT_FEEDS:
+        try:
+            results.extend(fetch_rss_feed(feed["url"], source=feed["source"], per_feed=per_feed, timeout=timeout))
+        except Exception as exc:
+            results.append(
+                NewsItem(
+                    title=f"Feed unavailable: {feed['source']}",
+                    source=feed["source"],
+                    summary=str(exc),
+                    published=datetime.now().isoformat(timespec="seconds"),
+                )
+            )
+    return results

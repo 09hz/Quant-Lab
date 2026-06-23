@@ -1,152 +1,161 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
-from typing import Any
+from typing import Iterable
 
 
 @dataclass(frozen=True)
 class ResearchSource:
-    id: str
+    """Trusted research/news/data source registry entry."""
+
+    key: str
     name: str
     category: str
     url: str
     description: str
-    reliability: str = "official"
-    api_url: str | None = None
-    rss_url: str | None = None
-    notes: str = ""
+    ai_use: str
+    requires_key: bool = False
+    enabled_by_default: bool = True
+    priority: int = 50
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict:
         return asdict(self)
 
 
-def build_default_source_registry() -> list[ResearchSource]:
-    return [
-        ResearchSource(
-            id="fred",
-            name="FRED",
-            category="macro_data",
-            url="https://fred.stlouisfed.org/",
-            api_url="https://fred.stlouisfed.org/docs/api/fred/",
-            rss_url="https://fred.stlouisfed.org/releases/feeds",
-            description="Federal Reserve Bank of St. Louis economic time-series database.",
-            reliability="official",
-            notes="Useful for rates, inflation, labor, GDP, money supply, spreads, and macro context.",
-        ),
-        ResearchSource(
-            id="federal_reserve",
-            name="Federal Reserve",
-            category="central_bank",
-            url="https://www.federalreserve.gov/",
-            rss_url="https://www.federalreserve.gov/feeds/press_all.xml",
-            description="Federal Reserve policy, speeches, press releases, and monetary policy materials.",
-            reliability="official",
-        ),
-        ResearchSource(
-            id="bea",
-            name="BEA",
-            category="macro_data",
-            url="https://www.bea.gov/",
-            api_url="https://apps.bea.gov/api/signup/",
-            rss_url="https://www.bea.gov/news/glance",
-            description="Bureau of Economic Analysis data including GDP, income, trade, and industry data.",
-            reliability="official",
-        ),
-        ResearchSource(
-            id="bls",
-            name="BLS",
-            category="labor_inflation",
-            url="https://www.bls.gov/",
-            api_url="https://www.bls.gov/developers/",
-            rss_url="https://www.bls.gov/feed/",
-            description="Bureau of Labor Statistics data including CPI, PPI, jobs, wages, and productivity.",
-            reliability="official",
-        ),
-        ResearchSource(
-            id="sec_edgar",
-            name="SEC EDGAR",
-            category="company_filings",
-            url="https://www.sec.gov/edgar",
-            api_url="https://www.sec.gov/search-filings/edgar-application-programming-interfaces",
-            description="Company filings, 10-K, 10-Q, 8-K, ownership and other disclosure data.",
-            reliability="official",
-            notes="Respect SEC fair-access policies and identify your app if using automated requests.",
-        ),
-        ResearchSource(
-            id="treasury_fiscal_data",
-            name="U.S. Treasury Fiscal Data",
-            category="fiscal_rates",
-            url="https://fiscaldata.treasury.gov/",
-            api_url="https://fiscaldata.treasury.gov/api-documentation/",
-            description="U.S. Treasury public datasets including debt, rates, receipts, and fiscal data.",
-            reliability="official",
-        ),
-        ResearchSource(
-            id="imf",
-            name="IMF",
-            category="global_macro",
-            url="https://www.imf.org/",
-            description="International Monetary Fund global macroeconomic reports, datasets, and analysis.",
-            reliability="institutional",
-        ),
-        ResearchSource(
-            id="world_bank",
-            name="World Bank",
-            category="global_macro",
-            url="https://www.worldbank.org/",
-            api_url="https://datahelpdesk.worldbank.org/knowledgebase/articles/889392",
-            description="Global development and macro datasets.",
-            reliability="institutional",
-        ),
-        ResearchSource(
-            id="world_economic_forum",
-            name="World Economic Forum",
-            category="global_context",
-            url="https://www.weforum.org/",
-            rss_url="https://www.weforum.org/agenda/feed/",
-            description="Global economic, technology, policy, risk, and business commentary.",
-            reliability="institutional",
-            notes="Use as context/commentary, not as a primary market-data source.",
-        ),
-        ResearchSource(
-            id="cnbc_economy",
-            name="CNBC Economy",
-            category="general_news",
-            url="https://www.cnbc.com/economy/",
-            rss_url="https://www.cnbc.com/id/20910258/device/rss/rss.html",
-            description="General market/economy news feed.",
-            reliability="news",
-        ),
-        ResearchSource(
-            id="marketwatch_topstories",
-            name="MarketWatch Top Stories",
-            category="general_news",
-            url="https://www.marketwatch.com/",
-            rss_url="https://feeds.content.dowjones.io/public/rss/mw_topstories",
-            description="General market and economic news feed.",
-            reliability="news",
-        ),
-    ]
+class TrustedSourceRegistry:
+    def __init__(self, sources: Iterable[ResearchSource] | None = None) -> None:
+        self._sources: dict[str, ResearchSource] = {}
+        for source in sources or []:
+            self.add(source)
+
+    def add(self, source: ResearchSource) -> None:
+        self._sources[source.key] = source
+
+    def __iter__(self):
+        """Iterate over all sources for UI compatibility."""
+        return iter(self.all(enabled_only=False))
+
+    def __len__(self) -> int:
+        return len(self._sources)
+
+    def get(self, key: str) -> ResearchSource | None:
+        return self._sources.get(key)
+
+    def all(self, enabled_only: bool = False) -> list[ResearchSource]:
+        values = list(self._sources.values())
+        if enabled_only:
+            values = [source for source in values if source.enabled_by_default]
+        return sorted(values, key=lambda src: (src.priority, src.category, src.name))
+
+    def to_manifest(self, enabled_only: bool = True) -> list[dict]:
+        return [source.to_dict() for source in self.all(enabled_only=enabled_only)]
+
+    def to_markdown(self, enabled_only: bool = True) -> str:
+        lines = ["# Trusted Research Sources", ""]
+        for source in self.all(enabled_only=enabled_only):
+            locked = "requires key" if source.requires_key else "public/website"
+            lines.append(f"## {source.name}")
+            lines.append(f"- Key: `{source.key}`")
+            lines.append(f"- Category: {source.category}")
+            lines.append(f"- Access: {locked}")
+            lines.append(f"- URL: {source.url}")
+            lines.append(f"- Why AI may use it: {source.ai_use}")
+            lines.append("")
+        return "\n".join(lines).strip() + "\n"
 
 
-def get_default_source_registry() -> dict[str, ResearchSource]:
-    return {source.id: source for source in build_default_source_registry()}
-
-
-def source_manifest_text() -> str:
-    lines = ["# Trusted Research Source Registry", ""]
-    for source in build_default_source_registry():
-        lines.append(f"## {source.name}")
-        lines.append(f"- id: {source.id}")
-        lines.append(f"- category: {source.category}")
-        lines.append(f"- reliability: {source.reliability}")
-        lines.append(f"- url: {source.url}")
-        if source.api_url:
-            lines.append(f"- api: {source.api_url}")
-        if source.rss_url:
-            lines.append(f"- feed: {source.rss_url}")
-        lines.append(f"- description: {source.description}")
-        if source.notes:
-            lines.append(f"- notes: {source.notes}")
-        lines.append("")
-    return "\n".join(lines)
+def build_default_source_registry() -> TrustedSourceRegistry:
+    return TrustedSourceRegistry(
+        [
+            ResearchSource(
+                key="fred",
+                name="FRED / Federal Reserve Bank of St. Louis",
+                category="macro_data",
+                url="https://fred.stlouisfed.org/",
+                description="Economic time series, rates, inflation, labor, credit and macro indicators.",
+                ai_use="Use for macro backdrop, trend context, rate/inflation/labor series references.",
+                requires_key=True,
+                priority=10,
+            ),
+            ResearchSource(
+                key="bea",
+                name="U.S. Bureau of Economic Analysis",
+                category="macro_data",
+                url="https://www.bea.gov/",
+                description="GDP, income, spending, corporate profits and national accounts.",
+                ai_use="Use for GDP/growth/income/spending context and longer-term economic framing.",
+                requires_key=True,
+                priority=15,
+            ),
+            ResearchSource(
+                key="bls",
+                name="U.S. Bureau of Labor Statistics",
+                category="macro_data",
+                url="https://www.bls.gov/",
+                description="CPI, PPI, employment, unemployment, wages and labor statistics.",
+                ai_use="Use for labor/inflation context and event risk around major releases.",
+                requires_key=False,
+                priority=20,
+            ),
+            ResearchSource(
+                key="federal_reserve",
+                name="Federal Reserve",
+                category="central_bank",
+                url="https://www.federalreserve.gov/",
+                description="FOMC, monetary policy releases, speeches, reports and data.",
+                ai_use="Use for policy-rate backdrop, central-bank communications and risk framing.",
+                requires_key=False,
+                priority=25,
+            ),
+            ResearchSource(
+                key="treasury",
+                name="U.S. Treasury Fiscal Data",
+                category="macro_data",
+                url="https://fiscaldata.treasury.gov/",
+                description="Treasury fiscal datasets and public debt data.",
+                ai_use="Use for rates/fiscal/debt context when discussing macro conditions.",
+                requires_key=False,
+                priority=30,
+            ),
+            ResearchSource(
+                key="sec_edgar",
+                name="SEC EDGAR",
+                category="company_filings",
+                url="https://www.sec.gov/edgar",
+                description="Company filings, disclosures, 10-K, 10-Q, 8-K and ownership reports.",
+                ai_use="Use for company-specific disclosure context, but do not assume live price impact.",
+                requires_key=False,
+                priority=35,
+            ),
+            ResearchSource(
+                key="imf",
+                name="International Monetary Fund",
+                category="global_macro",
+                url="https://www.imf.org/",
+                description="Global macro outlooks, financial stability, country data and reports.",
+                ai_use="Use for global macro and cross-country economic context.",
+                requires_key=False,
+                priority=40,
+            ),
+            ResearchSource(
+                key="world_bank",
+                name="World Bank",
+                category="global_macro",
+                url="https://www.worldbank.org/",
+                description="Global development, rates, country and economic datasets.",
+                ai_use="Use for country/macro backdrop and long-term economic context.",
+                requires_key=False,
+                priority=45,
+            ),
+            ResearchSource(
+                key="wef",
+                name="World Economic Forum",
+                category="global_macro",
+                url="https://www.weforum.org/",
+                description="Global economic, geopolitical, technology and policy themes.",
+                ai_use="Use only as high-level thematic context, not as primary market data.",
+                requires_key=False,
+                priority=60,
+            ),
+        ]
+    )

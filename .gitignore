@@ -38,3 +38,9 @@ llm_check.txt
 # Research/news local scratch artifacts
 research_briefs/
 newsroom_exports/
+
+# Local AI/research scratch exports
+research_context_exports/
+strategy_context_exports/
+ai_advisor_context.txt
+llm_check.txt
