@@ -44,3 +44,9 @@ research_context_exports/
 strategy_context_exports/
 ai_advisor_context.txt
 llm_check.txt
+# Export Center local outputs
+exports/
+reports/
+strategy_context_exports/
+ai_advisor_context.txt
+research_brief_exports/
