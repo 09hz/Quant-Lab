@@ -1,0 +1,46 @@
+.newsroom-tab {
+  padding: 18px;
+}
+
+.newsroom-header,
+.newsroom-card {
+  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 14px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.newsroom-muted {
+  color: #94a3b8;
+}
+
+.newsroom-source-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.newsroom-source-card {
+  background: rgba(2, 6, 23, 0.75);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.newsroom-source-name {
+  font-weight: 700;
+  color: #e2e8f0;
+}
+
+.newsroom-source-category {
+  font-size: 12px;
+  color: #38bdf8;
+  margin: 4px 0;
+}
+
+.newsroom-source-description {
+  color: #cbd5e1;
+  font-size: 13px;
+}

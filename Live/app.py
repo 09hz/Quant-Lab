@@ -143,7 +143,7 @@ app.layout = html.Div(
                     ],
                 ),
                 dcc.Tab(
-                    label="Quotes",
+                    label="Newsroom",
                     value="quotes",
                     className="main-tab",
                     selected_className="main-tab-selected",
