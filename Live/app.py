@@ -305,5 +305,21 @@ except Exception as exc:
 # End Watch live-day guard callback registration
 # =============================================================================
 
+
+# =============================================================================
+# Watch live/replay mode guard callback registration
+# =============================================================================
+try:
+    from services.watch.live_replay_guard_callbacks import (
+        register_live_replay_guard_callbacks,
+    )
+
+    register_live_replay_guard_callbacks(app)
+except Exception as exc:
+    print(f"[WATCH LIVE/REPLAY GUARD] callback registration skipped: {exc}")
+# =============================================================================
+# End Watch live/replay mode guard callback registration
+# =============================================================================
+
 if __name__ == "__main__":
     app.run(debug=False)

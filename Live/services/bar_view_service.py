@@ -5,6 +5,8 @@ from typing import Any
 
 import pandas as pd
 
+from services.watch.symbol_load_guard import watch_symbol_load_guard
+
 from models.watch_models import WatchBarsView
 
 
@@ -188,14 +190,52 @@ class BarViewService:
 
         if use_live_watch_data:
             try:
+                # Do not block the Dash render callback while loading a new live symbol.
+                # A background daemon thread starts the provider request once, while the
+                # chart renders a loading state until get_snapshot succeeds.
                 try:
-                    request_symbol = getattr(market_data_provider, "request_symbol", None)
-                    if callable(request_symbol):
-                        request_symbol(symbol)
+                    watch_symbol_load_guard.request_async(
+                        market_data_provider,
+                        symbol,
+                        "1 min",
+                    )
                 except Exception:
                     pass
 
-                snap = market_data_provider.get_snapshot(symbol, "1 min")
+                try:
+                    snap = market_data_provider.get_snapshot(symbol, "1 min")
+                except Exception as snapshot_exc:
+                    status = None
+                    try:
+                        status = watch_symbol_load_guard.get_status(
+                            market_data_provider,
+                            symbol,
+                            "1 min",
+                        )
+                    except Exception:
+                        status = None
+
+                    msg = str(snapshot_exc)
+                    if status is not None and getattr(status, "state", "") == "loading":
+                        msg = f"Loading live data for {symbol}..."
+                    elif "No loaded state" in msg:
+                        msg = f"Loading live data for {symbol}..."
+
+                    return WatchBarsView(
+                        source="live",
+                        symbol=symbol,
+                        display_timeframe=display_timeframe,
+                        full_bars=pd.DataFrame(columns=OHLCV_COLUMNS),
+                        visible_bars=pd.DataFrame(columns=OHLCV_COLUMNS),
+                        chart_bars=pd.DataFrame(columns=OHLCV_COLUMNS),
+                        current_price=None,
+                        updated_at=datetime.now(),
+                        current_index=current_index,
+                        max_index=max_index,
+                        chart_label="Live Market",
+                        error=msg,
+                    )
+
                 live_bars = self.clean_bars(getattr(snap, "bars", None))
                 chart_bars = self.resample_bars(live_bars, display_timeframe)
 
