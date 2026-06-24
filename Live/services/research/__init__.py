@@ -47,3 +47,9 @@ try:
     from .result_hygiene import clean_newsroom_results, summarize_hygiene
 except Exception:  # pragma: no cover - optional package surface only
     pass
+
+try:
+    from .brief_ai_handoff import brief_to_strategy_ai_context, default_newsroom_ai_prompt
+except Exception:
+    brief_to_strategy_ai_context = None
+    default_newsroom_ai_prompt = None

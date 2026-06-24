@@ -42,9 +42,24 @@ class WatchChartRenderer:
                 f"{symbol} | {display_timeframe} | Waiting for chart data..."
             )
 
-        return create_candlestick_figure(
+        fig = create_candlestick_figure(
             chart_bars,
             symbol,
             display_timeframe,
             current_price=current_price,
         )
+
+        # Keep higher-timeframe replay charts from inheriting odd Plotly defaults
+        # after range/timeframe switches. Viewport range selection is still handled
+        # by chart_viewport_service in callbacks.py.
+        try:
+            fig.update_xaxes(rangeslider_visible=False, fixedrange=False)
+            fig.update_yaxes(fixedrange=False)
+            fig.update_layout(
+                dragmode="pan",
+                hovermode="x unified",
+            )
+        except Exception:
+            pass
+
+        return fig

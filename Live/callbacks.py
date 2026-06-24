@@ -30,6 +30,11 @@ from services.strategy_overlay_service import StrategyOverlayService
 from services.bar_view_service import BarViewService
 from services.chart_viewport_service import ChartViewportService
 
+try:
+    from services.watch_chart_state import normalize_watch_chart_state_for_render
+except Exception:
+    normalize_watch_chart_state_for_render = None
+
 from renderers.watch_chart_renderer import WatchChartRenderer
 from renderers.strategy_overlay_renderer import StrategyOverlayRenderer
 
@@ -661,8 +666,48 @@ def register_callbacks(
         symbol = (load_request.get("symbol") or DEFAULT_SYMBOL).upper().strip()
         replay_date = load_request.get("replay_date")
         replay_end_date = load_request.get("replay_end_date") or replay_date
-        display_timeframe = load_request.get("timeframe") or "1 min"
+        try:
+            from services.replay.timeframe_routing import normalize_replay_timeframe
+            display_timeframe = normalize_replay_timeframe(load_request.get("timeframe") or "1 min")
+        except Exception:
+            display_timeframe = str(load_request.get("timeframe") or "1 min").strip() or "1 min"
         load_mode = load_request.get("load_mode") or "single"
+        try:
+            print(f"[WATCH LOAD REQUEST] symbol={symbol} timeframe={display_timeframe} load_mode={load_mode} start={replay_date} end={replay_end_date}", flush=True)
+        except Exception:
+            pass
+
+        # Patch 34: interactive replay range safety guard
+        if str(load_mode or "").lower().strip() == "range":
+            replay_range_decision = None
+            try:
+                from services.replay.range_safety import (
+                    format_replay_range_decision,
+                    validate_interactive_replay_range,
+                )
+
+                replay_range_decision = validate_interactive_replay_range(
+                    symbol=symbol,
+                    timeframe=display_timeframe,
+                    start_date=replay_date,
+                    end_date=replay_end_date,
+                    load_mode=load_mode,
+                )
+            except Exception as guard_exc:
+                print(f"[REPLAY RANGE GUARD ERROR] {guard_exc}", flush=True)
+                replay_range_decision = None
+
+            if replay_range_decision is not None:
+                print(f"[REPLAY RANGE GUARD] {replay_range_decision.message}", flush=True)
+
+            if replay_range_decision is not None and not replay_range_decision.allowed:
+                return (
+                    format_replay_range_decision(replay_range_decision),
+                    no_update,
+                    no_update,
+                    "watch-loading-overlay",
+                    render_trigger or 0,
+                )
 
         try:
             if load_mode == "range":
@@ -682,7 +727,7 @@ def register_callbacks(
                     symbol=symbol,
                     start_date=replay_date,
                     end_date=replay_end_date,
-                    timeframe="1 min",
+                    timeframe=display_timeframe,
                     speed=replay_speed or 1,
                 )
 
@@ -707,7 +752,7 @@ def register_callbacks(
             # The Watch Interval dropdown only resamples display data.
             status, info = replay_service.load_replay(
                 symbol=symbol,
-                timeframe="1 min",
+                timeframe=display_timeframe,
                 replay_date=replay_date,
                 speed=replay_speed or 1,
             )
@@ -2195,11 +2240,25 @@ def register_callbacks(
             except Exception as strategy_exc:
                 print(f"[STRATEGY OVERLAY ERROR] {strategy_exc}", flush=True)
 
+            watch_default_range = "1D"
+            if callable(normalize_watch_chart_state_for_render):
+                try:
+                    watch_chart_state, watch_default_range = normalize_watch_chart_state_for_render(
+                        watch_chart_state,
+                        chart_bars,
+                        display_timeframe=display_timeframe,
+                        price_source=price_source,
+                        trigger_id=trigger_id,
+                    )
+                except Exception as chart_state_exc:
+                    print(f"[WATCH CHART STATE NORMALIZE WARNING] {chart_state_exc}", flush=True)
+                    watch_default_range = "1D"
+
             fig = chart_viewport_service.apply_chart_view(
                 fig,
                 chart_bars,
                 watch_chart_state,
-                default_range="1D",
+                default_range=watch_default_range,
             )
 
             state = watch_chart_state or {}

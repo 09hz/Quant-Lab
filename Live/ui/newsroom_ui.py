@@ -103,7 +103,7 @@ def build_newsroom_tab(*args: Any, **kwargs: Any) -> Any:
                 className="newsroom-panel newsroom-brief-panel",
                 children=[
                     html.Div([html.Div("Research Brief", className="newsroom-panel-title"), html.Div([html.Button("Export JSON", id="newsroom-export-json", n_clicks=0, className="newsroom-btn"), html.Button("Export Markdown", id="newsroom-export-markdown", n_clicks=0, className="newsroom-btn"), html.Button("Send Brief to Strategy AI", id="newsroom-send-to-ai", n_clicks=0, className="newsroom-btn disabled", disabled=True)], className="newsroom-button-row")], className="newsroom-brief-header"),
-                    html.Div("Sending briefs to Strategy AI will be wired after this UI is stable. For now, export or copy the preview.", className="newsroom-help-text"),
+                    html.Div("Add selected results to the brief, then send the selected brief to Strategy AI as read-only advisory context.", className="newsroom-help-text"),
                     html.Pre(id="newsroom-brief-preview", className="newsroom-brief-preview"),
                 ],
             ),

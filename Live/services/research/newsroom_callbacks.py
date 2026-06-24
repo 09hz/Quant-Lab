@@ -168,6 +168,74 @@ def register_newsroom_callbacks(app: Any) -> None:
                 current.append(item)
         return current, _brief_markdown(current)
 
+
+    @app.callback(
+        Output("newsroom-send-to-ai", "disabled"),
+        Output("newsroom-send-to-ai", "className"),
+        Input("newsroom-brief-store", "data"),
+        prevent_initial_call=False,
+    )
+    def toggle_newsroom_send_to_ai_button(brief: list[dict[str, Any]]):
+        count = len(list(brief or []))
+        if count > 0:
+            return False, "newsroom-btn ai-ready"
+        return True, "newsroom-btn disabled"
+
+    @app.callback(
+        Output("strategy-ai-advisor-context", "value", allow_duplicate=True),
+        Output("strategy-ai-advisor-prompt", "value", allow_duplicate=True),
+        Output("newsroom-status", "children", allow_duplicate=True),
+        Input("newsroom-send-to-ai", "n_clicks"),
+        State("newsroom-brief-store", "data"),
+        State("strategy-ai-advisor-context", "value"),
+        State("strategy-ai-advisor-prompt", "value"),
+        prevent_initial_call=True,
+    )
+    def send_newsroom_brief_to_strategy_ai(
+        n_clicks: int,
+        brief: list[dict[str, Any]],
+        existing_context: str,
+        existing_prompt: str,
+    ):
+        from dash import no_update
+        from services.research.brief_ai_handoff import (
+            brief_to_strategy_ai_context,
+            default_newsroom_ai_prompt,
+        )
+
+        if not n_clicks:
+            return no_update, no_update, no_update
+
+        current = list(brief or [])
+        if not current:
+            return (
+                no_update,
+                no_update,
+                "No Newsroom brief items to send. Add selected results to the brief first.",
+            )
+
+        research_context = brief_to_strategy_ai_context(current)
+        existing = str(existing_context or "").strip()
+
+        if existing:
+            combined_context = existing + "\n\n---\n\n" + research_context
+        else:
+            combined_context = research_context
+
+        max_context_chars = 18000
+        if len(combined_context) > max_context_chars:
+            combined_context = (
+                combined_context[: max_context_chars - 120].rstrip()
+                + "\n\n...[truncated to keep Strategy AI context size safe]\n"
+            )
+
+        prompt = str(existing_prompt or "").strip() or default_newsroom_ai_prompt()
+        status = (
+            f"Sent {len(current)} Newsroom brief item(s) to Strategy AI attached context. "
+            "Open Watch -> Strategy Lab -> AI Advisor to review or ask."
+        )
+        return combined_context, prompt, status
+
     @app.callback(Output("newsroom-download-json", "data"), Input("newsroom-export-json", "n_clicks"), State("newsroom-brief-store", "data"), prevent_initial_call=True)
     def export_json(n_clicks: int, brief: list[dict[str, Any]]):
         payload = {"kind": "research_brief", "schema_version": "1.2", "generated_at": datetime.now().isoformat(timespec="seconds"), "items": brief or [], "notes": ["JSON is for structured reloads, audit trails, and future app-to-AI attachment.", "Markdown is usually better for direct manual upload to an AI chat."]}

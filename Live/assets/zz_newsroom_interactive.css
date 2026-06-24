@@ -77,3 +77,14 @@
     opacity: 0.75;
     margin-top: 0.35rem;
 }
+
+/* Patch 32 - Newsroom to Strategy AI handoff */
+.newsroom-btn.ai-ready {
+  border-color: rgba(56, 189, 248, 0.72);
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.16);
+}
+
+.newsroom-btn.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

@@ -27,3 +27,6 @@ except Exception:
     StrategyRuntimeContext = None
     build_strategy_runtime_context = None
     summarize_bars = None
+from .strategy_language_reference import build_strategy_language_context, detect_app_language_violations
+from services.ai.context_packet import prepare_strategy_ai_context, StrategyAIContextReport
+from .strategy_grammar_guard import build_strategy_grammar_reference, validate_strategy_lab_script
