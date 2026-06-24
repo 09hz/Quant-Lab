@@ -739,8 +739,8 @@ def register_callbacks(
                 return (
                     (
                         f"Loaded {symbol} replay range {replay_date} → {replay_end_date} · "
-                        f"{len(trading_days)} trading days · {len(stitched):,} raw 1-min bars · "
-                        f"display {display_timeframe}."
+                        f"{len(trading_days)} trading days · {len(stitched):,} loaded bars · "
+                        f"native {display_timeframe}."
                     ),
                     max_idx,
                     idx,
@@ -748,8 +748,7 @@ def register_callbacks(
                     render_trigger,
                 )
 
-            # Single-day replay loading also uses raw 1-minute bars.
-            # The Watch Interval dropdown only resamples display data.
+            # Single-day replay loading uses the selected native timeframe.
             status, info = replay_service.load_replay(
                 symbol=symbol,
                 timeframe=display_timeframe,
@@ -2284,9 +2283,9 @@ def register_callbacks(
                     paper_key = ""
 
             fig.update_layout(
-                uirevision=f"watch-{symbol}-{source_label}-{mode}-{range_key}",
+                uirevision=f"watch-{symbol}-{source_label}-{display_timeframe}-{mode}-{range_key}",
                 datarevision=(
-                    f"watch-{symbol}-{source_label}-{mode}-{range_key}-"
+                    f"watch-{symbol}-{source_label}-{display_timeframe}-{mode}-{range_key}-"
                     f"{idx}-{strategy_key}-{paper_key}-{int(is_replay_playing_for_render)}"
                 ),
                 dragmode="pan",

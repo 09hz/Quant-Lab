@@ -5,103 +5,178 @@ from typing import Any
 import pandas as pd
 
 
+_ALLOWED_RANGE_KEYS = {"1D", "1W", "1M", "3M", "1Y", "5Y", "MAX"}
+
 _TIMEFRAME_DEFAULT_RANGE = {
     "1 min": "1D",
     "5 min": "1W",
+    "5 mins": "1W",
     "15 min": "1M",
+    "15 mins": "1M",
     "30 min": "3M",
-    "1 hour": "3M",
-    "1 day": "1Y",
+    "30 mins": "3M",
+    "1 hour": "1D",
+    "1 day": "MAX",
 }
 
 
-_TIMEFRAME_MIN_RANGE = {
-    "1 min": {"1D", "1W", "1M", "3M", "1Y", "5Y", "MAX"},
-    "5 min": {"1W", "1M", "3M", "1Y", "5Y", "MAX"},
-    "15 min": {"1M", "3M", "1Y", "5Y", "MAX"},
-    "30 min": {"3M", "1Y", "5Y", "MAX"},
-    "1 hour": {"3M", "1Y", "5Y", "MAX"},
-    "1 day": {"1Y", "5Y", "MAX"},
-}
+def _normalize_timeframe(value: Any) -> str:
+    text = str(value or "1 min").strip().lower()
+    text = " ".join(text.replace("_", " ").split())
+
+    aliases = {
+        "1m": "1 min",
+        "1 min": "1 min",
+        "1 minute": "1 min",
+        "5m": "5 min",
+        "5 min": "5 min",
+        "5 mins": "5 min",
+        "5 minutes": "5 min",
+        "15m": "15 min",
+        "15 min": "15 min",
+        "15 mins": "15 min",
+        "15 minutes": "15 min",
+        "30m": "30 min",
+        "30 min": "30 min",
+        "30 mins": "30 min",
+        "30 minutes": "30 min",
+        "1h": "1 hour",
+        "1 hr": "1 hour",
+        "1 hour": "1 hour",
+        "60 min": "1 hour",
+        "1d": "1 day",
+        "1 day": "1 day",
+        "day": "1 day",
+        "daily": "1 day",
+    }
+
+    return aliases.get(text, text or "1 min")
 
 
-def default_range_for_timeframe(display_timeframe: str | None) -> str:
-    tf = str(display_timeframe or "1 min").strip()
-    return _TIMEFRAME_DEFAULT_RANGE.get(tf, "1D")
+def _safe_range_key(value: Any, default: str = "1D") -> str:
+    text = str(value or default).upper().strip()
+    if text in _ALLOWED_RANGE_KEYS:
+        return text
+    return default
 
 
-def _coerce_time(value: Any):
+def _clean_bars_for_time_bounds(chart_bars: Any) -> pd.DataFrame:
+    if chart_bars is None:
+        return pd.DataFrame(columns=["time"])
+
     try:
-        return pd.to_datetime(value, errors="coerce")
+        if getattr(chart_bars, "empty", True):
+            return pd.DataFrame(columns=["time"])
+
+        df = chart_bars.copy()
+        if "time" not in df.columns:
+            return pd.DataFrame(columns=["time"])
+
+        df["time"] = pd.to_datetime(df["time"], errors="coerce")
+        df = df.dropna(subset=["time"])
+        return df
     except Exception:
-        return pd.NaT
+        return pd.DataFrame(columns=["time"])
 
 
-def _manual_range_overlaps_bars(state: dict[str, Any], chart_bars: pd.DataFrame | None) -> bool:
-    if not isinstance(state, dict):
+def _manual_x_range_overlaps_bars(state: dict[str, Any], chart_bars: Any) -> bool:
+    x_range = state.get("x_range")
+    if not x_range or not isinstance(x_range, (list, tuple)) or len(x_range) < 2:
         return False
 
-    x_range = state.get("x_range")
-    if not x_range or len(x_range) != 2:
+    df = _clean_bars_for_time_bounds(chart_bars)
+    if df.empty:
         return True
 
-    if chart_bars is None or chart_bars.empty or "time" not in chart_bars.columns:
+    try:
+        x0 = pd.to_datetime(x_range[0], errors="coerce")
+        x1 = pd.to_datetime(x_range[1], errors="coerce")
+    except Exception:
         return False
 
-    start = _coerce_time(x_range[0])
-    end = _coerce_time(x_range[1])
-    if pd.isna(start) or pd.isna(end):
+    if pd.isna(x0) or pd.isna(x1):
         return False
 
-    times = pd.to_datetime(chart_bars["time"], errors="coerce").dropna()
-    if times.empty:
-        return False
+    if x1 < x0:
+        x0, x1 = x1, x0
 
-    bar_start = times.min()
-    bar_end = times.max()
-    return not (end < bar_start or start > bar_end)
+    min_time = df["time"].min()
+    max_time = df["time"].max()
+
+    if pd.isna(min_time) or pd.isna(max_time):
+        return True
+
+    return not (x1 < min_time or x0 > max_time)
+
+
+def _default_state_for_timeframe(display_timeframe: Any) -> dict[str, Any]:
+    timeframe = _normalize_timeframe(display_timeframe)
+    range_key = _TIMEFRAME_DEFAULT_RANGE.get(timeframe, "1D")
+    return {
+        "mode": "live",
+        "range_key": range_key,
+        "x_range": None,
+        "y_range": None,
+        "display_timeframe": timeframe,
+    }
 
 
 def normalize_watch_chart_state_for_render(
-    state: dict[str, Any] | None,
-    chart_bars: pd.DataFrame | None,
-    *,
-    display_timeframe: str | None,
-    price_source: str | None = None,
-    trigger_id: str | None = None,
-) -> tuple[dict[str, Any], str]:
+    chart_state: dict[str, Any] | None = None,
+    chart_bars: Any = None,
+    display_timeframe: Any = "1 min",
+    **_: Any,
+) -> dict[str, Any]:
     """
-    Normalize Watch chart viewport state before rendering.
+    Normalize Watch chart state before applying the viewport.
 
-    The Watch chart's stored range defaults to 1D. That is fine for 1-minute
-    replay but too narrow for 1-hour and 1-day replay ranges. It can make higher
-    timeframe candles look missing after double-click/autorange or after
-    switching from a 1-minute view.
-
-    This keeps manual zoom when it still overlaps the loaded bars, but resets
-    stale or too-narrow state for higher timeframe replay.
+    Goals:
+    - Do not carry stale 1-minute manual zoom into 1-hour or 1-day replay.
+    - Open 1-hour replay on the latest session / 1D style window.
+    - Open 1-day replay on the full loaded daily range so candles are visible.
+    - Preserve a valid manual zoom only when it overlaps the current loaded bars.
     """
-    tf = str(display_timeframe or "1 min").strip()
-    normalized = dict(state or {})
-    default_range = default_range_for_timeframe(tf)
 
-    if not normalized:
-        return {"mode": "live", "range_key": default_range, "x_range": None, "y_range": None}, default_range
+    if isinstance(chart_bars, str) and display_timeframe in (None, "1 min"):
+        display_timeframe = chart_bars
+        chart_bars = None
 
-    normalized.setdefault("mode", "live")
-    normalized.setdefault("range_key", default_range)
+    timeframe = _normalize_timeframe(display_timeframe)
+    default_state = _default_state_for_timeframe(timeframe)
 
-    if normalized.get("mode") == "manual" and not _manual_range_overlaps_bars(normalized, chart_bars):
-        normalized = {"mode": "live", "range_key": default_range, "x_range": None, "y_range": None}
-        return normalized, default_range
+    state = dict(chart_state or {})
+    if not state:
+        return default_state
 
-    if tf in {"15 min", "30 min", "1 hour", "1 day"}:
-        allowed = _TIMEFRAME_MIN_RANGE.get(tf, {"1D", "1W", "1M", "3M", "1Y", "5Y", "MAX"})
-        range_key = str(normalized.get("range_key") or default_range).upper()
-        if range_key not in allowed:
-            normalized["range_key"] = default_range
-            normalized["x_range"] = None
-            normalized["y_range"] = None
-            normalized["mode"] = "live"
+    mode = str(state.get("mode") or "live").lower().strip()
+    default_range = _TIMEFRAME_DEFAULT_RANGE.get(timeframe, "1D")
+    range_key = _safe_range_key(state.get("range_key"), default_range)
 
-    return normalized, default_range
+    if mode == "manual":
+        if _manual_x_range_overlaps_bars(state, chart_bars):
+            state["range_key"] = range_key
+            state["display_timeframe"] = timeframe
+            return state
+        return default_state
+
+    if timeframe == "1 day":
+        state["mode"] = "live"
+        state["range_key"] = "MAX"
+        state["x_range"] = None
+        state["y_range"] = None
+        state["display_timeframe"] = timeframe
+        return state
+
+    if timeframe == "1 hour":
+        state["mode"] = "live"
+        state["range_key"] = "1D"
+        state["x_range"] = None
+        state["y_range"] = None
+        state["display_timeframe"] = timeframe
+        return state
+
+    state["range_key"] = range_key
+    state["display_timeframe"] = timeframe
+    state.setdefault("x_range", None)
+    state.setdefault("y_range", None)
+    return state
