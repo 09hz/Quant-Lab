@@ -42,3 +42,8 @@ try:
 except Exception:
     build_fred_newsroom_items = None
     extend_results_with_fred = None
+# Patch 31b result hygiene helpers
+try:
+    from .result_hygiene import clean_newsroom_results, summarize_hygiene
+except Exception:  # pragma: no cover - optional package surface only
+    pass

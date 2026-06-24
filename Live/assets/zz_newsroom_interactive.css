@@ -60,3 +60,20 @@
 .newsroom-result-card .newsroom-result-kind {
   margin-top: 8px;
 }
+
+/* Patch 31b: Newsroom result hygiene labels */
+.newsroom-results-list .manual-search,
+.newsroom-result-card.manual-search {
+    opacity: 0.86;
+}
+
+.newsroom-results-list .hidden-broken,
+.newsroom-result-card.hidden-broken {
+    display: none;
+}
+
+.newsroom-hygiene-note {
+    font-size: 0.82rem;
+    opacity: 0.75;
+    margin-top: 0.35rem;
+}

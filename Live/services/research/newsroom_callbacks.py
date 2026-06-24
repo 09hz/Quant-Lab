@@ -1,5 +1,15 @@
 from __future__ import annotations
 
+try:
+    from services.research.result_hygiene import clean_newsroom_results, summarize_hygiene
+except Exception:  # pragma: no cover - keep Newsroom usable if optional helper is unavailable
+    def clean_newsroom_results(results):
+        return list(results or [])
+
+    def summarize_hygiene(results):
+        return ""
+
+
 import json
 from datetime import datetime
 from typing import Any
@@ -121,14 +131,19 @@ def register_newsroom_callbacks(app: Any) -> None:
     def fetch_research(n_clicks: int, topic: str, sources: list[str]):
         topic_clean = _topic_text(topic)
         results = _build_results(topic_clean, sources)
-        selectable = [item for item in results if item.get("selectable")]
-        skipped = [item for item in results if not item.get("selectable")]
+        results = clean_newsroom_results(results)
+        visible_results = [item for item in results if item.get("visible", True)]
+        selectable = [item for item in visible_results if item.get("selectable")]
+        skipped = [item for item in results if not item.get("visible", True) or not item.get("selectable")]
         options = [{"label": f"{item.get('source')} - {item.get('title')}", "value": item["id"]} for item in selectable]
-        status = f"Loaded {len(selectable)} relevant links"
-        if skipped:
+        status = f"Loaded {len(selectable)} high-quality result(s)"
+        hygiene_note = summarize_hygiene(results)
+        if hygiene_note:
+            status += f"; {hygiene_note}"
+        elif skipped:
             status += f"; skipped/flagged {len(skipped)} low-relevance source(s)"
         status += f" for: {topic_clean}"
-        return results, options, [], _render_result_cards(results), status
+        return results, options, [], _render_result_cards(visible_results), status
 
     @app.callback(
         Output("newsroom-brief-store", "data"),
