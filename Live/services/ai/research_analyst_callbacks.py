@@ -355,6 +355,8 @@ def _enhance_research_analyst_user_prompt(question: str, output_style: str = "co
 
     instructions = [
         "Answer using only the evidence packet plus approved supplemental Newsroom sources.",
+        "Treat FRED structured macro anchors as confirmed official data when present; treat search landing pages as discovery context only.",
+        "Use trend deltas (latest, prior, 1-period, 3-period, and 6-period changes) when provided before making sector or quarter claims.",
         "Treat FRED structured observations as confirmed official data when values are present.",
         "Treat generic search landing pages as source-discovery context only, not confirmed evidence.",
         "Label conclusions as confirmed, proxy-only, or missing depending on the evidence available.",
@@ -372,6 +374,8 @@ def _enhance_research_analyst_user_prompt(question: str, output_style: str = "co
         "7. Correlation/transmission path",
         "8. What could invalidate the view",
         "9. Sources used and remaining gaps",
+        "10. Quant research playbook (only when user asks how to trade, backtest, use this information, or build a strategy): regime label, tradable hypotheses, symbols to test, filters, invalidation rules, and backtest plan.",
+        "Never present the quant playbook as a live trade recommendation; it is research-only and must require backtesting/validation before use.",
         "Finish with a final read. Always end with a final read that says bullish, bearish, mixed, or insufficient evidence.",
         "For concise style, use short paragraphs instead of long bullet-only output.",
     ]
@@ -461,11 +465,37 @@ def register_research_analyst_callbacks(app) -> None:
                 max_items=12,
             )
 
+            macro_anchor_items: list[dict[str, Any]] = []
+            macro_anchor_coverage: dict[str, Any] = {}
+            macro_anchor_error = None
+            try:
+                from services.research.research_analyst_macro_anchors import build_macro_anchor_evidence
+
+                macro_anchor_items, macro_anchor_coverage, macro_anchor_error = build_macro_anchor_evidence(
+                    question=question,
+                    topic=str(topic or "").strip(),
+                    symbol=str(symbol or "").upper().strip(),
+                    selected_sources=selected_sources,
+                    max_items=28,
+                )
+            except Exception as exc:
+                macro_anchor_error = f"Macro anchor build failed: {exc}"
+
+
+            # Include mandatory macro anchors directly in the evidence packet.
+            #
+            # Earlier 36i builds macro_anchor_items but only stores their coverage
+            # metadata under packet["mandatory_macro_anchors"]. That status metadata
+            # is useful for the UI, but the LLM mainly sees packet["items"] via
+            # evidence_packet_to_markdown(...). Merge anchors first so CPI/PCE,
+            # FEDFUNDS, yields, market proxies, and manufacturing anchors are
+            # available as actual evidence, not just as hidden callback metadata.
             combined_payload = _merge_newsroom_payloads(
+                macro_anchor_items,
                 brief_items,
                 result_items,
                 supplemental_items,
-                max_items=28,
+                max_items=40,
             )
 
             packet = build_newsroom_evidence_packet(
@@ -473,8 +503,16 @@ def register_research_analyst_callbacks(app) -> None:
                 question=question,
                 symbol=str(symbol or "").upper().strip(),
                 topic=str(topic or "").strip(),
-                max_items=28,
+                max_items=40,
             )
+            packet["mandatory_macro_anchors"] = {
+                "enabled": True,
+                "item_count": len(macro_anchor_items),
+                "coverage": macro_anchor_coverage,
+                "error": macro_anchor_error,
+                "note": "Structured FRED macro anchors are loaded before search/discovery links for market-impact questions.",
+            }
+
             packet["supplemental_research"] = {
                 "enabled": True,
                 "query": supplemental_query,
@@ -482,6 +520,27 @@ def register_research_analyst_callbacks(app) -> None:
                 "error": supplemental_error,
                 "note": "Supplemental sources are pulled from approved Newsroom source builders when the brief may not cover the full question.",
             }
+
+            quant_playbook_error = None
+            try:
+                from services.ai.quant_research_playbook import build_quant_research_playbook
+
+                packet["quant_research_playbook"] = build_quant_research_playbook(
+                    question=question,
+                    evidence_items=packet.get("items", []),
+                    symbol=str(symbol or "").upper().strip(),
+                    topic=str(topic or "").strip(),
+                    max_hypotheses=5,
+                )
+            except Exception as exc:
+                quant_playbook_error = f"Quant playbook unavailable: {exc}"
+                packet["quant_research_playbook"] = {
+                    "enabled": False,
+                    "error": quant_playbook_error,
+                    "safeguards": [
+                        "Research-only output; no broker access or order placement.",
+                    ],
+                }
 
             item_count = int(packet.get("item_count", 0) or 0)
             if item_count <= 0:
@@ -500,12 +559,21 @@ def register_research_analyst_callbacks(app) -> None:
                 )
 
             context = evidence_packet_to_markdown(packet)
+            try:
+                from services.ai.quant_research_playbook import playbook_to_markdown
+
+                quant_playbook_md = playbook_to_markdown(packet.get("quant_research_playbook", {}))
+                if quant_playbook_md:
+                    context = context + "\n\n" + quant_playbook_md
+            except Exception:
+                pass
+
             prompt = ResearchAnalystService().build_prompt(
                 question=analysis_question,
                 raw_items=packet.get("items", []),
                 symbol=str(symbol or "").upper().strip(),
                 topic=str(topic or "").strip(),
-                max_items=16,
+                max_items=32,
                 output_style=output_style,
             )
 
@@ -522,16 +590,30 @@ def register_research_analyst_callbacks(app) -> None:
                 max_output=max_output_int,
             )
 
+            macro_anchor_note = ""
+            if macro_anchor_items:
+                macro_anchor_note = f" Added {len(macro_anchor_items)} structured macro anchor item(s)."
+            if macro_anchor_error:
+                macro_anchor_note += f" Macro anchor warning: {macro_anchor_error}"
+
             supplemental_note = ""
             if supplemental_items:
                 supplemental_note = f" Added {len(supplemental_items)} supplemental Newsroom source candidate(s)."
             if supplemental_error:
                 supplemental_note += f" Supplemental source warning: {supplemental_error}"
 
+            quant_playbook_note = ""
+            if packet.get("quant_research_playbook", {}).get("enabled"):
+                quant_playbook_note = " Added quant research playbook."
+            if quant_playbook_error:
+                quant_playbook_note += f" Quant playbook warning: {quant_playbook_error}"
+
             status = (
                 f"Answered from {item_count} evidence item(s). "
                 "Current facts are limited to the Newsroom evidence packet."
+                + macro_anchor_note
                 + supplemental_note
+                + quant_playbook_note
             )
 
             return (
