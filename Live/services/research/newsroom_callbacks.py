@@ -10,6 +10,7 @@ except Exception:  # pragma: no cover - keep Newsroom usable if optional helper 
         return ""
 
 
+import hashlib
 import json
 from datetime import datetime
 from typing import Any
@@ -90,27 +91,18 @@ def _is_warning_result(item: dict[str, Any]) -> bool:
 
 
 def _is_brief_addable_result(item: dict[str, Any]) -> bool:
-    # Allow users to add lower-confidence/context sources to a brief as long as
-    # the item is visible and has a usable link. Hard errors/warnings remain
-    # excluded. This keeps low-confidence sources available, but labeled.
-    if not isinstance(item, dict):
-        return False
-    if not item.get("visible", True):
-        return False
-    if _is_warning_result(item):
-        return False
-    if item.get("selectable", False):
-        return True
-    return bool(str(item.get("url", "") or "").strip())
-
+    # User-controlled brief mode:
+    # every visible Newsroom row can be added to the brief. Low-confidence,
+    # search/context, warning, or duplicate-looking rows are not blocked here;
+    # they are labeled in the brief so the user can decide how to use them.
+    return isinstance(item, dict) and bool(item.get("visible", True))
 
 def _brief_selectable_label(item: dict[str, Any]) -> str:
-    if not _is_brief_addable_result(item):
-        return "Not addable to brief"
-    if item.get("selectable", False) and not _confidence_is_low(item):
+    if not isinstance(item, dict) or not item.get("visible", True):
+        return "Hidden / not shown"
+    if item.get("selectable", False) and not _confidence_is_low(item) and not _is_warning_result(item):
         return "Selectable for brief"
-    return "Can add to brief with caution"
-
+    return "Selectable for brief with caution"
 
 def _brief_option_label(item: dict[str, Any]) -> str:
     source = str(item.get("source", "Source") or "Source")
@@ -120,6 +112,177 @@ def _brief_option_label(item: dict[str, Any]) -> str:
     if not item.get("selectable", False) or _confidence_is_low(item):
         prefix = "[context / lower-confidence] "
     return f"{prefix}{source} - {title} ({confidence})"
+
+
+def _brief_item_key(item: dict[str, Any]) -> str:
+    if not isinstance(item, dict):
+        return ""
+    for field in ("id", "url", "title"):
+        value = str(item.get(field, "") or "").strip().lower()
+        if value:
+            return f"{field}:{value}"
+    return ""
+
+
+def _merge_brief_items(
+    existing_items: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None,
+    new_items: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None,
+    *,
+    max_items: int = 80,
+) -> list[dict[str, Any]]:
+    # Append selected Newsroom items without clearing the existing brief stack.
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for source_items in (existing_items or [], new_items or []):
+        for item in source_items:
+            if not isinstance(item, dict):
+                continue
+            key = _brief_item_key(item)
+            if key and key in seen:
+                continue
+            if key:
+                seen.add(key)
+            merged.append(item)
+            if len(merged) >= max_items:
+                return merged
+
+    return merged
+
+def _normalize_brief_key_part(value: Any, *, max_len: int = 500) -> str:
+    text = " ".join(str(value or "").strip().lower().split())
+    if len(text) > max_len:
+        text = text[:max_len].rstrip()
+    return text
+
+
+def _stable_brief_key(item: dict[str, Any]) -> str:
+    # Return a stable key for deduping actual brief items across searches.
+    if not isinstance(item, dict):
+        return ""
+
+    existing = _normalize_brief_key_part(item.get("brief_dedupe_key"), max_len=900)
+    if existing:
+        return existing
+
+    url = _normalize_brief_key_part(item.get("url"), max_len=900)
+    if url:
+        return f"url:{url}"
+
+    source = _normalize_brief_key_part(item.get("source"), max_len=120)
+    title = _normalize_brief_key_part(item.get("title"), max_len=240)
+    kind = _normalize_brief_key_part(item.get("kind"), max_len=80)
+    summary = _normalize_brief_key_part(item.get("summary"), max_len=240)
+    raw_id = _normalize_brief_key_part(item.get("id"), max_len=180)
+
+    key_parts = [part for part in (source, title, kind, summary, raw_id) if part]
+    return "meta:" + "|".join(key_parts) if key_parts else ""
+
+
+def _assign_brief_selection_ids(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    # Give each visible checklist row a unique selection id.
+    #
+    # The selection id is row-unique so Dash checklist values do not collapse
+    # when several results reuse the same source id. The brief_dedupe_key remains
+    # stable so exact duplicate URLs/sources are still deduped in the brief.
+    out: list[dict[str, Any]] = []
+    for idx, item in enumerate(results or []):
+        if not isinstance(item, dict):
+            continue
+
+        row = dict(item)
+        stable_key = _stable_brief_key(row) or f"row:{idx}:{row.get('id', '')}:{row.get('title', '')}"
+        digest = hashlib.sha1(f"{idx}|{stable_key}|{row.get('source', '')}|{row.get('title', '')}".encode("utf-8", "ignore")).hexdigest()[:14]
+        row["brief_dedupe_key"] = stable_key
+        row["brief_selection_id"] = f"brief-row-{idx}-{digest}"
+        out.append(row)
+
+    return out
+
+
+def _selected_values_to_set(selected_ids: Any) -> set[str]:
+    if selected_ids is None:
+        return set()
+    if isinstance(selected_ids, str):
+        return {selected_ids}
+    try:
+        return {str(item) for item in selected_ids if str(item).strip()}
+    except Exception:
+        return {str(selected_ids)}
+
+
+def _dedupe_brief_items(brief: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    # Preserve brief order while removing true duplicate source entries.
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    for item in brief or []:
+        if not isinstance(item, dict):
+            continue
+
+        row = dict(item)
+        key = _stable_brief_key(row)
+        if not key:
+            key = f"fallback:{len(deduped)}:{row.get('id', '')}:{row.get('title', '')}"
+
+        if key in seen:
+            continue
+
+        row["brief_dedupe_key"] = key
+        seen.add(key)
+        deduped.append(row)
+
+    return deduped
+
+
+def _brief_stable_key(item: dict[str, Any]) -> str:
+    # Return a stable dedupe key for a research brief item.
+    if not isinstance(item, dict):
+        return ""
+
+    url = str(item.get("url", "") or "").strip().lower()
+    if url:
+        return "url:" + url
+
+    source = str(item.get("source", "") or "").strip().lower()
+    title = str(item.get("title", "") or "").strip().lower()
+    kind = str(item.get("kind", "") or "").strip().lower()
+    raw_id = str(item.get("id", "") or "").strip().lower()
+    return "meta:" + "|".join(part for part in (source, title, kind, raw_id) if part)
+
+
+def _brief_row_selection_id(item: dict[str, Any], index: int) -> str:
+    # Return a unique checklist value for a visible result row.
+    key = _brief_stable_key(item) or str(item.get("id", "") or "row")
+    import hashlib
+
+    digest = hashlib.sha1(key.encode("utf-8", errors="ignore")).hexdigest()[:12]
+    return f"brief-row-{index + 1}-{digest}"
+
+
+def _assign_brief_selection_ids(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    # Copy result rows and attach unique checklist ids plus stable dedupe keys.
+    assigned: list[dict[str, Any]] = []
+    for index, item in enumerate(results or []):
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        row["brief_dedupe_key"] = _brief_stable_key(row)
+        row["brief_selection_id"] = _brief_row_selection_id(row, index)
+        assigned.append(row)
+    return assigned
+
+
+def _brief_selection_matches(item: dict[str, Any], selected: set[str]) -> bool:
+    # Match either the new unique row id or old raw id for backward compatibility.
+    if not isinstance(item, dict):
+        return False
+    candidates = {
+        str(item.get("brief_selection_id", "") or ""),
+        str(item.get("id", "") or ""),
+        str(item.get("brief_dedupe_key", "") or ""),
+    }
+    return any(candidate and candidate in selected for candidate in candidates)
 
 def _render_result_cards(results: list[dict[str, Any]]) -> list[Any]:
     if not results:
@@ -145,6 +308,39 @@ def _render_result_cards(results: list[dict[str, Any]]) -> list[Any]:
         ))
     return cards
 
+def _clean_brief_key_part(value: Any, *, limit: int = 300) -> str:
+    text = " ".join(str(value or "").strip().lower().split())
+    if len(text) > limit:
+        text = text[:limit]
+    return text
+
+def _brief_dedupe_key(item: dict[str, Any]) -> str:
+    """Return a conservative exact-source key for Research Brief entries.
+
+    Important UX rule:
+    - Do NOT collapse different visible rows just because they share the same URL.
+      FRED often shows both a live data card and an official series/context card
+      for the same series URL. Users may intentionally add both.
+    - Only treat rows as duplicates when their source, type, title, URL, and
+      summary are effectively the same.
+    """
+    if not isinstance(item, dict):
+        return ""
+
+    source = _clean_brief_key_part(item.get("source"))
+    kind = _clean_brief_key_part(item.get("kind") or item.get("type"))
+    title = _clean_brief_key_part(item.get("title"), limit=220)
+    url = _clean_brief_key_part(item.get("url"), limit=500)
+    summary = _clean_brief_key_part(item.get("summary"), limit=500)
+
+    raw = "|".join(part for part in (source, kind, title, url, summary) if part)
+    if raw:
+        return raw
+
+    # Last-resort fallback. This is intentionally after the content fields so
+    # row IDs do not accidentally block distinct source cards.
+    return _clean_brief_key_part(item.get("brief_selection_id") or item.get("id"), limit=240)
+
 def _brief_markdown(brief: list[dict[str, Any]]) -> str:
     lines = ["# Research Brief", "", f"Generated: {datetime.now().isoformat(timespec='seconds')}", "", "## Selected Research Links", ""]
     if not brief:
@@ -163,6 +359,60 @@ def _brief_markdown(brief: list[dict[str, Any]]) -> str:
     lines += ["## AI Use Notes", "", "Use this brief as user-selected research context only.", "These entries may be direct official pages, search links, or data pages.", "Separate facts from assumptions.", "Do not infer broker/account data from this brief."]
     return "\n".join(lines)
 
+def _brief_stable_key(item: dict[str, Any]) -> str:
+    # Stable dedupe key for a Newsroom brief item. Prefer URL, then source/title/summary.
+    if not isinstance(item, dict):
+        return ""
+    url = str(item.get("url") or "").strip().lower()
+    if url:
+        return "url:" + url
+    source = str(item.get("source") or "").strip().lower()
+    title = str(item.get("title") or "").strip().lower()
+    summary = str(item.get("summary") or "").strip().lower()[:160]
+    raw_id = str(item.get("id") or "").strip().lower()
+    return "row:" + "|".join(part for part in (source, title, summary, raw_id) if part)
+
+
+def _ensure_newsroom_brief_row_ids(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    # Give every visible row a unique selection id and stable dedupe key.
+    prepared: list[dict[str, Any]] = []
+    seen_row_ids: set[str] = set()
+    for idx, item in enumerate(results or [], start=1):
+        if not isinstance(item, dict):
+            continue
+        row = dict(item)
+        stable_key = _brief_stable_key(row) or f"fallback:{idx}"
+        base = str(row.get("id") or stable_key or f"row-{idx}").strip()
+        selection_id = f"brief-row-{idx}-{abs(hash((base, stable_key, idx))) % 1000000000}"
+        while selection_id in seen_row_ids:
+            idx += 1
+            selection_id = f"brief-row-{idx}-{abs(hash((base, stable_key, idx))) % 1000000000}"
+        seen_row_ids.add(selection_id)
+        row["brief_selection_id"] = selection_id
+        row["brief_dedupe_key"] = stable_key
+        row["selectable"] = True
+        row["used_for_ai"] = True
+        if not row.get("confidence"):
+            row["confidence"] = "user-selected"
+        if not row.get("validity"):
+            row["validity"] = "user-selected"
+        prepared.append(row)
+    return prepared
+
+
+def _brief_option_value(item: dict[str, Any]) -> str:
+    return str(item.get("brief_selection_id") or item.get("id") or _brief_stable_key(item))
+
+
+def _brief_match_selected(item: dict[str, Any], selected: set[str]) -> bool:
+    candidates = {
+        str(item.get("brief_selection_id") or ""),
+        str(item.get("id") or ""),
+        str(item.get("brief_dedupe_key") or ""),
+        _brief_stable_key(item),
+    }
+    return any(candidate and candidate in selected for candidate in candidates)
+
 def register_newsroom_callbacks(app: Any) -> None:
     @app.callback(
         Output("newsroom-results-store", "data"),
@@ -179,26 +429,34 @@ def register_newsroom_callbacks(app: Any) -> None:
         topic_clean = _topic_text(topic)
         results = _build_results(topic_clean, sources)
         results = clean_newsroom_results(results)
-        visible_results = [item for item in results if item.get("visible", True)]
-        strict_selectable = [item for item in visible_results if item.get("selectable") and not _confidence_is_low(item)]
-        addable_results = [item for item in visible_results if _is_brief_addable_result(item)]
-        context_addable = [item for item in addable_results if item not in strict_selectable]
-        skipped = [item for item in results if not item.get("visible", True) or not _is_brief_addable_result(item)]
+
+        # User-controlled selection mode:
+        # every visible row gets a unique selection id and appears in the checklist.
+        # The raw source id/url/title are preserved on the row, but they no longer
+        # control whether the user is allowed to add the row.
+        visible_results: list[dict[str, Any]] = []
+        for idx, raw_item in enumerate(results or [], start=1):
+            if not isinstance(raw_item, dict):
+                continue
+            if not raw_item.get("visible", True):
+                continue
+            item = dict(raw_item)
+            raw_id = str(item.get("id") or item.get("url") or item.get("title") or "result").strip()
+            item["brief_selection_id"] = f"visible-row-{idx}-{raw_id}"
+            item["selectable"] = True
+            item["user_addable"] = True
+            visible_results.append(item)
+
         options = [
-            {"label": _brief_option_label(item), "value": item["id"]}
-            for item in addable_results
-            if item.get("id")
+            {"label": _brief_option_label(item), "value": item["brief_selection_id"]}
+            for item in visible_results
         ]
-        status = f"Loaded {len(strict_selectable)} high-quality result(s)"
-        if context_addable:
-            status += f"; {len(context_addable)} context/lower-confidence result(s) available to add with caution"
-        hygiene_note = summarize_hygiene(results)
-        if hygiene_note:
-            status += f"; {hygiene_note}"
-        elif skipped:
-            status += f"; skipped/flagged {len(skipped)} non-addable source(s)"
-        status += f" for: {topic_clean}"
-        return results, options, [], _render_result_cards(visible_results), status
+
+        status = (
+            f"Loaded {len(visible_results)} visible result(s) for: {topic_clean}. "
+            "All visible rows are user-selectable; lower-confidence/context rows remain labeled with caution."
+        )
+        return visible_results, options, [], _render_result_cards(visible_results), status
 
     @app.callback(
         Output("newsroom-brief-store", "data"),
@@ -212,17 +470,59 @@ def register_newsroom_callbacks(app: Any) -> None:
     )
     def update_brief(add_clicks: int, clear_clicks: int, selected_ids: list[str], results: list[dict[str, Any]], brief: list[dict[str, Any]]):
         from dash import callback_context
+
         triggered = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else ""
         if triggered == "newsroom-clear-brief":
             return [], _brief_markdown([])
-        current = list(brief or [])
-        selected = set(selected_ids or [])
-        existing = {item.get("id") for item in current}
-        for item in results or []:
-            if item.get("id") in selected and item.get("id") not in existing and _is_brief_addable_result(item):
-                current.append(item)
-        return current, _brief_markdown(current)
 
+        current = list(brief or [])
+        selected = {str(value) for value in (selected_ids or []) if str(value).strip()}
+
+        added_count = 0
+        matched_count = 0
+        unmatched_values = set(selected)
+        generated_at = datetime.now().isoformat(timespec="seconds")
+
+        for idx, raw_item in enumerate(results or [], start=1):
+            if not isinstance(raw_item, dict):
+                continue
+
+            row_id = str(raw_item.get("brief_selection_id") or "").strip()
+            raw_id = str(raw_item.get("id") or "").strip()
+            url = str(raw_item.get("url") or "").strip()
+            title = str(raw_item.get("title") or "").strip()
+            candidate_values = {value for value in (row_id, raw_id, url, title) if value}
+
+            if not selected.intersection(candidate_values):
+                continue
+
+            matched_count += 1
+            unmatched_values.difference_update(candidate_values)
+
+            # No rail-guard dedupe here. If the user selected a visible row,
+            # add that visible row. Exact repeats are allowed because the user
+            # may intentionally compare a data card, a source page, and a search card
+            # that share the same URL or topic.
+            item = dict(raw_item)
+            item["brief_user_selected"] = True
+            item["brief_added_at"] = generated_at
+            item["brief_added_sequence"] = len(current) + 1
+            item["brief_selection_id"] = row_id or f"manual-row-{idx}-{len(current) + 1}"
+            current.append(item)
+            added_count += 1
+
+        preview = _brief_markdown(current)
+        preview += (
+            "\n\n## Last Add Action"
+            f"\n- Selected rows: {len(selected)}"
+            f"\n- Matched visible rows: {matched_count}"
+            f"\n- Added: {added_count}"
+            "\n- Skipped duplicates: 0"
+            f"\n- Unmatched selections: {len(unmatched_values)}"
+            f"\n- Brief total: {len(current)}"
+            "\n- Mode: user-controlled add-all; every matched visible row is appended."
+        )
+        return current, preview
 
     @app.callback(
         Output("newsroom-send-to-ai", "disabled"),

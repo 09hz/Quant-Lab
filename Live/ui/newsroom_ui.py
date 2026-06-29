@@ -62,8 +62,8 @@ def build_newsroom_tab(*args: Any, **kwargs: Any) -> Any:
     return html.Div(
         className="newsroom-page",
         children=[
-            dcc.Store(id="newsroom-results-store", data=[]),
-            dcc.Store(id="newsroom-brief-store", data=[]),
+            dcc.Store(id="newsroom-results-store", data=[], storage_type="session"),
+            dcc.Store(id="newsroom-brief-store", data=[], storage_type="session"),
             dcc.Download(id="newsroom-download-json"),
             dcc.Download(id="newsroom-download-markdown"),
             html.Div(
