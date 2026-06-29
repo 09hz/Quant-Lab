@@ -243,11 +243,10 @@ def _build_supplemental_research_sources(
     selected_sources: list[str] | tuple[str, ...] | None,
     max_items: int = 12,
 ) -> tuple[list[dict[str, Any]], str, str | None]:
-    # Build extra source candidates through the approved Newsroom source pipeline.
+    # Build extra source candidates through approved Newsroom/FRED pipelines.
     #
-    # This is intentionally not unrestricted browsing. It uses the same Newsroom
-    # source builders/search-link generators already exposed in the app, then the
-    # Research Analyst must label them as supplemental evidence.
+    # Structured official data is inserted first. Generic search landing pages
+    # are kept as source-discovery context only.
     question_clean = _clean_text(question, max_len=500)
     topic_clean = _clean_text(topic, max_len=240)
     symbol_clean = _clean_text(symbol, max_len=32).upper()
@@ -256,7 +255,7 @@ def _build_supplemental_research_sources(
         symbol_clean,
         topic_clean,
         question_clean,
-        "market impact sector impact tech manufacturing current quarter earnings guidance macro rates inflation PMI industrial production",
+        "market impact sector impact tech manufacturing current quarter earnings guidance macro rates inflation PMI industrial production financial conditions volatility yields",
     ]
     query = " ".join(part for part in query_parts if part).strip()
     query = _clean_text(query, max_len=900)
@@ -265,15 +264,45 @@ def _build_supplemental_research_sources(
     if not sources:
         sources = ["fred", "sec", "bls", "bea", "fed", "news"]
 
+    supplemental: list[dict[str, Any]] = []
+    errors: list[str] = []
+
+    # 1) Structured official gap-fill first.
+    try:
+        from services.research.research_analyst_gap_fill import build_structured_gap_fill_items
+
+        structured_items, scope_plan, structured_error = build_structured_gap_fill_items(
+            question=question_clean,
+            topic=topic_clean,
+            symbol=symbol_clean,
+            selected_sources=sources,
+            max_items=max(8, min(18, max_items + 6)),
+            fetch_live=True,
+        )
+        for item in structured_items:
+            if isinstance(item, dict):
+                metadata = dict(item.get("metadata") or {})
+                metadata["research_analyst_scope_plan"] = {
+                    "scopes": scope_plan.get("scopes", []),
+                    "evidence_labels": scope_plan.get("evidence_labels", []),
+                }
+                item["metadata"] = metadata
+                supplemental.append(item)
+        if structured_error:
+            errors.append(f"Structured gap-fill warning: {structured_error}")
+    except Exception as exc:
+        errors.append(f"Structured gap-fill unavailable: {exc}")
+
+    # 2) Search/discovery links second.
     try:
         from services.research.newsroom_callbacks import _build_results
     except Exception as exc:
-        return [], query, f"Newsroom source builder unavailable: {exc}"
+        return supplemental[:max_items], query, "; ".join(errors + [f"Newsroom source builder unavailable: {exc}"])
 
     try:
         raw_results = _build_results(query, sources)
     except Exception as exc:
-        return [], query, f"Supplemental source build failed: {exc}"
+        return supplemental[:max_items], query, "; ".join(errors + [f"Supplemental source build failed: {exc}"])
 
     try:
         from services.research.result_hygiene import clean_newsroom_results
@@ -282,40 +311,38 @@ def _build_supplemental_research_sources(
     except Exception:
         pass
 
-    supplemental: list[dict[str, Any]] = []
     for index, raw in enumerate(raw_results or [], start=1):
         if not isinstance(raw, dict):
             continue
 
         item = dict(raw)
         item["id"] = f"research-analyst-supplemental-{index}-{item.get('id', index)}"
-        item["source_role"] = "supplemental-gap-fill"
+        item["source_role"] = item.get("source_role") or "source-discovery"
         item["used_for_ai"] = True
         item["selectable"] = True
 
         metadata = dict(item.get("metadata") or {})
         metadata["research_analyst_supplemental"] = True
         metadata["supplemental_query"] = query
+        metadata["source_discovery_only"] = True
         item["metadata"] = metadata
 
         summary = _clean_text(item.get("summary"), max_len=900)
-        if summary:
-            item["summary"] = (
-                "Supplemental source candidate for missing market/sector context. "
-                + summary
-            )
-        else:
-            item["summary"] = (
-                "Supplemental source candidate returned by the approved Newsroom "
-                "source pipeline for this Research Analyst question."
-            )
+        discovery_note = (
+            "Source-discovery candidate only. Use this to identify where to look next; "
+            "do not treat a search landing page as confirmed market evidence. "
+        )
+        item["summary"] = discovery_note + summary if summary else discovery_note
+        if not item.get("confidence"):
+            item["confidence"] = "low"
+        if not item.get("validity"):
+            item["validity"] = "source-discovery"
 
         supplemental.append(item)
         if len(supplemental) >= max_items:
             break
 
-    return supplemental, query, None
-
+    return supplemental[:max_items], query, "; ".join(errors) if errors else None
 
 def _enhance_research_analyst_user_prompt(question: str, output_style: str = "concise", supplemental_count: int = 0) -> str:
     """Build a non-recursive Research Analyst question with market-impact guardrails."""
@@ -328,6 +355,9 @@ def _enhance_research_analyst_user_prompt(question: str, output_style: str = "co
 
     instructions = [
         "Answer using only the evidence packet plus approved supplemental Newsroom sources.",
+        "Treat FRED structured observations as confirmed official data when values are present.",
+        "Treat generic search landing pages as source-discovery context only, not confirmed evidence.",
+        "Label conclusions as confirmed, proxy-only, or missing depending on the evidence available.",
         "Do not invent current facts, article contents, prices, earnings, or sector data that are not in the evidence.",
         "Do not assign a number, level, or month-over-month change to a series unless that exact value belongs to that same named series in the evidence packet.",
         "Keep CPI, core CPI, PCE, core PCE, FEDFUNDS, yields, earnings, and sector data separate.",
