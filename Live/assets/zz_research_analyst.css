@@ -1,0 +1,117 @@
+.research-analyst-panel {
+  border: 1px solid rgba(120, 180, 255, 0.25);
+  background: rgba(7, 17, 45, 0.72);
+  border-radius: 14px;
+  padding: 14px;
+  margin-top: 14px;
+  margin-bottom: 14px;
+}
+
+.research-analyst-title {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: #e8f1ff;
+  margin-bottom: 4px;
+}
+
+.research-analyst-subtitle,
+.research-analyst-muted {
+  color: rgba(232, 241, 255, 0.72);
+  font-size: 0.88rem;
+}
+
+.research-analyst-question {
+  width: 100%;
+  min-height: 82px;
+  margin-top: 10px;
+  background: rgba(3, 9, 25, 0.88);
+  color: #e8f1ff;
+  border: 1px solid rgba(120, 180, 255, 0.25);
+  border-radius: 10px;
+  padding: 10px;
+  resize: vertical;
+}
+
+.research-analyst-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+  margin-top: 10px;
+}
+
+.research-analyst-control {
+  min-width: 180px;
+}
+
+.research-analyst-label {
+  display: block;
+  color: rgba(232, 241, 255, 0.74);
+  font-size: 0.78rem;
+  margin-bottom: 4px;
+}
+
+.research-analyst-number {
+  width: 120px;
+  background: rgba(3, 9, 25, 0.88);
+  color: #e8f1ff;
+  border: 1px solid rgba(120, 180, 255, 0.25);
+  border-radius: 8px;
+  padding: 8px;
+}
+
+.research-analyst-status {
+  color: rgba(232, 241, 255, 0.75);
+  font-size: 0.84rem;
+  margin-top: 10px;
+}
+
+.research-analyst-response {
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.20);
+  color: #e8f1ff;
+}
+
+.research-analyst-markdown p {
+  margin-bottom: 0.6rem;
+}
+
+.research-analyst-sources {
+  margin-top: 10px;
+}
+
+.research-analyst-source-title {
+  font-weight: 700;
+  color: #e8f1ff;
+  margin-bottom: 6px;
+}
+
+.research-analyst-source-row {
+  padding: 7px 0;
+  border-top: 1px solid rgba(232, 241, 255, 0.08);
+}
+
+.research-analyst-source-row a {
+  color: #9cc7ff;
+}
+
+.research-analyst-source-meta {
+  color: rgba(232, 241, 255, 0.62);
+  font-size: 0.78rem;
+  margin-top: 2px;
+}
+
+.research-analyst-warning {
+  color: #ffd88a;
+  font-weight: 700;
+}
+
+.research-analyst-error-pre {
+  white-space: pre-wrap;
+  color: #ffb3b3;
+  background: rgba(0, 0, 0, 0.25);
+  padding: 8px;
+  border-radius: 8px;
+}

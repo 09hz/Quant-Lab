@@ -322,6 +322,17 @@ except Exception as exc:
 # =============================================================================
 # End Watch live/replay mode guard callback registration
 # =============================================================================
+# Patch 36c: Newsroom Research Analyst callbacks.
+try:
+    from services.ai.research_analyst_callbacks import register_research_analyst_callbacks
+
+    register_research_analyst_callbacks(app)
+except Exception as research_analyst_callbacks_exc:
+    print(
+        f"[RESEARCH ANALYST CALLBACKS WARNING] {research_analyst_callbacks_exc}",
+        flush=True,
+    )
+
 
 if __name__ == "__main__":
     app.run(debug=False)

@@ -104,6 +104,70 @@ def build_newsroom_tab(*args: Any, **kwargs: Any) -> Any:
                 children=[
                     html.Div([html.Div("Research Brief", className="newsroom-panel-title"), html.Div([html.Button("Export JSON", id="newsroom-export-json", n_clicks=0, className="newsroom-btn"), html.Button("Export Markdown", id="newsroom-export-markdown", n_clicks=0, className="newsroom-btn"), html.Button("Send Brief to Strategy AI", id="newsroom-send-to-ai", n_clicks=0, className="newsroom-btn disabled", disabled=True)], className="newsroom-button-row")], className="newsroom-brief-header"),
                     html.Div("Add selected results to the brief, then send the selected brief to Strategy AI as read-only advisory context.", className="newsroom-help-text"),
+                    html.Div(
+                        id="research-analyst-panel",
+                        className="research-analyst-panel",
+                        children=[
+                            html.Div("AI Research Analyst", className="research-analyst-title"),
+                            html.Div(
+                                "Ask questions about the current Newsroom brief. Answers are grounded in the evidence packet and source links.",
+                                className="research-analyst-subtitle",
+                            ),
+                            dcc.Textarea(
+                                id="research-analyst-question",
+                                value="",
+                                placeholder="Example: What are the most important highlights, and how valid is this information?",
+                                className="research-analyst-question",
+                            ),
+                            html.Div(
+                                className="research-analyst-controls",
+                                children=[
+                                    html.Div(
+                                        className="research-analyst-control",
+                                        children=[
+                                            html.Label("Output style", className="research-analyst-label"),
+                                            dcc.Dropdown(
+                                                id="research-analyst-style",
+                                                options=[
+                                                    {"label": "Concise", "value": "concise"},
+                                                    {"label": "Detailed", "value": "detailed"},
+                                                    {"label": "Bullet brief", "value": "bullet_brief"},
+                                                    {"label": "Validity check", "value": "validity_check"},
+                                                ],
+                                                value="concise",
+                                                clearable=False,
+                                            ),
+                                        ],
+                                    ),
+                                    html.Div(
+                                        className="research-analyst-control",
+                                        children=[
+                                            html.Label("Max output", className="research-analyst-label"),
+                                            dcc.Input(
+                                                id="research-analyst-max-output",
+                                                type="number",
+                                                min=300,
+                                                max=4000,
+                                                step=100,
+                                                value=1200,
+                                                className="research-analyst-number",
+                                            ),
+                                        ],
+                                    ),
+                                    html.Button(
+                                        "Ask Research Analyst",
+                                        id="research-analyst-ask",
+                                        n_clicks=0,
+                                        className="primary-button",
+                                    ),
+                                ],
+                            ),
+                            html.Div(id="research-analyst-status", className="research-analyst-status"),
+                            html.Div(id="research-analyst-response", className="research-analyst-response"),
+                            html.Div(id="research-analyst-sources", className="research-analyst-sources"),
+                        ],
+                    ),
+
                     html.Pre(id="newsroom-brief-preview", className="newsroom-brief-preview"),
                 ],
             ),
