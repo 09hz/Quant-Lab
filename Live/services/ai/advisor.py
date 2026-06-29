@@ -91,6 +91,7 @@ class AIAdvisorService:
         system_prompt: str = DEFAULT_SYSTEM_PROMPT,
         max_output_tokens: int | None = None,
         temperature: float = 0.2,
+        max_context_chars: int | None = None,
     ) -> AIAdvisorResult:
         created_at = datetime.now().isoformat(timespec="seconds")
         policy = get_ai_safety_policy()
@@ -122,8 +123,15 @@ class AIAdvisorService:
                 metadata={"decision": _decision_to_dict(decision)},
             )
 
-        if self.max_context_chars > 0 and len(cleaned_context) > self.max_context_chars:
-            cleaned_context = cleaned_context[-self.max_context_chars :]
+        effective_max_context_chars = self.max_context_chars
+        if max_context_chars is not None:
+            try:
+                effective_max_context_chars = int(max_context_chars)
+            except Exception:
+                effective_max_context_chars = self.max_context_chars
+
+        if effective_max_context_chars > 0 and len(cleaned_context) > effective_max_context_chars:
+            cleaned_context = cleaned_context[-effective_max_context_chars :]
 
         provider = build_llm_provider(enforce_policy=True)
         provider_info = describe_llm_provider(provider)
@@ -195,12 +203,14 @@ def ask_ai_advisor(
     context: str = "",
     max_output_tokens: int | None = None,
     temperature: float = 0.2,
+    max_context_chars: int | None = None,
 ) -> AIAdvisorResult:
     return build_ai_advisor_service().ask(
         prompt,
         context=context,
         max_output_tokens=max_output_tokens,
         temperature=temperature,
+        max_context_chars=max_context_chars,
     )
 
 

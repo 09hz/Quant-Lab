@@ -75,6 +75,52 @@ def _build_results(topic: str, sources: list[str] | None) -> list[dict[str, Any]
 
     return results
 
+
+def _confidence_is_low(item: dict[str, Any]) -> bool:
+    confidence = str(item.get("confidence", "") or "").lower()
+    validity = str(item.get("validity", "") or "").lower()
+    relevance = str(item.get("relevance", "") or "").lower()
+    return "low" in confidence or "low" in validity or "low" in relevance
+
+
+def _is_warning_result(item: dict[str, Any]) -> bool:
+    kind = str(item.get("kind", "") or "").lower()
+    title = str(item.get("title", "") or "").lower()
+    return "warning" in kind or "error" in kind or "unavailable" in title
+
+
+def _is_brief_addable_result(item: dict[str, Any]) -> bool:
+    # Allow users to add lower-confidence/context sources to a brief as long as
+    # the item is visible and has a usable link. Hard errors/warnings remain
+    # excluded. This keeps low-confidence sources available, but labeled.
+    if not isinstance(item, dict):
+        return False
+    if not item.get("visible", True):
+        return False
+    if _is_warning_result(item):
+        return False
+    if item.get("selectable", False):
+        return True
+    return bool(str(item.get("url", "") or "").strip())
+
+
+def _brief_selectable_label(item: dict[str, Any]) -> str:
+    if not _is_brief_addable_result(item):
+        return "Not addable to brief"
+    if item.get("selectable", False) and not _confidence_is_low(item):
+        return "Selectable for brief"
+    return "Can add to brief with caution"
+
+
+def _brief_option_label(item: dict[str, Any]) -> str:
+    source = str(item.get("source", "Source") or "Source")
+    title = str(item.get("title", "Untitled") or "Untitled")
+    confidence = str(item.get("confidence", "unknown") or "unknown")
+    prefix = ""
+    if not item.get("selectable", False) or _confidence_is_low(item):
+        prefix = "[context / lower-confidence] "
+    return f"{prefix}{source} - {title} ({confidence})"
+
 def _render_result_cards(results: list[dict[str, Any]]) -> list[Any]:
     if not results:
         return [html.Div("No research links yet. Enter a topic and click Fetch Research Links.", className="newsroom-empty")]
@@ -93,7 +139,7 @@ def _render_result_cards(results: list[dict[str, Any]]) -> list[Any]:
                 title_node,
                 html.Div(item.get("summary", ""), className="newsroom-result-summary"),
                 html.Div(f"Type: {kind} | Confidence: {confidence} | {manual}", className="newsroom-result-kind"),
-                html.Div("Selectable for brief" if selectable else "Not added to brief", className="newsroom-result-selectable"),
+                html.Div(_brief_selectable_label(item), className="newsroom-result-selectable"),
                 html.Div(url, className="newsroom-result-url") if url else html.Div("No link shown because this source was not relevant for the query.", className="newsroom-result-url"),
             ],
         ))
@@ -109,6 +155,7 @@ def _brief_markdown(brief: list[dict[str, Any]]) -> str:
             f"- Source: {item.get('source', 'Unknown')}",
             f"- Type: {item.get('kind', 'research_link')}",
             f"- Confidence: {item.get('confidence', 'unknown')}",
+            f"- Brief caution: {'lower-confidence/context source; verify before relying on it' if _confidence_is_low(item) or not item.get('selectable', False) else 'standard selected source'}",
             f"- URL: {item.get('url', '')}",
             f"- Summary: {item.get('summary', '')}",
             "",
@@ -133,15 +180,23 @@ def register_newsroom_callbacks(app: Any) -> None:
         results = _build_results(topic_clean, sources)
         results = clean_newsroom_results(results)
         visible_results = [item for item in results if item.get("visible", True)]
-        selectable = [item for item in visible_results if item.get("selectable")]
-        skipped = [item for item in results if not item.get("visible", True) or not item.get("selectable")]
-        options = [{"label": f"{item.get('source')} - {item.get('title')}", "value": item["id"]} for item in selectable]
-        status = f"Loaded {len(selectable)} high-quality result(s)"
+        strict_selectable = [item for item in visible_results if item.get("selectable") and not _confidence_is_low(item)]
+        addable_results = [item for item in visible_results if _is_brief_addable_result(item)]
+        context_addable = [item for item in addable_results if item not in strict_selectable]
+        skipped = [item for item in results if not item.get("visible", True) or not _is_brief_addable_result(item)]
+        options = [
+            {"label": _brief_option_label(item), "value": item["id"]}
+            for item in addable_results
+            if item.get("id")
+        ]
+        status = f"Loaded {len(strict_selectable)} high-quality result(s)"
+        if context_addable:
+            status += f"; {len(context_addable)} context/lower-confidence result(s) available to add with caution"
         hygiene_note = summarize_hygiene(results)
         if hygiene_note:
             status += f"; {hygiene_note}"
         elif skipped:
-            status += f"; skipped/flagged {len(skipped)} low-relevance source(s)"
+            status += f"; skipped/flagged {len(skipped)} non-addable source(s)"
         status += f" for: {topic_clean}"
         return results, options, [], _render_result_cards(visible_results), status
 
@@ -164,7 +219,7 @@ def register_newsroom_callbacks(app: Any) -> None:
         selected = set(selected_ids or [])
         existing = {item.get("id") for item in current}
         for item in results or []:
-            if item.get("id") in selected and item.get("id") not in existing and item.get("selectable"):
+            if item.get("id") in selected and item.get("id") not in existing and _is_brief_addable_result(item):
                 current.append(item)
         return current, _brief_markdown(current)
 

@@ -116,7 +116,7 @@ def build_newsroom_tab(*args: Any, **kwargs: Any) -> Any:
                             dcc.Textarea(
                                 id="research-analyst-question",
                                 value="",
-                                placeholder="Example: What are the most important highlights, and how valid is this information?",
+                                placeholder="Example: What are the most important highlights, how valid is the evidence, and what is the likely market/stock impact?",
                                 className="research-analyst-question",
                             ),
                             html.Div(
@@ -140,17 +140,21 @@ def build_newsroom_tab(*args: Any, **kwargs: Any) -> Any:
                                         ],
                                     ),
                                     html.Div(
-                                        className="research-analyst-control",
+                                        className="research-analyst-control research-analyst-control-max-output",
                                         children=[
-                                            html.Label("Max output", className="research-analyst-label"),
+                                            html.Label("Max output tokens", className="research-analyst-label"),
                                             dcc.Input(
                                                 id="research-analyst-max-output",
                                                 type="number",
-                                                min=300,
-                                                max=4000,
+                                                min=800,
+                                                max=8000,
                                                 step=100,
-                                                value=1200,
+                                                value=3000,
                                                 className="research-analyst-number",
+                                            ),
+                                            html.Div(
+                                                "Recommended: 3,000-5,000 for market impact, sector, and correlation questions. This is an output-token cap, not a credit estimate.",
+                                                className="research-analyst-help",
                                             ),
                                         ],
                                     ),

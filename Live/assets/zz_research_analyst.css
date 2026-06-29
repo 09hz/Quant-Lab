@@ -115,3 +115,45 @@
   padding: 8px;
   border-radius: 8px;
 }
+/* Patch 36d: keep cost/output controls visible on the left side. */
+.research-analyst-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+}
+
+.research-analyst-control-max-output {
+    order: -2;
+    min-width: 170px;
+    flex: 0 0 190px;
+}
+
+.research-analyst-control-max-output input,
+.research-analyst-number {
+    width: 100%;
+}
+
+.research-analyst-controls .primary-button {
+    order: 5;
+}
+
+.research-analyst-response {
+    line-height: 1.45;
+}
+
+.newsroom-result-selectable {
+    font-weight: 600;
+}
+
+/* Patch 36e2: Research Analyst market-impact output guidance. */
+.research-analyst-help {
+    font-size: 0.78rem;
+    opacity: 0.75;
+    margin-top: 4px;
+    line-height: 1.25;
+}
+
+.research-analyst-source-row {
+    word-break: break-word;
+}
