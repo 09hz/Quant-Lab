@@ -761,6 +761,20 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
             ),
             html.Div( id="watch-live-guard-banner", className="watch-live-guard-banner",children=[],),
             html.Div(id="watch-status", className="status-text"),
+            html.Div(
+                id="replay-range-job-panel",
+                className="replay-range-job-panel",
+                children=[
+                    html.Div(id="replay-range-progress", className="replay-range-progress"),
+                    html.Button(
+                        "Cancel range load",
+                        id="replay-range-cancel",
+                        n_clicks=0,
+                        disabled=True,
+                        className="secondary-button replay-range-cancel",
+                    ),
+                ],
+            ),
             html.Div(id="watch-metrics-strip", className="metrics-strip"),
             html.Div(
                 className="range-row chart-control-row",

@@ -197,6 +197,8 @@ app.layout = html.Div(
             },
         ),
 
+        dcc.Store(id="replay-range-job-store", data=None),
+
         dcc.Store(
             id="dashboard-chart-state",
             data={

@@ -1,0 +1,64 @@
+.replay-range-job-panel {
+    margin-top: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.replay-range-progress-box {
+    border: 1px solid rgba(135, 180, 255, 0.25);
+    border-radius: 10px;
+    padding: 10px 12px;
+    background: rgba(7, 18, 52, 0.52);
+    color: #e8f1ff;
+}
+
+.replay-range-progress-topline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 7px;
+}
+
+.replay-range-progress-title {
+    font-weight: 700;
+}
+
+.replay-range-progress-status {
+    opacity: 0.82;
+    font-size: 0.86rem;
+}
+
+.replay-range-progress-track {
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.11);
+    overflow: hidden;
+    margin-bottom: 7px;
+}
+
+.replay-range-progress-fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, rgba(83, 160, 255, 0.95), rgba(81, 220, 180, 0.95));
+    transition: width 180ms ease;
+}
+
+.replay-range-progress-message,
+.replay-range-progress-detail {
+    font-size: 0.86rem;
+    opacity: 0.84;
+}
+
+.replay-range-progress-failed {
+    border-color: rgba(255, 110, 110, 0.48);
+}
+
+.replay-range-progress-cancelled {
+    border-color: rgba(255, 198, 92, 0.48);
+}
+
+.replay-range-cancel {
+    align-self: flex-start;
+}
