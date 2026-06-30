@@ -517,6 +517,39 @@ def _hydrated_fred_audit_requested(question: str) -> bool:
     )
     return any(term in q for term in audit_terms) and any(term in q for term in series_terms)
 
+
+def _quant_playbook_requested(question: str) -> bool:
+    # Return True when the user explicitly asks for a research-only quant playbook,
+    # strategy test plan, backtest plan, or how to trade/use the evidence.
+    q = " ".join(str(question or "").strip().lower().split())
+    if not q:
+        return False
+
+    triggers = (
+        "quant playbook",
+        "quant research playbook",
+        "playbook",
+        "backtest",
+        "backtesting",
+        "test plan",
+        "strategy",
+        "trade this",
+        "trade it",
+        "how to trade",
+        "how would you trade",
+        "how can i trade",
+        "how should i trade",
+        "use this information",
+        "use this evidence",
+        "build a strategy",
+        "trading strategy",
+        "signals",
+        "filters",
+        "invalidation rules",
+        "symbols to test",
+    )
+    return any(token in q for token in triggers)
+
 def _enhance_research_analyst_user_prompt(question: str, output_style: str = "concise", supplemental_count: int = 0) -> str:
     """Build a non-recursive Research Analyst question with market-impact guardrails."""
     clean_question = _clean_text(question, max_len=1200)
@@ -620,6 +653,7 @@ def register_research_analyst_callbacks(app) -> None:
         output_style = str(output_style or "concise").strip() or "concise"
         brief_only_mode = _brief_only_requested(question)
         audit_only_mode = _hydrated_fred_audit_requested(question)
+        quant_playbook_requested = _quant_playbook_requested(question)
         analysis_question = question if audit_only_mode else _enhance_research_analyst_user_prompt(question, output_style)
         try:
             max_output_int = max(800, min(6000, int(max_output or 2000)))
@@ -717,25 +751,35 @@ def register_research_analyst_callbacks(app) -> None:
             packet["approved_newsroom_brief_only"] = bool(brief_only_mode)
 
             quant_playbook_error = None
-            try:
-                from services.ai.quant_research_playbook import build_quant_research_playbook
-
-                packet["quant_research_playbook"] = build_quant_research_playbook(
-                    question=question,
-                    evidence_items=packet.get("items", []),
-                    symbol=str(symbol or "").upper().strip(),
-                    topic=str(topic or "").strip(),
-                    max_hypotheses=5,
-                )
-            except Exception as exc:
-                quant_playbook_error = f"Quant playbook unavailable: {exc}"
+            if audit_only_mode or (brief_only_mode and not quant_playbook_requested):
                 packet["quant_research_playbook"] = {
                     "enabled": False,
-                    "error": quant_playbook_error,
+                    "error": None,
+                    "note": "Quant playbook skipped unless explicitly requested.",
                     "safeguards": [
                         "Research-only output; no broker access or order placement.",
                     ],
                 }
+            else:
+                try:
+                    from services.ai.quant_research_playbook import build_quant_research_playbook
+
+                    packet["quant_research_playbook"] = build_quant_research_playbook(
+                        question=question,
+                        evidence_items=packet.get("items", []),
+                        symbol=str(symbol or "").upper().strip(),
+                        topic=str(topic or "").strip(),
+                        max_hypotheses=5,
+                    )
+                except Exception as exc:
+                    quant_playbook_error = f"Quant playbook unavailable: {exc}"
+                    packet["quant_research_playbook"] = {
+                        "enabled": False,
+                        "error": quant_playbook_error,
+                        "safeguards": [
+                            "Research-only output; no broker access or order placement.",
+                        ],
+                    }
 
             item_count = int(packet.get("item_count", 0) or 0)
             if item_count <= 0:
@@ -789,14 +833,15 @@ def register_research_analyst_callbacks(app) -> None:
                     _source_links_children(packet),
                 )
 
-            try:
-                from services.ai.quant_research_playbook import playbook_to_markdown
+            if not audit_only_mode and (not brief_only_mode or quant_playbook_requested):
+                try:
+                    from services.ai.quant_research_playbook import playbook_to_markdown
 
-                quant_playbook_md = playbook_to_markdown(packet.get("quant_research_playbook", {}))
-                if quant_playbook_md:
-                    context = context + "\n\n" + quant_playbook_md
-            except Exception:
-                pass
+                    quant_playbook_md = playbook_to_markdown(packet.get("quant_research_playbook", {}))
+                    if quant_playbook_md:
+                        context = context + "\n\n" + quant_playbook_md
+                except Exception:
+                    pass
 
             hydrated_series_ids = [
                 _extract_fred_series_id(item)
@@ -847,6 +892,8 @@ def register_research_analyst_callbacks(app) -> None:
             quant_playbook_note = ""
             if packet.get("quant_research_playbook", {}).get("enabled"):
                 quant_playbook_note = " Added quant research playbook."
+            elif quant_playbook_requested:
+                quant_playbook_note = " Quant playbook requested but unavailable."
             if quant_playbook_error:
                 quant_playbook_note += f" Quant playbook warning: {quant_playbook_error}"
 
