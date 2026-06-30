@@ -607,18 +607,42 @@ def register_newsroom_callbacks(app: Any) -> None:
             approved: list[dict[str, Any]] = []
             remaining: list[dict[str, Any]] = []
             generated_at = datetime.now().isoformat(timespec="seconds")
+            hydrated_count = 0
+            hydration_failed_count = 0
+            discovery_only_count = 0
+            try:
+                from services.research.evidence_hydration import hydrate_approved_recommendation
+            except Exception:
+                hydrate_approved_recommendation = None
             for item in current_pending:
                 rec_id = str(item.get("id") or item.get("rec_id") or "").strip()
                 if rec_id in selected:
                     approved_item = dict(item)
-                    approved_item["brief_user_approved_recommendation"] = True
-                    approved_item["brief_added_at"] = generated_at
-                    approved_item["brief_added_sequence"] = len(current_brief) + len(approved) + 1
-                    approved_item["source_role"] = "approved-recommendation"
-                    metadata = dict(approved_item.get("metadata") or {})
-                    metadata["approved_at"] = generated_at
-                    metadata["approved_from_queue"] = True
-                    approved_item["metadata"] = metadata
+                    sequence = len(current_brief) + len(approved) + 1
+                    if hydrate_approved_recommendation is not None:
+                        approved_item, hydration_status = hydrate_approved_recommendation(
+                            approved_item,
+                            added_at=generated_at,
+                            sequence=sequence,
+                        )
+                    else:
+                        hydration_status = {"hydrated": False, "discovery_only": True, "error": "hydration helper unavailable"}
+                        approved_item["brief_user_approved_recommendation"] = True
+                        approved_item["brief_added_at"] = generated_at
+                        approved_item["brief_added_sequence"] = sequence
+                        approved_item["source_role"] = "approved-recommendation-discovery"
+                        metadata = dict(approved_item.get("metadata") or {})
+                        metadata["approved_at"] = generated_at
+                        metadata["approved_from_queue"] = True
+                        metadata["hydration_status"] = "helper-unavailable"
+                        approved_item["metadata"] = metadata
+
+                    if hydration_status.get("hydrated"):
+                        hydrated_count += 1
+                    elif hydration_status.get("error"):
+                        hydration_failed_count += 1
+                    else:
+                        discovery_only_count += 1
                     approved.append(approved_item)
                 else:
                     remaining.append(item)
@@ -627,8 +651,23 @@ def register_newsroom_callbacks(app: Any) -> None:
             options = recommendations_to_options(remaining)
             preview = _recommendation_markdown(coverage, remaining)
             brief_preview = _brief_markdown(updated_brief)
-            brief_preview += ("\n\n## Last Recommendation Approval" + f"\n- Selected recommendations: {len(selected)}" + f"\n- Approved recommendation(s): {len(approved)}" + f"\n- Pending remaining: {len(remaining)}" + f"\n- Brief total: {len(updated_brief)}")
-            status = f"Approved {len(approved)} recommendation(s) into the brief. Pending remaining: {len(remaining)}."
+            brief_preview += (
+                "\n\n## Last Recommendation Approval"
+                + f"\n- Selected recommendations: {len(selected)}"
+                + f"\n- Approved recommendation(s): {len(approved)}"
+                + f"\n- Hydrated FRED data card(s): {hydrated_count}"
+                + f"\n- Discovery-only approved card(s): {discovery_only_count}"
+                + f"\n- Hydration warning/failure card(s): {hydration_failed_count}"
+                + f"\n- Pending remaining: {len(remaining)}"
+                + f"\n- Brief total: {len(updated_brief)}"
+            )
+            status = (
+                f"Approved {len(approved)} recommendation(s) into the brief. "
+                f"Hydrated FRED data cards: {hydrated_count}. "
+                f"Discovery-only: {discovery_only_count}. "
+                f"Hydration warnings: {hydration_failed_count}. "
+                f"Pending remaining: {len(remaining)}."
+            )
             return remaining, options, [], preview, status, updated_brief, brief_preview
         if trigger == "newsroom-reject-recommendations":
             if not current_pending:

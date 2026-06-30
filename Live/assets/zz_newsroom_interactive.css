@@ -1,90 +1,306 @@
 /* Interactive Newsroom */
-.newsroom-page{display:flex;flex-direction:column;gap:16px}
-.newsroom-hero,.newsroom-panel{background:rgba(15,23,42,.78);border:1px solid rgba(148,163,184,.22);border-radius:14px;padding:16px}
-.newsroom-hero{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}
-.newsroom-title{font-size:24px;font-weight:800;color:#e5e7eb}
-.newsroom-subtitle,.newsroom-help-text,.newsroom-source-desc,.newsroom-result-summary,.newsroom-status,.newsroom-empty{color:#94a3b8;font-size:13px}
-.newsroom-pill-row,.newsroom-source-badges,.newsroom-button-row{display:flex;flex-wrap:wrap;gap:8px}
-.newsroom-pill,.newsroom-badge{border:1px solid rgba(148,163,184,.25);border-radius:999px;padding:4px 9px;font-size:12px;color:#cbd5e1;background:rgba(30,41,59,.7)}
-.newsroom-pill-safe{border-color:rgba(34,197,94,.35);color:#bbf7d0}
-.newsroom-badge-muted{color:#93c5fd}
-.newsroom-grid{display:grid;grid-template-columns:minmax(260px,.85fr) minmax(360px,1.35fr);gap:16px}
-.newsroom-panel-title{font-size:16px;font-weight:800;color:#e5e7eb;margin-bottom:10px}
-.newsroom-label{display:block;color:#cbd5e1;font-size:12px;font-weight:700;margin:10px 0 5px;text-transform:uppercase;letter-spacing:.04em}
-.newsroom-input{width:100%;min-height:38px;border-radius:10px;border:1px solid rgba(148,163,184,.28);background:rgba(2,6,23,.65);color:#e5e7eb;padding:8px 10px}
-.newsroom-checklist,.newsroom-result-checklist{display:flex;flex-direction:column;gap:6px;color:#cbd5e1;margin:8px 0 12px}
-.newsroom-check-label,.newsroom-result-label{color:#cbd5e1;font-size:13px}
-.newsroom-check-input{margin-right:8px}
-.newsroom-btn{border:1px solid rgba(148,163,184,.28);border-radius:10px;padding:8px 12px;background:rgba(30,41,59,.85);color:#e5e7eb;cursor:pointer}
-.newsroom-btn.primary{background:rgba(37,99,235,.85);border-color:rgba(96,165,250,.45)}
-.newsroom-btn.danger{background:rgba(127,29,29,.75)}
-.newsroom-btn.disabled{opacity:.55;cursor:not-allowed}
-.newsroom-results-list{display:flex;flex-direction:column;gap:10px;margin-top:12px}
-.newsroom-result-card,.newsroom-source-card{border:1px solid rgba(148,163,184,.18);background:rgba(2,6,23,.42);border-radius:12px;padding:12px}
-.newsroom-result-source,.newsroom-source-name{color:#bfdbfe;font-weight:800;font-size:13px}
-.newsroom-result-title,.newsroom-source-link{display:inline-block;color:#93c5fd;font-weight:700;text-decoration:none;margin:4px 0}
-.newsroom-result-title:hover,.newsroom-source-link:hover{text-decoration:underline}
-.newsroom-result-url{color:#64748b;font-size:11px;overflow-wrap:anywhere}
-.newsroom-brief-header{display:flex;justify-content:space-between;gap:12px;align-items:center}
-.newsroom-brief-preview{margin-top:12px;white-space:pre-wrap;min-height:160px;max-height:420px;overflow:auto;color:#d1d5db;background:rgba(2,6,23,.72);border:1px solid rgba(148,163,184,.2);border-radius:12px;padding:12px}
-.newsroom-source-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
-.newsroom-source-card-top{display:flex;justify-content:space-between;gap:10px}
-@media(max-width:900px){.newsroom-grid{grid-template-columns:1fr}.newsroom-hero,.newsroom-brief-header{flex-direction:column}}
+.newsroom-page {
+  --newsroom-accent: var(--sv-info);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  color: var(--sv-text-primary);
+}
+
+.newsroom-hero,
+.newsroom-panel {
+  border: 1px solid var(--sv-border);
+  border-radius: 14px;
+  padding: 14px 16px;
+  background: linear-gradient(180deg, rgba(16, 22, 32, 0.94), rgba(10, 14, 21, 0.94));
+  box-shadow: var(--sv-shadow-sm), var(--sv-shadow-inset);
+}
+
+.newsroom-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.newsroom-title {
+  color: var(--sv-text-primary);
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.newsroom-subtitle,
+.newsroom-help-text,
+.newsroom-source-desc,
+.newsroom-result-summary,
+.newsroom-status,
+.newsroom-empty {
+  color: var(--sv-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.newsroom-pill-row,
+.newsroom-source-badges,
+.newsroom-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.newsroom-pill,
+.newsroom-badge {
+  border: 1px solid var(--sv-border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--sv-text-secondary);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.newsroom-pill-safe {
+  border-color: var(--sv-positive-border);
+  color: #c9f4de;
+  background: var(--sv-positive-bg);
+}
+
+.newsroom-badge-muted {
+  border-color: var(--sv-info-border);
+  color: #b9dbff;
+  background: var(--sv-info-bg);
+}
+
+.newsroom-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.85fr) minmax(360px, 1.35fr);
+  gap: 14px;
+}
+
+.newsroom-panel-title {
+  margin-bottom: 10px;
+  color: var(--sv-text-primary);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.newsroom-label {
+  display: block;
+  margin: 10px 0 5px;
+  color: var(--sv-text-secondary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.newsroom-input {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--sv-border);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(20, 27, 38, 0.96), rgba(14, 18, 26, 0.96));
+  color: var(--sv-text-primary);
+  box-shadow: var(--sv-shadow-sm), var(--sv-shadow-inset);
+}
+
+.newsroom-input:focus {
+  border-color: var(--sv-accent-border);
+  box-shadow: var(--sv-focus-ring), var(--sv-shadow-sm);
+}
+
+.newsroom-checklist,
+.newsroom-result-checklist {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--sv-text-secondary);
+  margin: 8px 0 12px;
+}
+
+.newsroom-check-label,
+.newsroom-result-label {
+  color: var(--sv-text-primary);
+  font-size: 13px;
+}
+
+.newsroom-check-input {
+  margin-right: 8px;
+}
+
+.newsroom-btn {
+  border: 1px solid var(--sv-border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: linear-gradient(180deg, #171d27 0%, #10151d 100%);
+  color: var(--sv-text-primary);
+  cursor: pointer;
+  box-shadow: var(--sv-shadow-sm), var(--sv-shadow-inset);
+  transition: border-color var(--sv-ease), background var(--sv-ease), transform var(--sv-ease), box-shadow var(--sv-ease);
+}
+
+.newsroom-btn:hover:not(:disabled) {
+  border-color: var(--sv-accent-border);
+  transform: translateY(-1px);
+}
+
+.newsroom-btn.primary {
+  border-color: var(--sv-accent-border);
+  background: linear-gradient(180deg, rgba(90, 143, 209, 0.30), rgba(45, 182, 124, 0.18));
+  color: var(--sv-text-primary);
+}
+
+.newsroom-btn.danger {
+  border-color: rgba(209, 90, 90, 0.38);
+  background: linear-gradient(180deg, rgba(87, 28, 28, 0.72), rgba(56, 18, 18, 0.72));
+}
+
+.newsroom-btn.disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.newsroom-results-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.newsroom-result-card,
+.newsroom-source-card {
+  border: 1px solid var(--sv-border);
+  background: rgba(7, 10, 15, 0.60);
+  border-radius: 12px;
+  padding: 12px;
+  box-shadow: var(--sv-shadow-sm);
+}
+
+.newsroom-result-card:hover,
+.newsroom-source-card:hover {
+  border-color: var(--sv-accent-border-soft);
+}
+
+.newsroom-result-source,
+.newsroom-source-name {
+  color: var(--sv-text-primary);
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.newsroom-result-title,
+.newsroom-source-link {
+  display: inline-block;
+  margin: 4px 0;
+  color: var(--sv-accent-light);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.newsroom-result-title:hover,
+.newsroom-source-link:hover {
+  text-decoration: underline;
+}
+
+.newsroom-result-url {
+  color: var(--sv-text-tertiary);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.newsroom-brief-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.newsroom-brief-preview {
+  margin-top: 12px;
+  min-height: 160px;
+  max-height: 420px;
+  overflow: auto;
+  white-space: pre-wrap;
+  padding: 12px;
+  border: 1px solid var(--sv-border);
+  border-radius: 12px;
+  background: rgba(7, 10, 15, 0.72);
+  color: var(--sv-text-primary);
+  line-height: 1.55;
+}
+
+.newsroom-source-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.newsroom-source-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
 
 .newsroom-result-skipped {
-    opacity: 0.72;
-    border-style: dashed;
+  opacity: 0.72;
+  border-style: dashed;
 }
+
 .newsroom-result-title-disabled {
-    color: #94a3b8;
-    font-weight: 700;
+  color: var(--sv-text-secondary);
+  font-weight: 700;
 }
+
 .newsroom-result-selectable {
-    margin-top: 6px;
-    font-size: 11px;
-    color: #94a3b8;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--sv-text-secondary);
 }
-/* Patch 31 — FRED Newsroom UI Integration */
+
 .newsroom-result-fred-data {
-  border-left: 4px solid #7aa2ff;
+  border-left: 4px solid var(--sv-info);
 }
 
 .newsroom-result-fred-series-link {
-  border-left: 4px solid #7ac7a3;
+  border-left: 4px solid var(--sv-positive);
 }
 
 .newsroom-result-fred-data-warning {
-  border-left: 4px solid #f0b35a;
+  border-left: 4px solid var(--sv-warning);
 }
 
 .newsroom-result-card .newsroom-result-kind {
   margin-top: 8px;
 }
 
-/* Patch 31b: Newsroom result hygiene labels */
 .newsroom-results-list .manual-search,
 .newsroom-result-card.manual-search {
-    opacity: 0.86;
+  opacity: 0.86;
 }
 
 .newsroom-results-list .hidden-broken,
 .newsroom-result-card.hidden-broken {
-    display: none;
+  display: none;
 }
 
 .newsroom-hygiene-note {
-    font-size: 0.82rem;
-    opacity: 0.75;
-    margin-top: 0.35rem;
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+  opacity: 0.75;
 }
 
-/* Patch 32 - Newsroom to Strategy AI handoff */
 .newsroom-btn.ai-ready {
-  border-color: rgba(56, 189, 248, 0.72);
-  box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.16);
+  border-color: rgba(83, 182, 255, 0.72);
+  box-shadow: 0 0 0 1px rgba(83, 182, 255, 0.16);
 }
 
-.newsroom-btn.disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+@media (max-width: 900px) {
+  .newsroom-grid,
+  .newsroom-hero,
+  .newsroom-brief-header {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
 }

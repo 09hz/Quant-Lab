@@ -2,11 +2,12 @@
    This stylesheet does not target Plotly graphs. */
 
 .watch-live-guard-banner {
-  border-radius: 10px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
+  margin: 8px 0 12px;
   padding: 10px 12px;
-  margin: 8px 0 12px 0;
-  background: rgba(15, 23, 42, 0.72);
+  border: 1px solid var(--sv-border);
+  border-radius: 10px;
+  background: rgba(16, 22, 32, 0.86);
+  box-shadow: var(--sv-shadow-sm), var(--sv-shadow-inset);
 }
 
 .watch-live-guard-inner {
@@ -19,18 +20,20 @@
 .watch-live-guard-title {
   font-weight: 700;
   letter-spacing: 0.02em;
+  color: var(--sv-text-primary);
 }
 
 .watch-live-guard-detail {
   opacity: 0.86;
   font-size: 0.9rem;
+  color: var(--sv-text-secondary);
 }
 
 .watch-live-guard-open {
-  border-color: rgba(34, 197, 94, 0.35);
+  border-color: var(--sv-positive-border);
 }
 
 .watch-live-guard-closed {
-  border-color: rgba(248, 113, 113, 0.42);
-  background: rgba(127, 29, 29, 0.18);
+  border-color: var(--sv-negative-border);
+  background: rgba(87, 28, 28, 0.18);
 }

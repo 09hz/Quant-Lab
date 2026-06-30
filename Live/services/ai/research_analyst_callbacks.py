@@ -203,7 +203,101 @@ def _research_items_from_payload(payload: Any, *, max_items: int = 50) -> list[d
     return out
 
 
+def _extract_fred_series_id(item: dict[str, Any]) -> str:
+    """Best-effort extraction of a FRED series id from hydrated brief cards."""
+    if not isinstance(item, dict):
+        return ""
+
+    for key in ("series_id", "fred_series_id", "ticker"):
+        value = str(item.get(key) or "").upper().strip()
+        if value and len(value) <= 24 and value.replace("_", "").replace("-", "").isalnum():
+            return value
+
+    metadata = item.get("metadata") or {}
+    if isinstance(metadata, dict):
+        for key in ("series_id", "fred_series_id"):
+            value = str(metadata.get(key) or "").upper().strip()
+            if value and len(value) <= 24 and value.replace("_", "").replace("-", "").isalnum():
+                return value
+
+    url = str(item.get("url") or item.get("link") or "").strip()
+    marker = "/series/"
+    if marker in url:
+        value = url.rsplit(marker, 1)[-1].split("?", 1)[0].split("#", 1)[0].upper().strip("/")
+        if value and len(value) <= 24 and value.replace("_", "").replace("-", "").isalnum():
+            return value
+
+    title = str(item.get("title") or "").upper()
+    summary = str(item.get("summary") or "").upper()
+    for token in (
+        "CPIAUCSL", "CPILFESL", "PCEPI", "PCEPILFE",
+        "DGS2", "DGS10", "FEDFUNDS", "T10Y2Y",
+        "VIXCLS", "SP500", "NASDAQCOM",
+        "PAYEMS", "UNRATE", "UMCSENT",
+        "IPMAN", "INDPRO", "DGORDER", "AMTMNO", "DCOILWTICO",
+    ):
+        if token in title or token in summary:
+            return token
+
+    return ""
+
+
+def _is_hydrated_fred_item(item: dict[str, Any]) -> bool:
+    """Return True for user-approved hydrated official FRED evidence cards."""
+    if not isinstance(item, dict):
+        return False
+
+    kind = str(item.get("kind") or item.get("type") or "").lower()
+    source = str(item.get("source") or item.get("provider") or "").lower()
+    summary = str(item.get("summary") or "").lower()
+    title = str(item.get("title") or "").lower()
+    role = str(item.get("evidence_role") or item.get("source_role") or "").lower()
+
+    return (
+        ("fred" in source)
+        and (
+            "fred-hydrated-official-data" in kind
+            or "hydrated official fred" in summary
+            or "fred hydrated official data" in title
+            or "confirmed official fred data" in summary
+            or "confirmed-official" in role
+        )
+    )
+
+
+def _hydrated_fred_manifest_markdown(items: list[dict[str, Any]]) -> str:
+    # Create a compact authoritative manifest so approved FRED cards survive context trimming.
+    hydrated = [item for item in (items or []) if _is_hydrated_fred_item(item)]
+    if not hydrated:
+        return ""
+
+    series_ids: list[str] = []
+    for item in hydrated:
+        series_id = _extract_fred_series_id(item)
+        if series_id and series_id not in series_ids:
+            series_ids.append(series_id)
+
+    lines = [
+        "# Approved Hydrated FRED Official Data Cards",
+        "",
+        f"Approved hydrated FRED official data card count: {len(series_ids)}",
+        "Approved hydrated FRED series IDs:",
+        ", ".join(series_ids) if series_ids else "none",
+        "",
+        "Treat every listed series ID as a distinct approved hydrated FRED card.",
+        "If any macro anchor conflicts with this manifest, prioritize this manifest.",
+    ]
+    return "\n".join(lines).strip() + "\n"
+
 def _research_item_key(item: dict[str, Any]) -> str:
+    # User-approved hydrated FRED evidence cards are distinct confirmed data cards.
+    # Do not collapse them with macro-anchor/source-discovery cards that reuse the
+    # same FRED URL. Key them by series id first.
+    if _is_hydrated_fred_item(item):
+        series_id = _extract_fred_series_id(item)
+        if series_id:
+            return "hydrated-fred:" + series_id.lower()
+
     url = str(item.get("url") or item.get("link") or "").strip().lower()
     if url:
         return "url:" + url
@@ -344,6 +438,85 @@ def _build_supplemental_research_sources(
 
     return supplemental[:max_items], query, "; ".join(errors) if errors else None
 
+
+def _brief_only_requested(question: str) -> bool:
+    # Return True when the user explicitly asks to audit only the approved Newsroom brief.
+    q = " ".join(str(question or "").strip().lower().split())
+    if not q:
+        return False
+    triggers = (
+        "approved newsroom brief only",
+        "current approved newsroom brief only",
+        "newsroom brief only",
+        "approved brief only",
+        "brief only",
+        "audit the current approved newsroom brief only",
+        "audit the approved newsroom brief only",
+        "use only the approved newsroom brief",
+        "use the current approved newsroom brief only",
+    )
+    return any(token in q for token in triggers)
+
+
+
+def _hydrated_fred_audit_requested(question: str) -> bool:
+    """
+    Return True only for narrow count/list audit questions.
+
+    Do not trigger this path for normal Research Analyst requests that ask for
+    market impact, sector impact, summaries, implications, correlations, or a
+    bullish/bearish/mixed read.
+    """
+    q = " ".join(str(question or "").strip().lower().split())
+    if not q:
+        return False
+
+    if not ("hydrated fred" in q or "fred official data cards" in q):
+        return False
+
+    normal_analysis_terms = (
+        "summarize",
+        "summary",
+        "market impact",
+        "sector impact",
+        "tech sector",
+        "manufacturing sector",
+        "bullish",
+        "bearish",
+        "mixed",
+        "correlation",
+        "transmission",
+        "implication",
+        "implications",
+        "executive read",
+        "current-quarter",
+        "current quarter",
+        "final read",
+        "playbook",
+        "strategy",
+        "backtest",
+        "quant",
+    )
+    if any(term in q for term in normal_analysis_terms):
+        return False
+
+    audit_terms = (
+        "how many",
+        "exact count",
+        "count of",
+        "tell me how many",
+        "list every",
+        "list the",
+    )
+    series_terms = (
+        "series id",
+        "series ids",
+        "official data cards",
+        "hydrated fred",
+        "evidence packet",
+    )
+    return any(term in q for term in audit_terms) and any(term in q for term in series_terms)
+
 def _enhance_research_analyst_user_prompt(question: str, output_style: str = "concise", supplemental_count: int = 0) -> str:
     """Build a non-recursive Research Analyst question with market-impact guardrails."""
     clean_question = _clean_text(question, max_len=1200)
@@ -355,6 +528,10 @@ def _enhance_research_analyst_user_prompt(question: str, output_style: str = "co
 
     instructions = [
         "Answer using only the evidence packet plus approved supplemental Newsroom sources.",
+        "Use a professional institutional research tone suitable for a trading research platform.",
+        "Do not use emojis, check marks, cross marks, warning icons, chart icons, or decorative symbols.",
+        "Use plain words instead of icons: confirmed, missing, warning, rising, falling, flat, improving, deteriorating.",
+        "When an Approved Hydrated FRED Official Data Cards manifest is present, treat that manifest as authoritative and list every series in it before declaring evidence missing.",
         "Treat FRED structured macro anchors as confirmed official data when present; treat search landing pages as discovery context only.",
         "Use trend deltas (latest, prior, 1-period, 3-period, and 6-period changes) when provided before making sector or quarter claims.",
         "Treat FRED structured observations as confirmed official data when values are present.",
@@ -441,7 +618,9 @@ def register_research_analyst_callbacks(app) -> None:
             )
 
         output_style = str(output_style or "concise").strip() or "concise"
-        analysis_question = _enhance_research_analyst_user_prompt(question, output_style)
+        brief_only_mode = _brief_only_requested(question)
+        audit_only_mode = _hydrated_fred_audit_requested(question)
+        analysis_question = question if audit_only_mode else _enhance_research_analyst_user_prompt(question, output_style)
         try:
             max_output_int = max(800, min(6000, int(max_output or 2000)))
         except Exception:
@@ -455,15 +634,20 @@ def register_research_analyst_callbacks(app) -> None:
             )
             from services.ai.research_analyst import ResearchAnalystService
 
-            brief_items = _research_items_from_payload(brief_store, max_items=24)
+            brief_items = _research_items_from_payload(brief_store, max_items=96)
             result_items = _research_items_from_payload(results_store, max_items=24)
-            supplemental_items, supplemental_query, supplemental_error = _build_supplemental_research_sources(
-                question=question,
-                topic=str(topic or "").strip(),
-                symbol=str(symbol or "").upper().strip(),
-                selected_sources=selected_sources,
-                max_items=12,
-            )
+            if brief_only_mode:
+                supplemental_items = []
+                supplemental_query = "approved-newsroom-brief-only"
+                supplemental_error = None
+            else:
+                supplemental_items, supplemental_query, supplemental_error = _build_supplemental_research_sources(
+                    question=question,
+                    topic=str(topic or "").strip(),
+                    symbol=str(symbol or "").upper().strip(),
+                    selected_sources=selected_sources,
+                    max_items=12,
+                )
 
             macro_anchor_items: list[dict[str, Any]] = []
             macro_anchor_coverage: dict[str, Any] = {}
@@ -480,6 +664,10 @@ def register_research_analyst_callbacks(app) -> None:
                 )
             except Exception as exc:
                 macro_anchor_error = f"Macro anchor build failed: {exc}"
+            if brief_only_mode:
+                macro_anchor_items = []
+                macro_anchor_coverage = {"mode": "approved-newsroom-brief-only"}
+                macro_anchor_error = None
 
 
             # Include mandatory macro anchors directly in the evidence packet.
@@ -490,12 +678,17 @@ def register_research_analyst_callbacks(app) -> None:
             # evidence_packet_to_markdown(...). Merge anchors first so CPI/PCE,
             # FEDFUNDS, yields, market proxies, and manufacturing anchors are
             # available as actual evidence, not just as hidden callback metadata.
+            # User-approved Newsroom brief items must be highest priority.
+            # In particular, hydrated FRED recommendation cards contain the user's
+            # approved official observations/deltas. Keep them before auto-built
+            # macro anchors, result-store leftovers, supplemental discovery links,
+            # and the quant playbook scaffold.
             combined_payload = _merge_newsroom_payloads(
-                macro_anchor_items,
                 brief_items,
+                macro_anchor_items,
                 result_items,
                 supplemental_items,
-                max_items=40,
+                max_items=96,
             )
 
             packet = build_newsroom_evidence_packet(
@@ -503,7 +696,7 @@ def register_research_analyst_callbacks(app) -> None:
                 question=question,
                 symbol=str(symbol or "").upper().strip(),
                 topic=str(topic or "").strip(),
-                max_items=40,
+                max_items=96,
             )
             packet["mandatory_macro_anchors"] = {
                 "enabled": True,
@@ -520,6 +713,8 @@ def register_research_analyst_callbacks(app) -> None:
                 "error": supplemental_error,
                 "note": "Supplemental sources are pulled from approved Newsroom source builders when the brief may not cover the full question.",
             }
+
+            packet["approved_newsroom_brief_only"] = bool(brief_only_mode)
 
             quant_playbook_error = None
             try:
@@ -559,6 +754,41 @@ def register_research_analyst_callbacks(app) -> None:
                 )
 
             context = evidence_packet_to_markdown(packet)
+
+            hydrated_brief_items = [item for item in brief_items if _is_hydrated_fred_item(item)]
+            hydrated_manifest = _hydrated_fred_manifest_markdown(hydrated_brief_items)
+            if hydrated_manifest:
+                context = hydrated_manifest + "\n\n" + context
+
+            # Hydrated FRED audit-only deterministic response.
+            # For count/list audit questions, answer directly from the approved brief
+            # instead of sending a large market-impact prompt through the LLM.
+            if audit_only_mode:
+                hydrated_series_ids = [
+                    _extract_fred_series_id(item)
+                    for item in hydrated_brief_items
+                    if _extract_fred_series_id(item)
+                ]
+
+                audit_lines = [
+                    f"Hydrated FRED official data cards: {len(hydrated_series_ids)}",
+                    "",
+                    "Hydrated FRED series IDs received:",
+                ]
+                audit_lines.extend(f"- {series_id}" for series_id in hydrated_series_ids)
+
+                audit_status = (
+                    f"Audited approved Newsroom brief. "
+                    f"User-approved hydrated FRED brief cards: {len(hydrated_series_ids)}. "
+                    "Approved Newsroom brief only mode: enabled."
+                )
+
+                return (
+                    dcc.Markdown("\n".join(audit_lines), className="research-analyst-markdown", link_target="_blank"),
+                    audit_status,
+                    _source_links_children(packet),
+                )
+
             try:
                 from services.ai.quant_research_playbook import playbook_to_markdown
 
@@ -568,20 +798,32 @@ def register_research_analyst_callbacks(app) -> None:
             except Exception:
                 pass
 
+            hydrated_series_ids = [
+                _extract_fred_series_id(item)
+                for item in hydrated_brief_items
+                if _extract_fred_series_id(item)
+            ]
+
             prompt = ResearchAnalystService().build_prompt(
                 question=analysis_question,
                 raw_items=packet.get("items", []),
                 symbol=str(symbol or "").upper().strip(),
                 topic=str(topic or "").strip(),
-                max_items=32,
+                max_items=96,
                 output_style=output_style,
+                authoritative_hydrated_manifest=hydrated_manifest,
+                authoritative_hydrated_fred_count=len(hydrated_brief_items),
+                authoritative_hydrated_fred_series_ids=hydrated_series_ids,
             )
 
-            user_prompt = _enhance_research_analyst_user_prompt(
-                prompt.user_prompt,
-                output_style=output_style,
-                supplemental_count=len(supplemental_items),
-            )
+            if audit_only_mode:
+                user_prompt = question
+            else:
+                user_prompt = _enhance_research_analyst_user_prompt(
+                    prompt.user_prompt,
+                    output_style=output_style,
+                    supplemental_count=len(supplemental_items),
+                )
 
             answer = _call_ai_research_advisor(
                 system_prompt=prompt.system_prompt,
@@ -608,9 +850,21 @@ def register_research_analyst_callbacks(app) -> None:
             if quant_playbook_error:
                 quant_playbook_note += f" Quant playbook warning: {quant_playbook_error}"
 
+            hydrated_note = ""
+            try:
+                hydrated_count = len([item for item in brief_items if _is_hydrated_fred_item(item)])
+                if hydrated_count:
+                    hydrated_note = f" User-approved hydrated FRED brief cards: {hydrated_count}."
+            except Exception:
+                hydrated_note = ""
+
+            brief_only_note = " Approved Newsroom brief only mode: enabled." if brief_only_mode else ""
+
             status = (
                 f"Answered from {item_count} evidence item(s). "
                 "Current facts are limited to the Newsroom evidence packet."
+                + hydrated_note
+                + brief_only_note
                 + macro_anchor_note
                 + supplemental_note
                 + quant_playbook_note

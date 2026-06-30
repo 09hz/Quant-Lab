@@ -276,6 +276,8 @@ def _coerce_item(raw: Any, *, fallback_index: int) -> dict[str, Any] | None:
         max_len=80,
     ) or _validity_label(source_type, domain, item)
 
+    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+
     return {
         "id": str(_first_present(item, ("id", "uid", "key"), f"item-{fallback_index}")),
         "title": title,
@@ -284,11 +286,15 @@ def _coerce_item(raw: Any, *, fallback_index: int) -> dict[str, Any] | None:
         "url": url,
         "domain": domain,
         "source_type": source_type,
+        "kind": _clean_text(_first_present(item, ("kind", "type"), ""), max_len=120),
+        "evidence_role": _clean_text(_first_present(item, ("evidence_role", "source_role"), ""), max_len=120),
+        "series_id": _clean_text(_first_present(item, ("series_id", "fred_series_id"), ""), max_len=40),
         "validity": validity,
         "relevance": relevance,
         "confidence": confidence,
         "published_at": published_at,
         "used_for_ai": bool(item.get("used_for_ai", True)),
+        "metadata": metadata,
         "raw_keys": sorted(str(k) for k in item.keys()),
     }
 
@@ -417,10 +423,23 @@ def evidence_packet_to_markdown(packet: dict[str, Any]) -> str:
         summary = item.get("summary", "")
 
         lines.append(f"### {idx}. {title}")
+        kind = item.get("kind", "")
+        evidence_role = item.get("evidence_role", "")
+        series_id = item.get("series_id", "")
+
         lines.append(
             f"Source: {source} | Validity: {validity} | "
             f"Relevance: {relevance} | Confidence: {confidence}"
         )
+        if kind or evidence_role or series_id:
+            details = []
+            if kind:
+                details.append(f"Kind: {kind}")
+            if evidence_role:
+                details.append(f"Evidence role: {evidence_role}")
+            if series_id:
+                details.append(f"Series: {series_id}")
+            lines.append(" | ".join(details))
         if published_at:
             lines.append(f"Published/Updated: {published_at}")
         if url:
