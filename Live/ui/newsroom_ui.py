@@ -64,6 +64,8 @@ def build_newsroom_tab(*args: Any, **kwargs: Any) -> Any:
         children=[
             dcc.Store(id="newsroom-results-store", data=[], storage_type="session"),
             dcc.Store(id="newsroom-brief-store", data=[], storage_type="session"),
+            dcc.Store(id="newsroom-recommendations-store", data=[], storage_type="session"),
+            dcc.Store(id="newsroom-rejected-recommendations-store", data=[], storage_type="session"),
             dcc.Download(id="newsroom-download-json"),
             dcc.Download(id="newsroom-download-markdown"),
             html.Div(
@@ -86,6 +88,34 @@ def build_newsroom_tab(*args: Any, **kwargs: Any) -> Any:
                             dcc.Checklist(id="newsroom-source-filter", options=source_options, value=["fred", "sec", "bls", "bea", "fed", "news"], className="newsroom-checklist", inputClassName="newsroom-check-input", labelClassName="newsroom-check-label"),
                             html.Div([html.Button("Fetch Research", id="newsroom-fetch", n_clicks=0, className="newsroom-btn primary"), html.Button("Add Selected to Brief", id="newsroom-add-selected", n_clicks=0, className="newsroom-btn"), html.Button("Clear Brief", id="newsroom-clear-brief", n_clicks=0, className="newsroom-btn danger")], className="newsroom-button-row"),
                             html.Div(id="newsroom-status", className="newsroom-status"),
+                            html.Div(
+                                className="newsroom-recommendation-panel",
+                                children=[
+                                    html.Div("Evidence Recommendation Queue", className="newsroom-panel-subtitle"),
+                                    html.Div(
+                                        "Generate missing-source candidates from the current brief. Review them, then approve only what you want added.",
+                                        className="newsroom-help-text",
+                                    ),
+                                    html.Div(
+                                        [
+                                            html.Button("Generate Missing Evidence Recommendations", id="newsroom-generate-recommendations", n_clicks=0, className="newsroom-btn"),
+                                            html.Button("Approve Selected Recommendations", id="newsroom-approve-recommendations", n_clicks=0, className="newsroom-btn primary"),
+                                            html.Button("Reject Selected", id="newsroom-reject-recommendations", n_clicks=0, className="newsroom-btn danger"),
+                                        ],
+                                        className="newsroom-button-row",
+                                    ),
+                                    dcc.Checklist(
+                                        id="newsroom-recommendation-selection",
+                                        options=[],
+                                        value=[],
+                                        className="newsroom-result-checklist",
+                                        inputClassName="newsroom-check-input",
+                                        labelClassName="newsroom-result-label",
+                                    ),
+                                    html.Div(id="newsroom-recommendation-status", className="newsroom-status"),
+                                    html.Pre(id="newsroom-recommendation-preview", className="newsroom-brief-preview"),
+                                ],
+                            ),
                         ],
                     ),
                     html.Div(

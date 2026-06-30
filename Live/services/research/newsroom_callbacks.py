@@ -413,6 +413,38 @@ def _brief_match_selected(item: dict[str, Any], selected: set[str]) -> bool:
     }
     return any(candidate and candidate in selected for candidate in candidates)
 
+
+def _recommendation_markdown(coverage: dict[str, Any], recommendations: list[dict[str, Any]]) -> str:
+    try:
+        from services.research.evidence_coverage import coverage_to_markdown
+    except Exception:
+        coverage_to_markdown = None
+    lines: list[str] = []
+    if coverage_to_markdown is not None:
+        lines.append(coverage_to_markdown(coverage))
+    else:
+        lines.append("## Evidence Coverage")
+        lines.append("")
+        for key, info in (coverage.get("buckets") or {}).items():
+            lines.append(f"- {info.get('label', key)}: {info.get('status', 'unknown')}")
+    lines.extend(["", "## Pending Recommendations", ""])
+    if not recommendations:
+        lines.append("_No missing-evidence recommendations are pending._")
+        return "\n".join(lines)
+    for idx, rec in enumerate(recommendations, start=1):
+        lines.extend([
+            f"### {idx}. {rec.get('title', 'Untitled')}",
+            f"- Bucket: {rec.get('topic') or rec.get('bucket') or 'evidence'}",
+            f"- Source: {rec.get('source', 'Unknown')}",
+            f"- Type: {rec.get('kind', 'recommended-source')}",
+            f"- Confidence: {rec.get('confidence', 'unknown')}",
+            f"- URL: {rec.get('url', '')}",
+            f"- Summary: {rec.get('summary', '')}",
+            "- Status: pending user approval; not used by AI until approved into the brief.",
+            "",
+        ])
+    return "\n".join(lines)
+
 def register_newsroom_callbacks(app: Any) -> None:
     @app.callback(
         Output("newsroom-results-store", "data"),
@@ -523,6 +555,100 @@ def register_newsroom_callbacks(app: Any) -> None:
             "\n- Mode: user-controlled add-all; every matched visible row is appended."
         )
         return current, preview
+
+    @app.callback(
+        Output("newsroom-recommendations-store", "data"),
+        Output("newsroom-recommendation-selection", "options"),
+        Output("newsroom-recommendation-selection", "value"),
+        Output("newsroom-recommendation-preview", "children"),
+        Output("newsroom-recommendation-status", "children"),
+        Output("newsroom-brief-store", "data", allow_duplicate=True),
+        Output("newsroom-brief-preview", "children", allow_duplicate=True),
+        Input("newsroom-generate-recommendations", "n_clicks"),
+        # approved recommendation queue marker
+        Input("newsroom-approve-recommendations", "n_clicks"),
+        Input("newsroom-reject-recommendations", "n_clicks"),
+        State("newsroom-brief-store", "data"),
+        State("newsroom-recommendations-store", "data"),
+        State("newsroom-recommendation-selection", "value"),
+        prevent_initial_call=True,
+    )
+    def update_recommendation_queue(
+        generate_clicks: int,
+        approve_clicks: int,
+        reject_clicks: int,
+        brief: list[dict[str, Any]],
+        pending: list[dict[str, Any]],
+        selected_ids: list[str],
+    ):
+        from dash import callback_context, no_update
+        trigger = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else ""
+        current_brief = list(brief or [])
+        current_pending = [dict(item) for item in (pending or []) if isinstance(item, dict)]
+        selected = {str(value) for value in (selected_ids or []) if str(value).strip()}
+        try:
+            from services.research.evidence_coverage import analyze_evidence_coverage, build_recommended_evidence_sources, recommendations_to_options
+        except Exception as exc:
+            status = f"Evidence recommendation tools unavailable: {exc}"
+            return current_pending, [], [], status, status, no_update, no_update
+        if trigger == "newsroom-generate-recommendations":
+            coverage, recommendations = build_recommended_evidence_sources(current_brief)
+            options = recommendations_to_options(recommendations)
+            values = [option["value"] for option in options]
+            preview = _recommendation_markdown(coverage, recommendations)
+            missing = len(coverage.get("missing") or [])
+            status = f"Generated {len(recommendations)} recommendation(s) across {missing} missing evidence bucket(s). Review and approve selected candidates before they are added to the brief."
+            return recommendations, options, values, preview, status, no_update, no_update
+        if trigger == "newsroom-approve-recommendations":
+            if not current_pending:
+                status = "No pending recommendations to approve. Generate recommendations first."
+                coverage = analyze_evidence_coverage(current_brief)
+                return [], [], [], _recommendation_markdown(coverage, []), status, no_update, no_update
+            approved: list[dict[str, Any]] = []
+            remaining: list[dict[str, Any]] = []
+            generated_at = datetime.now().isoformat(timespec="seconds")
+            for item in current_pending:
+                rec_id = str(item.get("id") or item.get("rec_id") or "").strip()
+                if rec_id in selected:
+                    approved_item = dict(item)
+                    approved_item["brief_user_approved_recommendation"] = True
+                    approved_item["brief_added_at"] = generated_at
+                    approved_item["brief_added_sequence"] = len(current_brief) + len(approved) + 1
+                    approved_item["source_role"] = "approved-recommendation"
+                    metadata = dict(approved_item.get("metadata") or {})
+                    metadata["approved_at"] = generated_at
+                    metadata["approved_from_queue"] = True
+                    approved_item["metadata"] = metadata
+                    approved.append(approved_item)
+                else:
+                    remaining.append(item)
+            updated_brief = current_brief + approved
+            coverage = analyze_evidence_coverage(updated_brief)
+            options = recommendations_to_options(remaining)
+            preview = _recommendation_markdown(coverage, remaining)
+            brief_preview = _brief_markdown(updated_brief)
+            brief_preview += ("\n\n## Last Recommendation Approval" + f"\n- Selected recommendations: {len(selected)}" + f"\n- Approved recommendation(s): {len(approved)}" + f"\n- Pending remaining: {len(remaining)}" + f"\n- Brief total: {len(updated_brief)}")
+            status = f"Approved {len(approved)} recommendation(s) into the brief. Pending remaining: {len(remaining)}."
+            return remaining, options, [], preview, status, updated_brief, brief_preview
+        if trigger == "newsroom-reject-recommendations":
+            if not current_pending:
+                status = "No pending recommendations to reject."
+                coverage = analyze_evidence_coverage(current_brief)
+                return [], [], [], _recommendation_markdown(coverage, []), status, no_update, no_update
+            remaining = []
+            rejected = 0
+            for item in current_pending:
+                rec_id = str(item.get("id") or item.get("rec_id") or "").strip()
+                if rec_id in selected:
+                    rejected += 1
+                else:
+                    remaining.append(item)
+            coverage = analyze_evidence_coverage(current_brief)
+            options = recommendations_to_options(remaining)
+            preview = _recommendation_markdown(coverage, remaining)
+            status = f"Rejected {rejected} recommendation(s). Pending remaining: {len(remaining)}."
+            return remaining, options, [], preview, status, no_update, no_update
+        return no_update, no_update, no_update, no_update, no_update, no_update, no_update
 
     @app.callback(
         Output("newsroom-send-to-ai", "disabled"),
