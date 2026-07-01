@@ -798,7 +798,6 @@ def register_research_analyst_callbacks(app) -> None:
                 )
 
             context = evidence_packet_to_markdown(packet)
-
             hydrated_brief_items = [item for item in brief_items if _is_hydrated_fred_item(item)]
             hydrated_manifest = _hydrated_fred_manifest_markdown(hydrated_brief_items)
             if hydrated_manifest:

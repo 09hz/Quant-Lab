@@ -334,5 +334,19 @@ except Exception as research_analyst_callbacks_exc:
     )
 
 
+
+# =============================================================================
+# Research Autolab callback registration
+# =============================================================================
+try:
+    from services.ai.research_autolab.ui_callbacks import register_research_autolab_callbacks
+
+    register_research_autolab_callbacks(app)
+except Exception as exc:
+    print(f"[RESEARCH AUTOLAB] callback registration skipped: {exc}", flush=True)
+# =============================================================================
+# End Research Autolab callback registration
+# =============================================================================
+
 if __name__ == "__main__":
     app.run(debug=False)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 from dash import dcc, html
+from ui.research_autolab_ui import build_research_autolab_panel
 
 
 def _safe_get(obj: Any, *names: str, default: str = "") -> str:
@@ -204,6 +205,10 @@ def build_newsroom_tab(*args: Any, **kwargs: Any) -> Any:
 
                     html.Pre(id="newsroom-brief-preview", className="newsroom-brief-preview"),
                 ],
+            ),
+            html.Div(
+                className="newsroom-panel newsroom-autolab-panel",
+                children=[build_research_autolab_panel()],
             ),
             html.Div(className="newsroom-panel", children=[html.Div("Trusted Source Registry", className="newsroom-panel-title"), html.Div(_load_source_cards(), className="newsroom-source-grid")]),
         ],
