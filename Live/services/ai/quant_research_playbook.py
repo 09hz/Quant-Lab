@@ -397,7 +397,7 @@ def playbook_to_markdown(playbook: dict[str, Any]) -> str:
 
     regime = playbook.get("regime") or {}
     lines: list[str] = [
-        "## Quant research playbook",
+        "## Quant ideas only when requested",
         "",
         f"Regime label: {regime.get('regime_label', 'unknown')}",
         "",

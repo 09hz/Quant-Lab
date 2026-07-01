@@ -18,6 +18,24 @@ from services.ai.research_autolab.sim_guard import (
 )
 
 
+def _autolab_run_timestamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _ensure_autolab_output_dirs(live_root: Path) -> dict[str, Path]:
+    base = live_root / "data"
+    dirs = {
+        "results": base / "autolab_results",
+        "comparison": base / "autolab_comparison",
+        "payload": base / "autolab_payload",
+        "report": base / "autolab_report",
+        "journal": base / "autolab_journal",
+    }
+    for path in dirs.values():
+        assert_safe_output_path(path / ".safe_path_check")
+        path.mkdir(parents=True, exist_ok=True)
+    return dirs
+
 def _split_csv(value: str) -> list[str]:
     return [x.strip().upper() for x in str(value or "").replace("\n", ",").split(",") if x.strip()]
 
@@ -357,23 +375,43 @@ def register_research_autolab_callbacks(app) -> None:
                 "comparison": rows,
             }
 
-            json_path = out_dir / "autolab_ui_overlay_comparison.json"
-            csv_path = out_dir / "autolab_ui_overlay_comparison.csv"
+            run_stamp = _autolab_run_timestamp()
+            output_dirs = _ensure_autolab_output_dirs(out_dir)
+
+            results_path = output_dirs["results"] / f"autolab_results_{run_stamp}.json"
+            json_path = output_dirs["comparison"] / f"autolab_ui_overlay_comparison_{run_stamp}.json"
+            csv_path = output_dirs["comparison"] / f"autolab_ui_overlay_comparison_{run_stamp}.csv"
+            payload_path = output_dirs["payload"] / f"autolab_detailed_payload_{run_stamp}.json"
+
+            payload["run_id"] = run_stamp
+            payload["output_dirs"] = {key: str(value) for key, value in output_dirs.items()}
+
+            _write_json(results_path, macro)
             _write_json(json_path, payload)
+            _write_json(payload_path, payload)
             _write_csv(csv_path, rows)
 
-            report_artifacts = write_report_bundle(payload, out_dir=out_dir)
+            report_artifacts = write_report_bundle(
+                payload,
+                out_dir=out_dir,
+                run_id=run_stamp,
+                report_dir=output_dirs["report"],
+                payload_dir=output_dirs["payload"],
+                journal_dir=output_dirs["journal"],
+            )
             report_path = Path(report_artifacts["report_md"])
             journal_path = Path(report_artifacts["journal_csv"])
+            run_journal_path = Path(report_artifacts.get("run_journal_csv", journal_path))
 
             status = (
                 f"{safety_banner()} Compared {len(rows)} matched simulated runs. "
+                f"Run ID: {run_stamp}. "
                 f"Detailed report and strategy journal updated. "
                 f"Journal rows added: {report_artifacts.get('journal_rows_added', '0')}."
             )
             return (
                 status,
-                _artifact_links([json_path, csv_path, report_path, journal_path]),
+                _artifact_links([results_path, json_path, csv_path, payload_path, report_path, journal_path, run_journal_path]),
                 _build_table(rows),
                 _summary_md(rows, baseline=baseline, macro=macro),
                 payload,

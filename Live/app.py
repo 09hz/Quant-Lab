@@ -347,6 +347,14 @@ except Exception as exc:
 # =============================================================================
 # End Research Autolab callback registration
 # =============================================================================
+# =============================================================================
+# Structured official evidence preview callback registration
+# =============================================================================
+# Structured Evidence Reviewer callbacks kept for developer diagnostics only.
+# Normal SEC workflow now uses Newsroom source checkboxes and Research Brief cards.
+# =============================================================================
+# End structured official evidence preview callback registration
+# =============================================================================
 
 if __name__ == "__main__":
     app.run(debug=False)

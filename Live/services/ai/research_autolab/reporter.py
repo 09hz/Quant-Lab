@@ -121,26 +121,60 @@ def build_detailed_report(payload: dict[str, Any]) -> str:
     return '\n'.join(lines) + '\n'
 
 
-def write_report_bundle(payload: dict[str, Any], *, out_dir: str | Path) -> dict[str, str]:
-    out_dir = Path(out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+def _report_timestamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
-    report_md = out_dir / 'autolab_detailed_report.md'
-    comparison_json = out_dir / 'autolab_detailed_payload.json'
-    journal_csv = out_dir / 'autolab_strategy_journal.csv'
-    cards_dir = out_dir / 'autolab_strategy_cards'
+
+def write_report_bundle(
+    payload: dict[str, Any],
+    *,
+    out_dir: str | Path,
+    run_id: str | None = None,
+    report_dir: str | Path | None = None,
+    payload_dir: str | Path | None = None,
+    journal_dir: str | Path | None = None,
+) -> dict[str, str]:
+    out_dir = Path(out_dir)
+    data_dir = out_dir / 'data'
+    run_id = str(run_id or payload.get('run_id') or _report_timestamp())
+
+    report_dir = Path(report_dir) if report_dir is not None else data_dir / 'autolab_report'
+    payload_dir = Path(payload_dir) if payload_dir is not None else data_dir / 'autolab_payload'
+    journal_dir = Path(journal_dir) if journal_dir is not None else data_dir / 'autolab_journal'
+
+    report_dir.mkdir(parents=True, exist_ok=True)
+    payload_dir.mkdir(parents=True, exist_ok=True)
+    journal_dir.mkdir(parents=True, exist_ok=True)
+
+    report_md = report_dir / f'autolab_detailed_report_{run_id}.md'
+    comparison_json = payload_dir / f'autolab_detailed_payload_{run_id}.json'
+    journal_csv = journal_dir / 'autolab_strategy_journal.csv'
+    run_journal_csv = journal_dir / f'autolab_strategy_journal_{run_id}.csv'
+    cards_dir = journal_dir / f'autolab_strategy_cards_{run_id}'
 
     report_md.write_text(build_detailed_report(payload), encoding='utf-8')
     comparison_json.write_text(json.dumps(payload, indent=2, default=str) + '\n', encoding='utf-8')
 
     journal_rows = journal_rows_from_comparison(payload)
     added = append_strategy_journal(journal_csv, journal_rows)
+
+    if journal_rows:
+        import csv
+        with run_journal_csv.open('w', newline='', encoding='utf-8') as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(journal_rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(journal_rows)
+    else:
+        run_journal_csv.write_text('', encoding='utf-8')
+
     card_paths = write_strategy_cards(cards_dir, journal_rows)
 
     return {
+        'run_id': run_id,
         'report_md': str(report_md),
         'payload_json': str(comparison_json),
         'journal_csv': str(journal_csv),
+        'run_journal_csv': str(run_journal_csv),
         'strategy_cards_dir': str(cards_dir),
         'strategy_cards_written': str(len(card_paths)),
         'journal_rows_added': str(added),

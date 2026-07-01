@@ -290,154 +290,193 @@ def _hydrated_fred_manifest_markdown(items: list[dict[str, Any]]) -> str:
     return "\n".join(lines).strip() + "\n"
 
 def _research_item_key(item: dict[str, Any]) -> str:
-    # User-approved hydrated FRED evidence cards are distinct confirmed data cards.
-    # Do not collapse them with macro-anchor/source-discovery cards that reuse the
-    # same FRED URL. Key them by series id first.
-    if _is_hydrated_fred_item(item):
-        series_id = _extract_fred_series_id(item)
-        if series_id:
-            return "hydrated-fred:" + series_id.lower()
+    """
+    Stable de-duplication key for Research Analyst evidence items.
 
-    url = str(item.get("url") or item.get("link") or "").strip().lower()
+    SEC companyfacts cards must not be deduped by URL because several distinct
+    cards often point to the same SEC filing index or same companyfacts JSON URL.
+    """
+    if not isinstance(item, dict):
+        return ""
+
+    metadata = item.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    def pick(*names: str) -> str:
+        for name in names:
+            value = item.get(name)
+            if value not in (None, ""):
+                return str(value)
+            value = metadata.get(name)
+            if value not in (None, ""):
+                return str(value)
+        return ""
+
+    blob = " ".join(
+        str(x or "")
+        for x in [
+            item.get("kind"),
+            item.get("source"),
+            item.get("title"),
+            item.get("summary"),
+            item.get("evidence_role"),
+            item.get("path"),
+            item.get("url"),
+            metadata.get("kind"),
+            metadata.get("source"),
+            metadata.get("title"),
+            metadata.get("summary"),
+            metadata.get("evidence_role"),
+            metadata.get("path"),
+            metadata.get("url"),
+            metadata.get("source_url"),
+        ]
+    ).lower()
+
+    is_sec_companyfacts = (
+        "sec-companyfacts" in blob
+        or "sec edgar companyfacts" in blob
+        or "confirmed-official-sec-companyfacts" in blob
+        or "normal newsroom checkbox/add selected to brief" in blob
+    )
+
+    if is_sec_companyfacts:
+        for key_name in ("brief_selection_id", "id", "brief_dedupe_key"):
+            value = pick(key_name)
+            if value:
+                return "sec-card:" + value
+
+        ticker = pick("ticker", "symbol")
+        metric = pick("metric", "label")
+        concept = pick("concept", "xbrl_concept", "tag")
+        period_end = pick("period_end", "end", "period")
+        filed = pick("filed", "filed_date", "filing_date")
+        accession = pick("accession", "accn", "accession_number")
+        value = pick("latest_value", "value", "val")
+        unit = pick("unit", "latest_unit", "units")
+        title = pick("title", "headline")
+        return "sec-card:" + "|".join(
+            [ticker, metric, concept, period_end, filed, accession, value, unit, title]
+        ).lower()
+
+    series_id = ""
+    try:
+        series_id = _extract_fred_series_id(item)
+    except Exception:
+        series_id = ""
+    if series_id:
+        return "fred-series:" + str(series_id).upper()
+
+    for key_name in ("brief_selection_id", "id", "brief_dedupe_key"):
+        value = pick(key_name)
+        if value:
+            return key_name + ":" + value
+
+    url = pick("url", "source_url", "link")
     if url:
         return "url:" + url
 
-    item_id = str(item.get("id") or "").strip().lower()
-    if item_id:
-        return "id:" + item_id
+    source = pick("source", "publisher")
+    title = pick("title", "headline", "name")
+    if source or title:
+        return "title:" + source.lower() + ":" + title.lower()
 
-    source = str(item.get("source") or item.get("publisher") or "").strip().lower()
-    title = str(item.get("title") or item.get("headline") or item.get("name") or "").strip().lower()
-    return "title:" + source + ":" + title
-
+    return ""
 
 def _merge_newsroom_payloads(*payloads: Any, max_items: int = 28) -> list[dict[str, Any]]:
-    # Merge brief, result, and supplemental sources without duplicating URLs/titles.
+    """
+    Merge Newsroom evidence for the Research Analyst.
+
+    If user-selected SEC/companyfacts brief cards are present, use all of them
+    as the primary packet. Do not dedupe SEC cards by shared filing URL.
+    """
+    raw_items: list[dict[str, Any]] = []
+    for payload in payloads:
+        raw_items.extend(_research_items_from_payload(payload, max_items=max_items * 4))
+
+    def text_blob(item: dict[str, Any]) -> str:
+        metadata = item.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+        fields = [
+            item.get("kind"),
+            item.get("source"),
+            item.get("title"),
+            item.get("summary"),
+            item.get("evidence_role"),
+            item.get("path"),
+            item.get("url"),
+            metadata.get("kind"),
+            metadata.get("source"),
+            metadata.get("title"),
+            metadata.get("summary"),
+            metadata.get("evidence_role"),
+            metadata.get("path"),
+            metadata.get("url"),
+            metadata.get("source_url"),
+        ]
+        return " ".join(str(x or "") for x in fields).lower()
+
+    def is_sec_companyfacts_card(item: dict[str, Any]) -> bool:
+        blob = text_blob(item)
+        return (
+            "confirmed-official-sec-companyfacts" in blob
+            or "normal newsroom checkbox/add selected to brief" in blob
+            or "sec-companyfacts-official-data-card" in blob
+            or ("sec edgar companyfacts" in blob and "companyfacts" in blob)
+        )
+
+    def is_auto_extra_noise(item: dict[str, Any]) -> bool:
+        blob = text_blob(item)
+        return (
+            "macro anchor" in blob
+            or "macro-anchor" in blob
+            or "structured fred macro anchors" in blob
+            or "supplemental newsroom source candidate" in blob
+            or "official evidence staging" in blob
+            or "approved_structured_evidence" in blob
+            or "quant research playbook" in blob
+        )
+
+    sec_items = [item for item in raw_items if isinstance(item, dict) and is_sec_companyfacts_card(item)]
+
+    if sec_items:
+        merged: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for idx, item in enumerate(sec_items):
+            key = _research_item_key(item)
+            if not key:
+                key = "sec-card-pos:" + str(idx)
+            if key in seen:
+                continue
+            merged.append(item)
+            seen.add(key)
+            if len(merged) >= max_items:
+                break
+        return merged
+
     merged: list[dict[str, Any]] = []
     seen: set[str] = set()
-
-    for payload in payloads:
-        for item in _research_items_from_payload(payload, max_items=max_items * 2):
-            key = _research_item_key(item)
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            merged.append(item)
-            if len(merged) >= max_items:
-                return merged
+    for item in raw_items:
+        if not isinstance(item, dict) or is_auto_extra_noise(item):
+            continue
+        key = _research_item_key(item)
+        if not key:
+            continue
+        if key in seen:
+            continue
+        merged.append(item)
+        seen.add(key)
+        if len(merged) >= max_items:
+            break
 
     return merged
 
-
-def _build_supplemental_research_sources(
-    *,
-    question: str,
-    topic: str,
-    symbol: str,
-    selected_sources: list[str] | tuple[str, ...] | None,
-    max_items: int = 12,
-) -> tuple[list[dict[str, Any]], str, str | None]:
-    # Build extra source candidates through approved Newsroom/FRED pipelines.
-    #
-    # Structured official data is inserted first. Generic search landing pages
-    # are kept as source-discovery context only.
-    question_clean = _clean_text(question, max_len=500)
-    topic_clean = _clean_text(topic, max_len=240)
-    symbol_clean = _clean_text(symbol, max_len=32).upper()
-
-    query_parts = [
-        symbol_clean,
-        topic_clean,
-        question_clean,
-        "market impact sector impact tech manufacturing current quarter earnings guidance macro rates inflation PMI industrial production financial conditions volatility yields",
-    ]
-    query = " ".join(part for part in query_parts if part).strip()
-    query = _clean_text(query, max_len=900)
-
-    sources = list(selected_sources or [])
-    if not sources:
-        sources = ["fred", "sec", "bls", "bea", "fed", "news"]
-
-    supplemental: list[dict[str, Any]] = []
-    errors: list[str] = []
-
-    # 1) Structured official gap-fill first.
-    try:
-        from services.research.research_analyst_gap_fill import build_structured_gap_fill_items
-
-        structured_items, scope_plan, structured_error = build_structured_gap_fill_items(
-            question=question_clean,
-            topic=topic_clean,
-            symbol=symbol_clean,
-            selected_sources=sources,
-            max_items=max(8, min(18, max_items + 6)),
-            fetch_live=True,
-        )
-        for item in structured_items:
-            if isinstance(item, dict):
-                metadata = dict(item.get("metadata") or {})
-                metadata["research_analyst_scope_plan"] = {
-                    "scopes": scope_plan.get("scopes", []),
-                    "evidence_labels": scope_plan.get("evidence_labels", []),
-                }
-                item["metadata"] = metadata
-                supplemental.append(item)
-        if structured_error:
-            errors.append(f"Structured gap-fill warning: {structured_error}")
-    except Exception as exc:
-        errors.append(f"Structured gap-fill unavailable: {exc}")
-
-    # 2) Search/discovery links second.
-    try:
-        from services.research.newsroom_callbacks import _build_results
-    except Exception as exc:
-        return supplemental[:max_items], query, "; ".join(errors + [f"Newsroom source builder unavailable: {exc}"])
-
-    try:
-        raw_results = _build_results(query, sources)
-    except Exception as exc:
-        return supplemental[:max_items], query, "; ".join(errors + [f"Supplemental source build failed: {exc}"])
-
-    try:
-        from services.research.result_hygiene import clean_newsroom_results
-
-        raw_results = clean_newsroom_results(raw_results)
-    except Exception:
-        pass
-
-    for index, raw in enumerate(raw_results or [], start=1):
-        if not isinstance(raw, dict):
-            continue
-
-        item = dict(raw)
-        item["id"] = f"research-analyst-supplemental-{index}-{item.get('id', index)}"
-        item["source_role"] = item.get("source_role") or "source-discovery"
-        item["used_for_ai"] = True
-        item["selectable"] = True
-
-        metadata = dict(item.get("metadata") or {})
-        metadata["research_analyst_supplemental"] = True
-        metadata["supplemental_query"] = query
-        metadata["source_discovery_only"] = True
-        item["metadata"] = metadata
-
-        summary = _clean_text(item.get("summary"), max_len=900)
-        discovery_note = (
-            "Source-discovery candidate only. Use this to identify where to look next; "
-            "do not treat a search landing page as confirmed market evidence. "
-        )
-        item["summary"] = discovery_note + summary if summary else discovery_note
-        if not item.get("confidence"):
-            item["confidence"] = "low"
-        if not item.get("validity"):
-            item["validity"] = "source-discovery"
-
-        supplemental.append(item)
-        if len(supplemental) >= max_items:
-            break
-
-    return supplemental[:max_items], query, "; ".join(errors) if errors else None
-
+def _build_supplemental_research_sources(*args, **kwargs):
+    # Disabled: old automatic supplemental source path.
+    # Use Newsroom selected cards / current Research Brief instead.
+    return [], "disabled", None
 
 def _brief_only_requested(question: str) -> bool:
     # Return True when the user explicitly asks to audit only the approved Newsroom brief.
@@ -518,98 +557,537 @@ def _hydrated_fred_audit_requested(question: str) -> bool:
     return any(term in q for term in audit_terms) and any(term in q for term in series_terms)
 
 
-def _quant_playbook_requested(question: str) -> bool:
-    # Return True when the user explicitly asks for a research-only quant playbook,
-    # strategy test plan, backtest plan, or how to trade/use the evidence.
-    q = " ".join(str(question or "").strip().lower().split())
-    if not q:
-        return False
-
-    triggers = (
-        "quant playbook",
-        "quant research playbook",
-        "playbook",
-        "backtest",
-        "backtesting",
-        "test plan",
-        "strategy",
-        "trade this",
-        "trade it",
-        "how to trade",
-        "how would you trade",
-        "how can i trade",
-        "how should i trade",
-        "use this information",
-        "use this evidence",
-        "build a strategy",
-        "trading strategy",
-        "signals",
-        "filters",
-        "invalidation rules",
-        "symbols to test",
-    )
-    return any(token in q for token in triggers)
+def _quant_playbook_requested(*args, **kwargs):
+    # Disabled: old optional auto-augmentation path.
+    # Use Newsroom selected cards / current Research Brief instead.
+    return False
 
 def _enhance_research_analyst_user_prompt(question: str, output_style: str = "concise", supplemental_count: int = 0) -> str:
-    """Build a non-recursive Research Analyst question with market-impact guardrails."""
-    clean_question = _clean_text(question, max_len=1200)
+    """Build a flexible Research Analyst prompt. No fixed numbered template."""
+    clean_question = _clean_text(question, max_len=1600)
     style = str(output_style or "concise").strip() or "concise"
-    try:
-        supplemental_count_int = max(0, int(supplemental_count or 0))
-    except Exception:
-        supplemental_count_int = 0
-
-    instructions = [
-        "Answer using only the evidence packet plus approved supplemental Newsroom sources.",
-        "Use a professional institutional research tone suitable for a trading research platform.",
-        "Do not use emojis, check marks, cross marks, warning icons, chart icons, or decorative symbols.",
-        "Use plain words instead of icons: confirmed, missing, warning, rising, falling, flat, improving, deteriorating.",
-        "When an Approved Hydrated FRED Official Data Cards manifest is present, treat that manifest as authoritative and list every series in it before declaring evidence missing.",
-        "Treat FRED structured macro anchors as confirmed official data when present; treat search landing pages as discovery context only.",
-        "Use trend deltas (latest, prior, 1-period, 3-period, and 6-period changes) when provided before making sector or quarter claims.",
-        "Treat FRED structured observations as confirmed official data when values are present.",
-        "Treat generic search landing pages as source-discovery context only, not confirmed evidence.",
-        "Label conclusions as confirmed, proxy-only, or missing depending on the evidence available.",
-        "Do not invent current facts, article contents, prices, earnings, or sector data that are not in the evidence.",
-        "Do not assign a number, level, or month-over-month change to a series unless that exact value belongs to that same named series in the evidence packet.",
-        "Keep CPI, core CPI, PCE, core PCE, FEDFUNDS, yields, earnings, and sector data separate.",
-        "If the evidence is incomplete, say what is missing and explain how that limits confidence.",
-        "Use this answer structure:",
-        "1. Executive read",
-        "2. Important highlights",
-        "3. Market impact",
-        "4. Tech sector impact",
-        "5. Manufacturing sector impact",
-        "6. Bullish/bearish/mixed current-quarter read",
-        "7. Correlation/transmission path",
-        "8. What could invalidate the view",
-        "9. Sources used and remaining gaps",
-        "10. Quant research playbook (only when user asks how to trade, backtest, use this information, or build a strategy): regime label, tradable hypotheses, symbols to test, filters, invalidation rules, and backtest plan.",
-        "Never present the quant playbook as a live trade recommendation; it is research-only and must require backtesting/validation before use.",
-        "Finish with a final read. Always end with a final read that says bullish, bearish, mixed, or insufficient evidence.",
-        "For concise style, use short paragraphs instead of long bullet-only output.",
-    ]
-
-    if supplemental_count_int > 0:
-        instructions.insert(
-            1,
-            f"The evidence packet includes {supplemental_count_int} supplemental Newsroom source candidate(s); use them as context, but label them as supplemental and lower-confidence unless confirmed by official or filing evidence.",
-        )
 
     if not clean_question:
         clean_question = (
-            "Summarize the evidence packet, explain market and sector impact, "
-            "and give a bullish/bearish/mixed read with confidence."
+            "Give a practical research analyst read using the current Newsroom Research Brief. "
+            "Separate brief evidence from interpretation and state what is missing."
         )
 
-    parts = [
-        clean_question,
+    instructions = [
+        "Answer the user's question directly using the current Newsroom Research Brief as the primary source of current facts.",
+        "When SEC companyfacts official-data cards are present, inventory every SEC card before interpreting. Do not silently omit any SEC card.",
+        "For each SEC companyfacts card present, preserve its ticker, metric, value, unit, period end, filed date, form, accession, and concept.",
+        "When making the practical analyst read, use all available SEC metrics together. If revenue, net income, EPS, operating income, cash, or shares are present, discuss each one at least briefly or explain why it is not relevant.",
+        "Do not say SEC companyfacts cards are missing when SEC companyfacts official-data cards are present in the evidence packet or brief.",
+        "Clearly separate brief evidence from interpretation. Use general accounting, market, and sector knowledge only as interpretation, not as new current facts.",
+        "Do not use macro anchors, supplemental source candidates, official evidence staging files, or a quant research playbook unless the user explicitly asks for them.",
+        "Do not use a fixed numbered template. Use natural short headings such as Brief evidence, Practical read, and Missing evidence only when they help readability.",
+        "Use a professional institutional research tone that is direct and easy to read. Prefer short paragraphs and short lists. Avoid long rigid templates.",
+        "Keep this research-only and simulation/advisory only. Do not provide live trading instructions, broker actions, order placement, position sizing, or personalized financial advice.",
+        "If evidence is incomplete, explain the specific gap briefly, then still answer what can be answered from the available brief evidence.",
+        f"Requested output style: {style}.",
         "",
-        f"Requested output style: {style}",
-        "Research Analyst instructions:",
+        "User question:",
+        clean_question,
     ]
-    parts.extend(f"- {item}" for item in instructions)
-    return "\n".join(parts)
+    return "\n".join(instructions).strip()
+
+def _approved_structured_evidence_markdown(*args, **kwargs):
+    # Disabled: old optional auto-augmentation path.
+    # Use Newsroom selected cards / current Research Brief instead.
+    return ""
+
+def _approved_structured_cards_for_brief(*args, **kwargs):
+    # Disabled: old optional auto-augmentation path.
+    # Use Newsroom selected cards / current Research Brief instead.
+    return []
+
+def _research_analyst_style_instruction(question: str) -> str:
+    return (
+        "Write like a professional research analyst. Make the result clear, direct, and easy to read. "
+        "Do not force a fixed numbered template or a fixed bullet template. "
+        "Use short headings and short paragraphs. Use bullets only when the user asks for a list "
+        "or when they materially improve readability. "
+        "Use the current Newsroom Research Brief for current facts. "
+        "You may use general domain knowledge for interpretation when clearly labeled. "
+        "Do not invent current facts that are not present in the brief or provided context."
+    )
+
+def _approved_structured_staging_blocked(*args, **kwargs):
+    # Disabled: old optional auto-augmentation path.
+    # Use Newsroom selected cards / current Research Brief instead.
+    return ""
+
+def _approved_structured_audit_requested(*args, **kwargs):
+    # Disabled: old optional auto-augmentation path.
+    # Use Newsroom selected cards / current Research Brief instead.
+    return False
+
+def _approved_structured_audit_answer(*args, **kwargs):
+    # Disabled: old optional auto-augmentation path.
+    # Use Newsroom selected cards / current Research Brief instead.
+    return ""
+
+def _approved_structured_sources_children(*args, **kwargs):
+    # Disabled: old optional auto-augmentation path.
+    # Use Newsroom selected cards / current Research Brief instead.
+    return []
+
+def _sec_companyfacts_full_evidence_markdown(*payloads: Any) -> str:
+    """
+    Build an explicit SEC companyfacts table from raw Newsroom brief/result data.
+
+    Important: prefer raw dicts over _research_items_from_payload(), because the
+    generic conversion can collapse rich SEC card metadata into source-title-only
+    items.
+    """
+    import re
+
+    def walk(obj: Any) -> list[dict[str, Any]]:
+        found: list[dict[str, Any]] = []
+        if isinstance(obj, list):
+            for value in obj:
+                found.extend(walk(value))
+            return found
+        if isinstance(obj, dict):
+            found.append(obj)
+            for key in ("items", "source_links", "links", "results", "brief", "data", "metadata", "children"):
+                value = obj.get(key)
+                if isinstance(value, (list, dict)):
+                    found.extend(walk(value))
+            return found
+        return found
+
+    def pick(item: dict[str, Any], *names: str) -> str:
+        pools = [item]
+        for key in ("metadata", "data", "raw", "fact", "sec_fact", "extra"):
+            value = item.get(key)
+            if isinstance(value, dict):
+                pools.append(value)
+        for pool in pools:
+            for name in names:
+                value = pool.get(name)
+                if value not in (None, ""):
+                    return str(value)
+        return ""
+
+    def text_blob(item: dict[str, Any]) -> str:
+        pools = [item]
+        for key in ("metadata", "data", "raw", "fact", "sec_fact", "extra"):
+            value = item.get(key)
+            if isinstance(value, dict):
+                pools.append(value)
+        parts: list[str] = []
+        for pool in pools:
+            for name in (
+                "id", "brief_selection_id", "brief_dedupe_key", "kind", "source",
+                "title", "headline", "summary", "evidence_role", "path", "url",
+                "source_url", "companyfacts_url", "filing_url", "metric", "concept",
+            ):
+                parts.append(str(pool.get(name) or ""))
+        return " ".join(parts)
+
+    def is_sec(item: dict[str, Any]) -> bool:
+        blob = text_blob(item).lower()
+        return (
+            "sec-companyfacts" in blob
+            or "sec edgar companyfacts" in blob
+            or "confirmed-official-sec-companyfacts" in blob
+            or "normal newsroom checkbox/add selected to brief" in blob
+            or "from sec companyfacts" in blob
+        )
+
+    def parse_from_text(item: dict[str, Any]) -> dict[str, str]:
+        text = text_blob(item)
+        out: dict[str, str] = {}
+
+        m = re.search(
+            r"\(([A-Z]{1,6})\)\s+([A-Za-z_]+)\s*:\s*([-+0-9.,]+)\s+([A-Za-z/$]+)",
+            text,
+        )
+        if m:
+            out["ticker"] = m.group(1)
+            out["metric"] = m.group(2)
+            out["value"] = m.group(3).replace(",", "")
+            out["unit"] = m.group(4)
+
+        title_metric = re.search(r"\(([A-Z]{1,6})\)\s+([A-Za-z_]+)\s+from\s+SEC companyfacts", text, flags=re.I)
+        if title_metric:
+            out.setdefault("ticker", title_metric.group(1).upper())
+            out.setdefault("metric", title_metric.group(2))
+
+        patterns = {
+            "period_end": r"period end\s+([0-9]{4}-[0-9]{2}-[0-9]{2})",
+            "filed": r"filed(?: date)?\s*[:|]?\s*([0-9]{4}-[0-9]{2}-[0-9]{2})",
+            "form": r"\b(10-[QK]|20-F|40-F)\b",
+            "accession": r"accession\s*[:|]?\s*([0-9-]+)",
+            "concept": r"concept\s*[:|]?\s*([A-Za-z0-9_:-]+)",
+        }
+        for key, pattern in patterns.items():
+            mm = re.search(pattern, text, flags=re.I)
+            if mm:
+                out[key] = mm.group(1).rstrip(".")
+        return out
+
+    def row_from_item(item: dict[str, Any]) -> dict[str, str]:
+        parsed = parse_from_text(item)
+        title = pick(item, "title", "headline") or str(item.get("title") or item.get("headline") or "")
+        metric = pick(item, "metric") or parsed.get("metric", "")
+
+        # Do not use label as metric unless metric is absent; label can be a verbose concept label.
+        if not metric:
+            metric = pick(item, "label")
+
+        if not metric and title:
+            m = re.search(r"\)\s+([A-Za-z_]+)\s+from\s+SEC companyfacts", title, flags=re.I)
+            if m:
+                metric = m.group(1)
+
+        return {
+            "ticker": pick(item, "ticker", "symbol") or parsed.get("ticker", ""),
+            "entity": pick(item, "entity", "company", "entityName"),
+            "metric": metric,
+            "value": pick(item, "latest_value", "value", "val") or parsed.get("value", ""),
+            "unit": pick(item, "unit", "latest_unit", "units", "uom") or parsed.get("unit", ""),
+            "period_end": pick(item, "period_end", "end", "period") or parsed.get("period_end", ""),
+            "filed": pick(item, "filed", "filed_date", "filing_date") or parsed.get("filed", ""),
+            "form": pick(item, "form", "filing_form") or parsed.get("form", ""),
+            "accession": pick(item, "accession", "accn", "accession_number") or parsed.get("accession", ""),
+            "concept": pick(item, "concept", "xbrl_concept", "tag") or parsed.get("concept", ""),
+            "source": pick(item, "filing_url", "url", "source_url", "companyfacts_url", "link") or str(item.get("url") or ""),
+            "title": title,
+        }
+
+    def parse_research_brief_markdown(md: str) -> list[dict[str, str]]:
+        sections = re.split(r"\n###\s+SEC companyfacts official-data card\s*\n", md)
+        rows: list[dict[str, str]] = []
+        for section in sections[1:]:
+            row: dict[str, str] = {}
+            for raw_line in section.splitlines():
+                line = raw_line.strip()
+                if not line.startswith("- "):
+                    continue
+                key_value = line[2:].split(":", 1)
+                if len(key_value) != 2:
+                    continue
+                key = key_value[0].strip().lower().replace(" ", "_")
+                value = key_value[1].strip()
+                mapping = {
+                    "ticker": "ticker",
+                    "entity": "entity",
+                    "metric": "metric",
+                    "latest_value": "value",
+                    "unit": "unit",
+                    "period_end": "period_end",
+                    "filed_date": "filed",
+                    "form": "form",
+                    "accession": "accession",
+                    "concept": "concept",
+                    "source": "source",
+                }
+                if key in mapping:
+                    row[mapping[key]] = value
+            if row:
+                rows.append(row)
+        return rows
+
+    rows: list[dict[str, str]] = []
+
+    for payload in payloads:
+        if isinstance(payload, str) and "SEC companyfacts official-data card" in payload:
+            rows.extend(parse_research_brief_markdown(payload))
+
+        for item in walk(payload):
+            if isinstance(item, dict) and is_sec(item):
+                row = row_from_item(item)
+                if any(row.get(k) for k in ("metric", "concept", "value", "title")):
+                    rows.append(row)
+
+    # Last resort: use generic conversion only after raw extraction.
+    for payload in payloads:
+        try:
+            for item in _research_items_from_payload(payload, max_items=200):
+                if isinstance(item, dict) and is_sec(item):
+                    row = row_from_item(item)
+                    if any(row.get(k) for k in ("metric", "concept", "value", "title")):
+                        rows.append(row)
+        except Exception:
+            pass
+
+    def norm_metric(row: dict[str, str]) -> str:
+        return (row.get("metric") or row.get("concept") or row.get("title") or "").strip().lower()
+
+    def row_quality(row: dict[str, str]) -> int:
+        score = 0
+        for field in ("ticker", "metric", "value", "unit", "period_end", "filed", "form", "accession", "concept", "source"):
+            if row.get(field):
+                score += 1
+        return score
+
+    # Merge duplicate rows by ticker/metric/concept/accession, keeping the most complete version.
+    merged: dict[str, dict[str, str]] = {}
+    for row in rows:
+        key = "|".join(
+            [
+                (row.get("ticker") or "").upper(),
+                norm_metric(row),
+                (row.get("concept") or "").lower(),
+                row.get("accession") or "",
+            ]
+        )
+        if not key.strip("|"):
+            continue
+        existing = merged.get(key)
+        if existing is None or row_quality(row) > row_quality(existing):
+            merged[key] = dict(row)
+        else:
+            for field, value in row.items():
+                if value and not existing.get(field):
+                    existing[field] = value
+
+    final_rows = list(merged.values())
+
+    # If source-title-only duplicates exist for the same metric as a complete row, drop the incomplete duplicate.
+    complete = {
+        ((r.get("ticker") or "").upper(), norm_metric(r))
+        for r in final_rows
+        if r.get("value") and r.get("unit")
+    }
+    final_rows = [
+        r for r in final_rows
+        if (r.get("value") and r.get("unit"))
+        or ((r.get("ticker") or "").upper(), norm_metric(r)) not in complete
+    ]
+
+    if not final_rows:
+        return ""
+
+    order = {"revenue": 0, "net_income": 1, "eps": 2, "operating_income": 3, "cash": 4, "shares": 5}
+    final_rows.sort(key=lambda r: (order.get(norm_metric(r), 99), norm_metric(r), r.get("concept", "")))
+
+    lines = [
+        "FULL CURRENT NEWSROOM SEC COMPANYFACTS TABLE",
+        f"SEC card count: {len(final_rows)}",
+        "Use every row in this table. Values below override any source-title-only summary.",
+        "",
+    ]
+
+    for idx, row in enumerate(final_rows, start=1):
+        lines.extend(
+            [
+                f"{idx}. ticker: {row.get('ticker') or 'unknown'}",
+                f"   entity: {row.get('entity') or 'unknown'}",
+                f"   metric: {row.get('metric') or row.get('concept') or row.get('title') or 'unknown'}",
+                f"   value: {row.get('value') or 'unknown'}",
+                f"   unit: {row.get('unit') or 'unknown'}",
+                f"   period_end: {row.get('period_end') or 'unknown'}",
+                f"   filed: {row.get('filed') or 'unknown'}",
+                f"   form: {row.get('form') or 'unknown'}",
+                f"   accession: {row.get('accession') or 'unknown'}",
+                f"   concept: {row.get('concept') or 'unknown'}",
+                f"   source: {row.get('source') or 'unknown'}",
+                "",
+            ]
+        )
+
+    return "\n".join(lines).strip()
+
+def _fred_newsroom_evidence_markdown(*payloads: Any) -> str:
+    """
+    Build an explicit FRED evidence table from raw Newsroom brief/result data.
+
+    This handles normal Newsroom FRED cards with kind='fred-data'. It does not
+    require the older hydrated-FRED path, so selected FRED cards in the Research
+    Brief reach the Analyst the same way SEC cards now do.
+    """
+    import re
+
+    def walk(obj: Any) -> list[dict[str, Any]]:
+        found: list[dict[str, Any]] = []
+        if isinstance(obj, list):
+            for value in obj:
+                found.extend(walk(value))
+            return found
+        if isinstance(obj, dict):
+            found.append(obj)
+            for key in ("items", "source_links", "links", "results", "brief", "data", "metadata", "children"):
+                value = obj.get(key)
+                if isinstance(value, (list, dict)):
+                    found.extend(walk(value))
+            return found
+        return found
+
+    def pick(item: dict[str, Any], *names: str) -> str:
+        pools = [item]
+        for key in ("metadata", "data", "raw", "fact", "extra"):
+            value = item.get(key)
+            if isinstance(value, dict):
+                pools.append(value)
+        for pool in pools:
+            for name in names:
+                value = pool.get(name)
+                if value not in (None, ""):
+                    return str(value)
+        return ""
+
+    def text_blob(item: dict[str, Any]) -> str:
+        pools = [item]
+        for key in ("metadata", "data", "raw", "fact", "extra"):
+            value = item.get(key)
+            if isinstance(value, dict):
+                pools.append(value)
+        parts: list[str] = []
+        for pool in pools:
+            for name in (
+                "id", "kind", "source", "title", "headline", "summary", "url",
+                "source_url", "series_id", "fred_series_id", "units", "frequency",
+            ):
+                parts.append(str(pool.get(name) or ""))
+        return " ".join(parts)
+
+    def is_fred(item: dict[str, Any]) -> bool:
+        blob = text_blob(item).lower()
+        source = pick(item, "source").lower()
+        kind = pick(item, "kind").lower()
+        return (
+            source == "fred"
+            or kind == "fred-data"
+            or kind == "fred-data-warning"
+            or "latest fred value" in blob
+            or "fred.stlouisfed.org/series/" in blob
+            or re.search(r"\bfred-data-\d+-[a-z0-9_]+", blob) is not None
+        )
+
+    def parse_summary(item: dict[str, Any]) -> dict[str, str]:
+        text = text_blob(item)
+        out: dict[str, str] = {}
+
+        # Title style: CPIAUCSL: Consumer Price Index...
+        title = pick(item, "title", "headline") or str(item.get("title") or "")
+        tm = re.match(r"\s*([A-Z0-9_]{2,20})\s*:\s*(.+?)\s*$", title)
+        if tm:
+            out["series_id"] = tm.group(1).upper()
+            out["title"] = tm.group(2).strip()
+
+        # Summary style:
+        # Latest FRED value for CPIAUCSL: 333.979 on 2026-05-01 (Index ..., Monthly).
+        # Prior value: 332.407 on 2026-04-01; change vs prior: +1.572.
+        m = re.search(
+            r"Latest FRED value for\s+([A-Z0-9_]+)\s*:\s*([-+0-9.,]+|n/a)\s+on\s+([0-9]{4}-[0-9]{2}-[0-9]{2}|n/a)\s*\((.*?),\s*([^)]+)\)",
+            text,
+            flags=re.I,
+        )
+        if m:
+            out["series_id"] = m.group(1).upper()
+            out["latest_value"] = m.group(2).replace(",", "")
+            out["latest_date"] = m.group(3)
+            out["units"] = m.group(4).strip()
+            out["frequency"] = m.group(5).strip()
+
+        p = re.search(
+            r"Prior value:\s*([-+0-9.,]+|n/a)\s+on\s+([0-9]{4}-[0-9]{2}-[0-9]{2}|n/a)\s*;\s*change vs prior:\s*([-+0-9.,]+|n/a)",
+            text,
+            flags=re.I,
+        )
+        if p:
+            out["previous_value"] = p.group(1).replace(",", "")
+            out["previous_date"] = p.group(2)
+            out["change"] = p.group(3).replace(",", "")
+
+        return out
+
+    rows: list[dict[str, str]] = []
+
+    for payload in payloads:
+        for item in walk(payload):
+            if not isinstance(item, dict) or not is_fred(item):
+                continue
+
+            parsed = parse_summary(item)
+            series_id = (
+                pick(item, "series_id", "fred_series_id", "ticker")
+                or parsed.get("series_id", "")
+            ).upper()
+
+            # Avoid false positives where ticker from SEC got treated as series id.
+            source = pick(item, "source")
+            kind = pick(item, "kind")
+            if source.upper() != "FRED" and "fred" not in kind.lower() and "latest fred value" not in text_blob(item).lower():
+                continue
+
+            title = pick(item, "title", "headline") or parsed.get("title", "")
+            if title.upper().startswith(series_id + ":"):
+                title = title.split(":", 1)[1].strip()
+
+            row = {
+                "series_id": series_id or "unknown",
+                "title": title or parsed.get("title", "") or "unknown",
+                "latest_value": pick(item, "latest_value", "value", "latest") or parsed.get("latest_value", ""),
+                "latest_date": pick(item, "latest_date", "date") or parsed.get("latest_date", ""),
+                "previous_value": pick(item, "previous_value", "prior_value", "previous") or parsed.get("previous_value", ""),
+                "previous_date": pick(item, "previous_date", "prior_date") or parsed.get("previous_date", ""),
+                "change": pick(item, "change", "delta", "change_vs_prior") or parsed.get("change", ""),
+                "units": pick(item, "units", "unit") or parsed.get("units", ""),
+                "frequency": pick(item, "frequency", "freq") or parsed.get("frequency", ""),
+                "url": pick(item, "source_url", "url", "link") or str(item.get("url") or ""),
+                "kind": kind or "fred-data",
+            }
+
+            if row["series_id"] == "unknown" and not row["latest_value"]:
+                continue
+            rows.append(row)
+
+    # De-dupe by series id, keeping the row with the most fields.
+    def quality(row: dict[str, str]) -> int:
+        return sum(1 for value in row.values() if value)
+
+    merged: dict[str, dict[str, str]] = {}
+    for row in rows:
+        key = row.get("series_id") or row.get("title") or row.get("url") or ""
+        if not key:
+            continue
+        old = merged.get(key)
+        if old is None or quality(row) > quality(old):
+            merged[key] = dict(row)
+        else:
+            for field, value in row.items():
+                if value and not old.get(field):
+                    old[field] = value
+
+    final_rows = list(merged.values())
+    if not final_rows:
+        return ""
+
+    final_rows.sort(key=lambda r: r.get("series_id", ""))
+
+    lines = [
+        "FULL CURRENT NEWSROOM FRED EVIDENCE TABLE",
+        f"FRED card count: {len(final_rows)}",
+        "Use every row in this table. If a FRED row is blank or malformed, report that explicitly.",
+        "",
+    ]
+
+    for idx, row in enumerate(final_rows, start=1):
+        is_blank = not row.get("latest_value") or not row.get("latest_date")
+        lines.extend(
+            [
+                f"{idx}. series_id: {row.get('series_id') or 'unknown'}",
+                f"   title: {row.get('title') or 'unknown'}",
+                f"   latest_value: {row.get('latest_value') or 'blank/unavailable'}",
+                f"   latest_date: {row.get('latest_date') or 'blank/unavailable'}",
+                f"   previous_value: {row.get('previous_value') or 'blank/unavailable'}",
+                f"   previous_date: {row.get('previous_date') or 'blank/unavailable'}",
+                f"   change_vs_prior: {row.get('change') or 'blank/unavailable'}",
+                f"   units: {row.get('units') or 'unknown'}",
+                f"   frequency: {row.get('frequency') or 'unknown'}",
+                f"   source: {row.get('url') or 'unknown'}",
+                f"   evidence_status: {'blank or incomplete FRED row' if is_blank else 'readable FRED data row'}",
+                "",
+            ]
+        )
+
+    return "\n".join(lines).strip()
+
 def register_research_analyst_callbacks(app) -> None:
     """Register Newsroom Research Analyst Q&A callbacks."""
 
@@ -655,6 +1133,14 @@ def register_research_analyst_callbacks(app) -> None:
         audit_only_mode = _hydrated_fred_audit_requested(question)
         quant_playbook_requested = _quant_playbook_requested(question)
         analysis_question = question if audit_only_mode else _enhance_research_analyst_user_prompt(question, output_style)
+        analysis_question = analysis_question + (
+            "\n\nSTYLE INSTRUCTION:\n"
+            "Write professionally and make the result easy to read. "
+            "Do not use a fixed numbered or bullet template. "
+            "Do not add macro anchors, supplemental source candidates, official evidence staging, or quant playbook material unless directly requested. "
+            "Do not force any fixed section list. "
+            "Prefer short paragraphs and simple headings. Use bullets only when they genuinely improve readability.\n"
+        )
         try:
             max_output_int = max(800, min(6000, int(max_output or 2000)))
         except Exception:
@@ -704,17 +1190,12 @@ def register_research_analyst_callbacks(app) -> None:
                 macro_anchor_error = None
 
 
-            # Include mandatory macro anchors directly in the evidence packet.
-            #
-            # Earlier 36i builds macro_anchor_items but only stores their coverage
-            # metadata under packet["mandatory_macro_anchors"]. That status metadata
-            # is useful for the UI, but the LLM mainly sees packet["items"] via
-            # evidence_packet_to_markdown(...). Merge anchors first so CPI/PCE,
-            # FEDFUNDS, yields, market proxies, and manufacturing anchors are
-            # available as actual evidence, not just as hidden callback metadata.
-            # User-approved Newsroom brief items must be highest priority.
-            # In particular, hydrated FRED recommendation cards contain the user's
-            # approved official observations/deltas. Keep them before auto-built
+            # Automatic macro anchors disabled.
+            # Use current Newsroom Research Brief cards as the evidence packet.
+            macro_anchor_items = []
+            macro_anchor_coverage = {'mode': 'disabled'}
+            macro_anchor_error = None
+
             # macro anchors, result-store leftovers, supplemental discovery links,
             # and the quant playbook scaffold.
             combined_payload = _merge_newsroom_payloads(
@@ -724,6 +1205,13 @@ def register_research_analyst_callbacks(app) -> None:
                 supplemental_items,
                 max_items=96,
             )
+
+            approved_structured_items = _approved_structured_cards_for_brief()
+            if approved_structured_items:
+                try:
+                    brief_items = list(approved_structured_items) + list(brief_items or [])
+                except Exception:
+                    brief_items = list(approved_structured_items)
 
             packet = build_newsroom_evidence_packet(
                 combined_payload,
@@ -798,6 +1286,10 @@ def register_research_analyst_callbacks(app) -> None:
                 )
 
             context = evidence_packet_to_markdown(packet)
+            approved_structured_context = _approved_structured_evidence_markdown()
+            if approved_structured_context:
+                context = approved_structured_context + "\n\n" + context
+
             hydrated_brief_items = [item for item in brief_items if _is_hydrated_fred_item(item)]
             hydrated_manifest = _hydrated_fred_manifest_markdown(hydrated_brief_items)
             if hydrated_manifest:
@@ -848,6 +1340,14 @@ def register_research_analyst_callbacks(app) -> None:
                 if _extract_fred_series_id(item)
             ]
 
+            if _approved_structured_audit_requested(analysis_question):
+                answer = _approved_structured_audit_answer()
+                return (
+                    answer,
+                    "Audited approved structured official evidence staging file. FRED and quant playbook not used.",
+                    _approved_structured_sources_children(),
+                )
+
             prompt = ResearchAnalystService().build_prompt(
                 question=analysis_question,
                 raw_items=packet.get("items", []),
@@ -860,6 +1360,24 @@ def register_research_analyst_callbacks(app) -> None:
                 authoritative_hydrated_fred_series_ids=hydrated_series_ids,
             )
 
+            # Put the complete SEC table in the evidence/context, not in the user question.
+            # The question may be cleaned/truncated by the prompt builder; context is the FRED-like path.
+            analyst_evidence_context = str(getattr(prompt, "evidence_markdown", "") or "")
+            sec_companyfacts_brief_md = _sec_companyfacts_full_evidence_markdown(brief_store, results_store, packet.get('items', []), packet.get('source_links', []))
+            if sec_companyfacts_brief_md:
+                analyst_evidence_context = (
+                    sec_companyfacts_brief_md
+                    + "\n\nOTHER RESEARCH ANALYST EVIDENCE CONTEXT:\n"
+                    + analyst_evidence_context
+                )
+                try:
+                    _debug_dir = __import__('pathlib').Path('data') / 'autolab_payload'
+                    _debug_dir.mkdir(parents=True, exist_ok=True)
+                    (_debug_dir / 'research_analyst_last_sec_context.txt').write_text(sec_companyfacts_brief_md, encoding='utf-8')
+                except Exception:
+
+                    pass
+
             if audit_only_mode:
                 user_prompt = question
             else:
@@ -869,28 +1387,77 @@ def register_research_analyst_callbacks(app) -> None:
                     supplemental_count=len(supplemental_items),
                 )
 
+            # Final safety merge: make approved structured official evidence visible
+            # at the last possible point before the Research Analyst LLM call.
+            approved_structured_context_final = (
+                "" if _approved_structured_staging_blocked(analysis_question)
+                else _approved_structured_evidence_markdown()
+            )
+            if approved_structured_context_final and "## Approved Structured Official Evidence" not in context:
+                context = approved_structured_context_final + "\n\n" + context
+            # v16 combined SEC/FRED evidence table
+            fred_newsroom_brief_md = _fred_newsroom_evidence_markdown(brief_store, results_store, packet.get('items', []), packet.get('source_links', []))
+            combined_newsroom_evidence_md = "\n\n".join(
+                part for part in [sec_companyfacts_brief_md, fred_newsroom_brief_md] if part
+            )
+            try:
+                _debug_dir = __import__('pathlib').Path('data') / 'autolab_payload'
+                _debug_dir.mkdir(parents=True, exist_ok=True)
+                (_debug_dir / 'research_analyst_last_fred_context.txt').write_text(fred_newsroom_brief_md or '', encoding='utf-8')
+                (_debug_dir / 'research_analyst_last_combined_context.txt').write_text(combined_newsroom_evidence_md or '', encoding='utf-8')
+            except Exception:
+                pass
+            # end v16 combined SEC/FRED evidence table
+            # v15 SEC/FRED table evidence-context override
+            analyst_evidence_context = str(context or "")
+            if combined_newsroom_evidence_md and combined_newsroom_evidence_md not in analyst_evidence_context:
+                analyst_evidence_context = (
+                    combined_newsroom_evidence_md
+                    + "\n\nOTHER RESEARCH ANALYST EVIDENCE CONTEXT:\n"
+                    + analyst_evidence_context
+                )
+            # end v15 SEC/FRED table evidence-context override
+            # v14 combined SEC/FRED table user-prompt override
+            analyst_user_prompt = str(getattr(prompt, "user_prompt", "") or "")
+            if combined_newsroom_evidence_md:
+                analyst_user_prompt = (
+                    "CRITICAL NEWSROOM EVIDENCE — USE THESE TABLES FIRST.\n"
+                    "The compact source list may be incomplete or title-only.\n"
+                    "Use both SEC companyfacts rows and FRED rows when they appear below.\n"
+                    "If a FRED row is blank or malformed, explicitly report that it lacks readable evidence.\n"
+                    "Do not claim a SEC or FRED metric is missing when it appears below.\n\n"
+                    + combined_newsroom_evidence_md
+                    + "\n\nRequired answer behavior:\n"
+                    + "1. Inventory every SEC row and every FRED row in the tables above.\n"
+                    + "2. Categorize FRED rows by inflation/price-level, rates/financial conditions, labor, growth, or other macro category when possible.\n"
+                    + "3. Interpret SEC company facts and FRED macro facts separately, then connect them cautiously as interpretation only.\n"
+                    + "4. Only mark a metric missing if it is absent from the tables above.\n\n"
+                    + analyst_user_prompt
+                )
+            # end v14 combined SEC/FRED table user-prompt override
+
             answer = _call_ai_research_advisor(
                 system_prompt=prompt.system_prompt,
-                user_prompt=user_prompt,
-                context=context,
+                user_prompt=analyst_user_prompt,
+                context=analyst_evidence_context,
                 max_output=max_output_int,
             )
 
             macro_anchor_note = ""
             if macro_anchor_items:
-                macro_anchor_note = f" Added {len(macro_anchor_items)} structured macro anchor item(s)."
+                macro_anchor_note = ""
             if macro_anchor_error:
-                macro_anchor_note += f" Macro anchor warning: {macro_anchor_error}"
+                macro_anchor_note += ""
 
             supplemental_note = ""
             if supplemental_items:
-                supplemental_note = f" Added {len(supplemental_items)} supplemental Newsroom source candidate(s)."
+                supplemental_note = ""
             if supplemental_error:
-                supplemental_note += f" Supplemental source warning: {supplemental_error}"
+                supplemental_note += ""
 
             quant_playbook_note = ""
             if packet.get("quant_research_playbook", {}).get("enabled"):
-                quant_playbook_note = " Added quant research playbook."
+                quant_playbook_note = ""
             elif quant_playbook_requested:
                 quant_playbook_note = " Quant playbook requested but unavailable."
             if quant_playbook_error:

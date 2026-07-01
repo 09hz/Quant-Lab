@@ -27,6 +27,11 @@ try:
 except Exception:
     extend_results_with_fred = None
 
+try:
+    from services.research.sec_newsroom_adapter import extend_results_with_sec_companyfacts
+except Exception:
+    extend_results_with_sec_companyfacts = None
+
 def _topic_text(topic: str | None) -> str:
     topic = str(topic or "").strip()
     return topic or "market conditions"
@@ -71,6 +76,25 @@ def _build_results(topic: str, sources: list[str] | None) -> list[dict[str, Any]
                 "needs_manual_search": True,
                 "selectable": False,
                 "metadata": {"connector": "fred", "error": str(exc)},
+                "fetched_at": datetime.now().isoformat(timespec="seconds"),
+            })
+
+    if extend_results_with_sec_companyfacts is not None:
+        try:
+            results = extend_results_with_sec_companyfacts(topic, sources or None, results)
+        except Exception as exc:
+            results.insert(0, {
+                "id": "sec-companyfacts-ui-extension-error",
+                "title": "SEC structured data unavailable",
+                "source": "SEC EDGAR",
+                "url": "https://www.sec.gov/files/company_tickers.json",
+                "summary": f"SEC UI integration could not build structured companyfacts cards: {exc}",
+                "topic": topic,
+                "kind": "sec-companyfacts-warning",
+                "confidence": "low",
+                "needs_manual_search": True,
+                "selectable": False,
+                "metadata": {"connector": "sec-companyfacts", "error": str(exc)},
                 "fetched_at": datetime.now().isoformat(timespec="seconds"),
             })
 
@@ -123,6 +147,57 @@ def _brief_item_key(item: dict[str, Any]) -> str:
             return f"{field}:{value}"
     return ""
 
+
+def _normalize_sec_companyfacts_brief_item(item: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(item, dict):
+        return item
+
+    kind = str(item.get("kind") or "").lower()
+    url = str(item.get("url") or "").lower()
+    source = str(item.get("source") or "").lower()
+    if "sec-companyfacts" not in kind and "companyfacts" not in url and "sec edgar" not in source:
+        return item
+
+    row = dict(item)
+    row["source"] = row.get("source") or "SEC EDGAR"
+    if "companyfacts" in url or "sec-companyfacts" in kind:
+        row["kind"] = "sec-companyfacts-official-data"
+    row["confidence"] = row.get("confidence") or "high"
+    row["validity"] = row.get("validity") or "high"
+    row["relevance"] = row.get("relevance") or "high"
+    row["source_type"] = "official"
+    row["needs_manual_search"] = False
+    row["manual_search_needed"] = False
+    row["is_search_page"] = False
+    row["selectable"] = True
+    row["used_for_ai"] = True
+    row["direct_research_result"] = True
+    row["source_role"] = row.get("source_role") or "confirmed-official-sec-companyfacts"
+    row["evidence_role"] = row.get("evidence_role") or "confirmed-official-sec-companyfacts"
+
+    bad_phrases = (
+        " · Manual search needed",
+        " Manual search needed: this is a source search page, not a direct research result. It is not added to the AI brief by default.",
+        "Manual search needed: this is a source search page, not a direct research result. It is not added to the AI brief by default.",
+    )
+    for field in ("title", "summary"):
+        value = str(row.get(field) or "")
+        for phrase in bad_phrases:
+            value = value.replace(phrase, "")
+        row[field] = value.strip()
+
+    metadata = dict(row.get("metadata") or {})
+    metadata.update(
+        {
+            "official": True,
+            "structured": True,
+            "direct_research_result": True,
+            "needs_manual_search": False,
+            "manual_search_needed": False,
+        }
+    )
+    row["metadata"] = metadata
+    return row
 
 def _merge_brief_items(
     existing_items: list[dict[str, Any]] | tuple[dict[str, Any], ...] | None,
@@ -198,17 +273,6 @@ def _assign_brief_selection_ids(results: list[dict[str, Any]]) -> list[dict[str,
         out.append(row)
 
     return out
-
-
-def _selected_values_to_set(selected_ids: Any) -> set[str]:
-    if selected_ids is None:
-        return set()
-    if isinstance(selected_ids, str):
-        return {selected_ids}
-    try:
-        return {str(item) for item in selected_ids if str(item).strip()}
-    except Exception:
-        return {str(selected_ids)}
 
 
 def _dedupe_brief_items(brief: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -341,11 +405,197 @@ def _brief_dedupe_key(item: dict[str, Any]) -> str:
     # row IDs do not accidentally block distinct source cards.
     return _clean_brief_key_part(item.get("brief_selection_id") or item.get("id"), limit=240)
 
+def _sec_companyfacts_card_markdown(item: dict[str, Any]) -> str:
+    """
+    Render SEC companyfacts result objects as explicit evidence cards in the Newsroom brief.
+    The Research Analyst needs a clear card-shaped block, not only an SEC URL.
+    """
+    if not isinstance(item, dict):
+        return ""
+
+    source = str(item.get("source") or item.get("provider") or "").lower()
+    kind = str(item.get("kind") or item.get("type") or "").lower()
+    url = str(item.get("url") or item.get("source_url") or item.get("link") or "")
+    title = str(item.get("title") or item.get("headline") or "").strip()
+
+    looks_sec = (
+        "sec" in source
+        or "sec" in kind
+        or "companyfacts" in kind
+        or "companyfacts" in url.lower()
+        or "companyfacts" in title.lower()
+    )
+    if not looks_sec:
+        return ""
+
+    pools: list[dict[str, Any]] = [item]
+    for key in ("sec_fact", "fact", "data", "metadata", "raw", "extra"):
+        value = item.get(key)
+        if isinstance(value, dict):
+            pools.append(value)
+
+    def pick(*names: str) -> Any:
+        for pool in pools:
+            for name in names:
+                if name in pool and pool.get(name) not in (None, ""):
+                    return pool.get(name)
+        return ""
+
+    ticker = pick("ticker", "symbol")
+    entity = pick("entity", "entityName", "company", "company_name", "issuer")
+    metric = pick("metric", "label", "fact_label", "name")
+    concept = pick("concept", "concept_name", "xbrl_concept", "tag")
+    value = pick("latest_value", "value", "val", "latest", "amount")
+    unit = pick("unit", "units", "uom")
+    period_end = pick("period_end", "end", "period", "date")
+    filed = pick("filed", "filed_date", "filing_date")
+    form = pick("form", "filing_form")
+    accession = pick("accession", "accn", "accession_number")
+    cik = pick("cik", "CIK")
+    source_url = pick("source_url", "url", "link") or url
+
+    has_card_fields = any([metric, concept, value, unit, period_end, filed, form, accession])
+    if not has_card_fields:
+        return ""
+
+    if not metric and concept:
+        metric = str(concept).split(":")[-1]
+    if not ticker and title:
+        m = re.search(r"\(([A-Z]{1,6})\)", title)
+        if m:
+            ticker = m.group(1)
+
+    lines = [
+        "### SEC companyfacts official-data card",
+        f"- Ticker: {ticker or 'unknown'}",
+        f"- Entity: {entity or 'unknown'}",
+        f"- Metric: {metric or concept or 'unknown'}",
+        f"- Latest value: {value if value != '' else 'unknown'}",
+        f"- Unit: {unit or 'unknown'}",
+        f"- Period end: {period_end or 'unknown'}",
+        f"- Filed date: {filed or 'unknown'}",
+        f"- Form: {form or 'unknown'}",
+        f"- Accession: {accession or 'unknown'}",
+        f"- Concept: {concept or metric or 'unknown'}",
+        f"- CIK: {cik or 'unknown'}",
+        "- Evidence role: confirmed-official-sec-companyfacts",
+        "- Path: normal Newsroom checkbox/Add Selected to Brief",
+    ]
+    if source_url:
+        lines.append(f"- Source: {source_url}")
+    return "\n".join(lines)
+
+def _extend_results_with_sec_companyfacts_safe(topic, sources, results):
+    try:
+        from services.research.sec_newsroom_adapter import extend_results_with_sec_companyfacts
+        return extend_results_with_sec_companyfacts(topic, sources, results)
+    except Exception as exc:
+        output = list(results or [])
+        output.insert(
+            0,
+            {
+                "id": "sec-companyfacts-error",
+                "brief_selection_id": "sec-companyfacts-error",
+                "title": "SEC companyfacts metric extraction failed",
+                "summary": str(exc),
+                "url": "",
+                "source": "SEC EDGAR companyfacts",
+                "kind": "sec-companyfacts-error",
+                "confidence": "low",
+                "selectable": False,
+                "needs_manual_search": True,
+                "metadata": {"error": str(exc)},
+            },
+        )
+        return output
+
+def _result_selection_keys(item):
+    if not isinstance(item, dict):
+        return []
+    keys = []
+    for key in ("brief_selection_id", "id", "brief_dedupe_key", "url", "source_url", "filing_url", "companyfacts_url", "title"):
+        value = item.get(key)
+        if value not in (None, ""):
+            keys.append(str(value))
+    metadata = item.get("metadata")
+    if isinstance(metadata, dict):
+        for key in ("brief_selection_id", "id", "brief_dedupe_key", "url", "source_url", "filing_url", "companyfacts_url", "title"):
+            value = metadata.get(key)
+            if value not in (None, ""):
+                keys.append(str(value))
+    deduped = []
+    for value in keys:
+        if value and value not in deduped:
+            deduped.append(value)
+    return deduped
+
+
+def _result_selection_value(item):
+    keys = _result_selection_keys(item)
+    return keys[0] if keys else ""
+
+
+def _selected_values_to_set(values):
+    if values is None:
+        return set()
+    if isinstance(values, (str, int, float)):
+        return {str(values)}
+    return {str(value) for value in values if value not in (None, "")}
+
+
+def _expand_selected_values_with_result_aliases(selected_values, results):
+    selected = _selected_values_to_set(selected_values)
+    if not selected:
+        return selected
+    expanded = set(selected)
+    for item in results or []:
+        aliases = set(_result_selection_keys(item))
+        if aliases & selected:
+            expanded.update(aliases)
+    return expanded
+
+
+def _item_matches_selected_values(item, selected_values):
+    selected = _selected_values_to_set(selected_values)
+    if not selected:
+        return False
+    return bool(set(_result_selection_keys(item)) & selected)
+
+
+def _default_selected_result_values(results):
+    selected = []
+    for item in results or []:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind") or "").lower()
+        source = str(item.get("source") or "").lower()
+        url = str(item.get("url") or "").lower()
+        confidence = str(item.get("confidence") or "").lower()
+        selectable = item.get("selectable", True) is not False
+        is_sec_companyfacts = (
+            selectable
+            and ("sec" in source or "sec" in kind)
+            and ("sec-companyfacts" in kind or "companyfacts" in url or "companyfacts" in kind)
+            and confidence in {"high", "user-selected", "confirmed", ""}
+        )
+        if not is_sec_companyfacts:
+            continue
+        value = _result_selection_value(item)
+        if value and value not in selected:
+            selected.append(value)
+    return selected
+
 def _brief_markdown(brief: list[dict[str, Any]]) -> str:
     lines = ["# Research Brief", "", f"Generated: {datetime.now().isoformat(timespec='seconds')}", "", "## Selected Research Links", ""]
     if not brief:
         lines.append("_No items selected yet._")
     for idx, item in enumerate(brief, start=1):
+        sec_md = _sec_companyfacts_card_markdown(item)
+        if sec_md:
+            lines.append(sec_md)
+            lines.append("")
+            continue
+        item = _normalize_sec_companyfacts_brief_item(item)
         lines += [
             f"### {idx}. {item.get('title', 'Untitled')}",
             f"- Source: {item.get('source', 'Unknown')}",
@@ -488,7 +738,7 @@ def register_newsroom_callbacks(app: Any) -> None:
             f"Loaded {len(visible_results)} visible result(s) for: {topic_clean}. "
             "All visible rows are user-selectable; lower-confidence/context rows remain labeled with caution."
         )
-        return visible_results, options, [], _render_result_cards(visible_results), status
+        return visible_results, options, _default_selected_result_values(visible_results), _render_result_cards(visible_results), status
 
     @app.callback(
         Output("newsroom-brief-store", "data"),
