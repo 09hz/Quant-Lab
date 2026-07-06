@@ -8,6 +8,11 @@ from typing import Any
 from .models import json_loads
 from .storage import MarketMemoryStore, default_market_memory_paths
 from .symbol_hygiene import is_valid_research_symbol, requested_theme_symbol_multiplier
+from .theme_ranking import (
+    build_theme_match_summary,
+    packet_quality_score_and_warnings,
+    rank_rows_by_theme,
+)
 
 
 KNOWN_THEMES = {
@@ -46,7 +51,7 @@ def _symbol_score_from_entities(entities: list[dict[str, Any]]) -> dict[str, flo
     for row in entities:
         item = _decode(row)
         symbol = str(item.get("symbol") or "").upper().strip()
-        if not symbol:
+        if not symbol or not is_valid_research_symbol(symbol):
             continue
         score = float(item.get("source_count") or 1) * float(item.get("confidence") or 0.5)
         scores[symbol] = scores.get(symbol, 0.0) + score
@@ -60,7 +65,7 @@ def _symbol_score_from_relationships(relationships: list[dict[str, Any]]) -> dic
         metadata = item.get("metadata") or {}
         for key in ["symbol", "peer_symbol"]:
             symbol = str(metadata.get(key) or "").upper().strip()
-            if symbol:
+            if symbol and is_valid_research_symbol(symbol):
                 scores[symbol] = scores.get(symbol, 0.0) + float(item.get("confidence") or 0.5)
     return scores
 
@@ -75,8 +80,10 @@ def _top_themes(entities: list[dict[str, Any]], relationships: list[dict[str, An
             theme = str(item.get("canonical_name") or "").strip()
             if theme:
                 score = float(item.get("source_count") or 1) * float(item.get("confidence") or 0.5)
-                if requested_lower and requested_lower in theme.lower():
-                    score += 5.0
+                if requested_lower and theme.lower() in requested_lower:
+                    score += 8.0
+                elif requested_lower and any(word in requested_lower for word in theme.lower().split()):
+                    score += 3.0
                 theme_scores[theme] = theme_scores.get(theme, 0.0) + score
 
     for row in relationships:
@@ -85,8 +92,10 @@ def _top_themes(entities: list[dict[str, Any]], relationships: list[dict[str, An
             value = str(item.get(key) or "").strip()
             if value in KNOWN_THEMES:
                 score = float(item.get("confidence") or 0.5)
-                if requested_lower and requested_lower in value.lower():
-                    score += 5.0
+                if requested_lower and value.lower() in requested_lower:
+                    score += 8.0
+                elif requested_lower and any(word in requested_lower for word in value.lower().split()):
+                    score += 3.0
                 theme_scores[value] = theme_scores.get(value, 0.0) + score
 
     return [theme for theme, _score in sorted(theme_scores.items(), key=lambda kv: (-kv[1], kv[0]))[:8]]
@@ -118,34 +127,54 @@ def build_research_packet(live_root: Path, theme: str = "", max_symbols: int = 1
     paths = default_market_memory_paths(live_root)
     store = MarketMemoryStore(paths["db_path"], paths["evidence_ledger_path"])
 
-    entities = store.fetch_all("entities", limit=200)
-    relationships = store.fetch_all("relationships", limit=250)
-    hypotheses = store.fetch_all("hypotheses", limit=100)
-    strategies = store.fetch_all("strategy_memory", limit=100)
-    evidence = store.fetch_all("evidence_items", limit=25)
+    entities = store.fetch_all("entities", limit=250)
+    relationships_raw = store.fetch_all("relationships", limit=350)
+    hypotheses_raw = store.fetch_all("hypotheses", limit=200)
+    strategies = store.fetch_all("strategy_memory", limit=120)
+    evidence_raw = store.fetch_all("evidence_items", limit=80)
 
     scores = _symbol_score_from_entities(entities)
-    for symbol, score in _symbol_score_from_relationships(relationships).items():
+    for symbol, score in _symbol_score_from_relationships(relationships_raw).items():
         scores[symbol] = scores.get(symbol, 0.0) + score
 
-    max_symbols = max(1, min(int(max_symbols or 12), 30))
     adjusted_scores = {
         symbol: score * requested_theme_symbol_multiplier(symbol, theme)
         for symbol, score in scores.items()
         if is_valid_research_symbol(symbol)
     }
 
+    max_symbols = max(1, min(int(max_symbols or 12), 30))
     ranked_symbols = [
         {"symbol": symbol, "score": round(score, 4)}
         for symbol, score in sorted(adjusted_scores.items(), key=lambda kv: (-kv[1], kv[0]))[:max_symbols]
     ]
 
+    hypotheses = [_decode(row) for row in hypotheses_raw]
+    relationships = [_decode(row) for row in relationships_raw]
+    evidence = [_decode(row) for row in evidence_raw]
+
+    ranked_hypotheses = rank_rows_by_theme(
+        hypotheses,
+        theme,
+        fallback_score_keys=["confidence"],
+    )[:12]
+    ranked_relationships = rank_rows_by_theme(
+        relationships,
+        theme,
+        fallback_score_keys=["confidence", "evidence_count", "impact_score"],
+    )[:30]
+    ranked_evidence = rank_rows_by_theme(
+        evidence,
+        theme,
+        fallback_score_keys=["source_count"],
+    )[:15]
+
     packet = {
-        "schema_version": "market_memory_research_packet_v23_1",
+        "schema_version": "market_memory_research_packet_v23_1_3",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "mode": "research_simulation_only",
         "requested_theme": theme,
-        "research_theme_candidates": _top_themes(entities, relationships, theme),
+        "research_theme_candidates": _top_themes(entities, relationships_raw, theme),
         "suggested_symbols": [item["symbol"] for item in ranked_symbols],
         "ranked_symbols": ranked_symbols,
         "preferred_strategy_families": _preferred_strategy_families(strategies),
@@ -156,15 +185,32 @@ def build_research_packet(live_root: Path, theme: str = "", max_symbols: int = 1
             "trade_count_check",
             "fees_slippage_stress_later",
         ],
-        "hypotheses": [_decode(row) for row in hypotheses[:12]],
-        "top_relationships": [_decode(row) for row in relationships[:30]],
-        "recent_evidence": [_decode(row) for row in evidence[:15]],
+        "hypotheses": ranked_hypotheses,
+        "top_relationships": ranked_relationships,
+        "recent_evidence": ranked_evidence,
+        "theme_match_summary": {},
+        "packet_quality_score": 0,
+        "warning_flags": [],
         "safety_note": "Research packet only. Not a trade recommendation. Human review required.",
     }
+
+    packet["theme_match_summary"] = build_theme_match_summary(
+        requested_theme=theme,
+        ranked_symbols=ranked_symbols,
+        hypotheses=ranked_hypotheses,
+        relationships=ranked_relationships,
+    )
+    quality, warnings = packet_quality_score_and_warnings(packet)
+    packet["packet_quality_score"] = quality
+    packet["warning_flags"] = warnings
+
     return packet
 
 
 def render_research_packet_markdown(packet: dict[str, Any]) -> str:
+    warnings = packet.get("warning_flags", [])
+    theme_summary = packet.get("theme_match_summary", {})
+
     lines = [
         "# Market Memory Research Packet",
         "",
@@ -172,9 +218,19 @@ def render_research_packet_markdown(packet: dict[str, Any]) -> str:
         "",
         f"- Generated at: `{packet.get('generated_at', '')}`",
         f"- Requested theme: `{packet.get('requested_theme') or 'none'}`",
+        f"- Packet quality score: `{packet.get('packet_quality_score', 0)}/100`",
+        f"- Warning flags: `{', '.join(warnings) if warnings else 'none'}`",
         f"- Theme candidates: `{', '.join(packet.get('research_theme_candidates', [])) or 'none'}`",
         f"- Suggested symbols: `{', '.join(packet.get('suggested_symbols', [])) or 'none'}`",
         f"- Preferred strategy families: `{', '.join(packet.get('preferred_strategy_families', [])) or 'none'}`",
+        "",
+        "## Theme match summary",
+        "",
+        f"- Matched terms: `{', '.join(theme_summary.get('matched_terms', [])) or 'none'}`",
+        f"- Theme-relevant symbols: `{', '.join(theme_summary.get('theme_relevant_symbols', [])) or 'none'}`",
+        f"- Off-theme symbols: `{', '.join(theme_summary.get('off_theme_symbols', [])) or 'none'}`",
+        f"- Top hypothesis theme score: `{theme_summary.get('top_hypothesis_theme_match_score', 0)}`",
+        f"- Top relationship theme score: `{theme_summary.get('top_relationship_theme_match_score', 0)}`",
         "",
         "## Ranked symbols",
         "",
@@ -188,11 +244,12 @@ def render_research_packet_markdown(packet: dict[str, Any]) -> str:
     lines.extend(["", "## Hypotheses to test", ""])
     hypotheses = packet.get("hypotheses", [])
     if hypotheses:
-        lines.extend(["| Status | Confidence | Title | Symbols | Themes |", "|---|---:|---|---|---|"])
+        lines.extend(["| Status | Theme Score | Confidence | Title | Symbols | Themes |", "|---|---:|---:|---|---|---|"])
         for row in hypotheses[:12]:
             lines.append(
-                f"| {row.get('status', '')} | {float(row.get('confidence', 0.0)):.2f} | "
-                f"{row.get('title', '')} | {', '.join(row.get('symbols', [])[:8])} | {', '.join(row.get('themes', [])[:5])} |"
+                f"| {row.get('status', '')} | {float(row.get('theme_match_score', 0.0)):.2f} | "
+                f"{float(row.get('confidence', 0.0)):.2f} | {row.get('title', '')} | "
+                f"{', '.join(row.get('symbols', [])[:8])} | {', '.join(row.get('themes', [])[:5])} |"
             )
     else:
         lines.append("No hypotheses stored yet.")
@@ -200,11 +257,12 @@ def render_research_packet_markdown(packet: dict[str, Any]) -> str:
     lines.extend(["", "## Strong relationships", ""])
     relationships = packet.get("top_relationships", [])
     if relationships:
-        lines.extend(["| Source | Relationship | Target | Confidence | Evidence |", "|---|---|---|---:|---:|"])
+        lines.extend(["| Source | Relationship | Target | Theme Score | Confidence | Evidence |", "|---|---|---|---:|---:|---:|"])
         for row in relationships[:20]:
             lines.append(
                 f"| {row.get('source_entity', '')} | {row.get('relationship_type', '')} | "
-                f"{row.get('target_entity', '')} | {float(row.get('confidence', 0.0)):.2f} | {row.get('evidence_count', 0)} |"
+                f"{row.get('target_entity', '')} | {float(row.get('theme_match_score', 0.0)):.2f} | "
+                f"{float(row.get('confidence', 0.0)):.2f} | {row.get('evidence_count', 0)} |"
             )
     else:
         lines.append("No relationships stored yet.")
@@ -214,11 +272,12 @@ def render_research_packet_markdown(packet: dict[str, Any]) -> str:
             "",
             "## Recommended Auto Lab workflow",
             "",
-            "1. Review/edit suggested symbols.",
-            "2. Run Universe Auto Lab across the full basket.",
-            "3. Run Walk-Forward Validation on top candidates.",
-            "4. Reject strategies with weak out-of-sample behavior.",
-            "5. Feed results back into Market Memory.",
+            "1. Review packet quality and warning flags.",
+            "2. Review/edit suggested symbols.",
+            "3. Run Universe Auto Lab across the full basket.",
+            "4. Run Walk-Forward Validation on top candidates.",
+            "5. Reject strategies with weak out-of-sample behavior.",
+            "6. Feed results back into Market Memory.",
             "",
             "Do not use this packet for live orders.",
             "",
@@ -245,4 +304,6 @@ def write_research_packet(live_root: Path, theme: str = "", max_symbols: int = 1
         "markdown_path": str(md_path),
         "suggested_symbols": ",".join(packet.get("suggested_symbols", [])),
         "preferred_strategy_families": ",".join(packet.get("preferred_strategy_families", [])),
+        "packet_quality_score": str(packet.get("packet_quality_score", 0)),
+        "warning_flags": ",".join(packet.get("warning_flags", [])),
     }

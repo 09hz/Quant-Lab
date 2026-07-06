@@ -20,3 +20,5 @@ from .research_packet import build_research_packet, write_research_packet
 from .symbol_hygiene import clean_symbol_list, is_valid_research_symbol
 
 from .reindex_memory import reindex_market_memory
+
+from .theme_ranking import rank_rows_by_theme, packet_quality_score_and_warnings
