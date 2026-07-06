@@ -72,6 +72,7 @@ Live/data/autolab_report/autolab_detailed_report.md
 Live/data/autolab_payload/autolab_detailed_payload.json
 Live/data/autolab_journal/autolab_strategy_journal.csv
 Live/autolab_strategy_cards/
+Live/data
 
 # Optional local helper scripts if you do not want to commit them
 Live/download_autolab_bars.py

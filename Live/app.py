@@ -46,7 +46,7 @@ from ui.tabs_ui import (
     build_quotes_tab,
     build_charts_tab,
 )
-
+from ui.auto_lab_ui import build_auto_lab_tab
 
 try:
     from services.paper_trading_service import PaperTradingService
@@ -157,6 +157,15 @@ app.layout = html.Div(
                             symbol_options=SYMBOL_OPTIONS,
                             default_symbol=DEFAULT_SYMBOL,
                         )
+                    ],
+                ),
+                dcc.Tab(
+                    label="AI Auto Lab",
+                    value="auto-lab",
+                    className="main-tab",
+                    selected_className="main-tab-selected",
+                    children=[
+                        build_auto_lab_tab(),
                     ],
                 ),
                 dcc.Tab(
@@ -347,6 +356,22 @@ except Exception as exc:
 # =============================================================================
 # End Research Autolab callback registration
 # =============================================================================
+
+# =============================================================================
+# AI Auto Lab callback registration
+# =============================================================================
+try:
+    from services.ai.auto_lab_orchestrator.auto_lab_main_callbacks import (
+        register_auto_lab_main_callbacks,
+    )
+
+    register_auto_lab_main_callbacks(app)
+except Exception as exc:
+    print(f"[WARN] AI Auto Lab callbacks not registered: {exc}", flush=True)
+# =============================================================================
+# End AI Auto Lab callback registration
+# =============================================================================
+
 # =============================================================================
 # Structured official evidence preview callback registration
 # =============================================================================
