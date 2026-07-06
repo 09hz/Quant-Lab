@@ -35,6 +35,11 @@ from services.market_data.provider_factory import (
 from core.ReplayModule import ReplayEngine
 from services.replay_service import ReplayService
 from services.paper_cache import PaperStateCache
+
+try:
+    from services.ai.strategy_context_callbacks import register_strategy_ai_context_callbacks
+except Exception:
+    register_strategy_ai_context_callbacks = None
 from ui.tabs_ui import (
     build_dashboard_tab,
     build_watch_tab,
@@ -143,7 +148,7 @@ app.layout = html.Div(
                     ],
                 ),
                 dcc.Tab(
-                    label="Quotes",
+                    label="Newsroom",
                     value="quotes",
                     className="main-tab",
                     selected_className="main-tab-selected",
@@ -191,6 +196,8 @@ app.layout = html.Div(
                 "timeframe": "1 min",
             },
         ),
+
+        dcc.Store(id="replay-range-job-store", data=None),
 
         dcc.Store(
             id="dashboard-chart-state",
@@ -252,6 +259,102 @@ register_callbacks(
     paper_state_cache=paper_state_cache,
     market_data_provider=market_data_provider,
 )
+
+# =============================================================================
+# AI Advisor callback registration
+# =============================================================================
+try:
+    from services.ai.advisor_callbacks import register_ai_advisor_callbacks
+
+    register_ai_advisor_callbacks(app)
+except Exception as exc:
+    print(f"[AI ADVISOR] callback registration skipped: {exc}")
+
+try:
+    from services.ai.strategy_context_callbacks import register_strategy_ai_context_callbacks
+
+    register_strategy_ai_context_callbacks(app)
+except Exception as exc:
+    print(f"[STRATEGY AI CONTEXT] callback registration skipped: {exc}")
+# =============================================================================
+# End AI Advisor callback registration
+# =============================================================================
+
+
+# =============================================================================
+# Newsroom callback registration
+# =============================================================================
+try:
+    from services.research.newsroom_callbacks import register_newsroom_callbacks
+
+    register_newsroom_callbacks(app)
+except Exception as exc:
+    print(f"[NEWSROOM] callback registration skipped: {exc}")
+# =============================================================================
+# End Newsroom callback registration
+# =============================================================================
+
+# =============================================================================
+# Watch live-day guard callback registration
+# =============================================================================
+try:
+    from services.watch.live_guard_callbacks import register_watch_live_guard_callbacks
+
+    register_watch_live_guard_callbacks(app)
+except Exception as exc:
+    print(f"[WATCH LIVE GUARD] callback registration skipped: {exc}")
+# =============================================================================
+# End Watch live-day guard callback registration
+# =============================================================================
+
+
+# =============================================================================
+# Watch live/replay mode guard callback registration
+# =============================================================================
+try:
+    from services.watch.live_replay_guard_callbacks import (
+        register_live_replay_guard_callbacks,
+    )
+
+    register_live_replay_guard_callbacks(app)
+except Exception as exc:
+    print(f"[WATCH LIVE/REPLAY GUARD] callback registration skipped: {exc}")
+# =============================================================================
+# End Watch live/replay mode guard callback registration
+# =============================================================================
+# Patch 36c: Newsroom Research Analyst callbacks.
+try:
+    from services.ai.research_analyst_callbacks import register_research_analyst_callbacks
+
+    register_research_analyst_callbacks(app)
+except Exception as research_analyst_callbacks_exc:
+    print(
+        f"[RESEARCH ANALYST CALLBACKS WARNING] {research_analyst_callbacks_exc}",
+        flush=True,
+    )
+
+
+
+# =============================================================================
+# Research Autolab callback registration
+# =============================================================================
+try:
+    from services.ai.research_autolab.ui_callbacks import register_research_autolab_callbacks
+
+    register_research_autolab_callbacks(app)
+except Exception as exc:
+    print(f"[RESEARCH AUTOLAB] callback registration skipped: {exc}", flush=True)
+# =============================================================================
+# End Research Autolab callback registration
+# =============================================================================
+# =============================================================================
+# Structured official evidence preview callback registration
+# =============================================================================
+# Structured Evidence Reviewer callbacks kept for developer diagnostics only.
+# Normal SEC workflow now uses Newsroom source checkboxes and Research Brief cards.
+# =============================================================================
+# End structured official evidence preview callback registration
+# =============================================================================
 
 if __name__ == "__main__":
     app.run(debug=False)

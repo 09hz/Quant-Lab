@@ -223,6 +223,25 @@ class ReplayService:
             return self._filter_regular_session(bars, replay_date)
         return self._normalize_replay_bars(bars)
 
+    def _is_one_min_timeframe(self, timeframe: str | None) -> bool:
+        tf = str(timeframe or "1 min").strip().lower()
+        tf = tf.replace("_", " ").replace("-", " ")
+        tf = " ".join(tf.split())
+        return tf in {"1 min", "1m", "1 minute", "1min"}
+
+    def _prepare_history_for_timeframe(
+        self,
+        bars: pd.DataFrame | None,
+        replay_date: Optional[str],
+        timeframe: str | None,
+    ) -> pd.DataFrame:
+        # Only one-minute replay data should be clipped to the 09:30-16:00
+        # session window. Native daily bars can have midnight/end-of-day
+        # timestamps, so the intraday filter can remove valid candles.
+        if replay_date and self._is_one_min_timeframe(timeframe):
+            return self._filter_regular_session(bars, replay_date)
+        return self._normalize_replay_bars(bars)
+
     # ------------------------------------------------------------------
     # Data source loading
     # ------------------------------------------------------------------
@@ -352,7 +371,7 @@ class ReplayService:
                     self.memory_cache.pop(key, None)
                 else:
                     print(f"[REPLAY CACHE] memory hit {key}", flush=True)
-                    return self._prepare_history_for_replay_date(cached, replay_date)
+                    return self._prepare_history_for_timeframe(cached, replay_date, timeframe)
 
             disk_df = self.bar_store.read(symbol, timeframe, replay_date)
 
@@ -379,9 +398,10 @@ class ReplayService:
                         flush=True,
                     )
                 else:
-                    prepared = self._prepare_history_for_replay_date(
+                    prepared = self._prepare_history_for_timeframe(
                         disk_df,
                         replay_date,
+                        timeframe,
                     )
                     if not prepared.empty:
                         print(f"[REPLAY CACHE] disk hit {key}", flush=True)
@@ -413,7 +433,7 @@ class ReplayService:
         except Exception as debug_exc:
             print(f"[REPLAY SOURCE DEBUG ERROR] {debug_exc}", flush=True)
 
-        prepared = self._prepare_history_for_replay_date(hist, replay_date)
+        prepared = self._prepare_history_for_timeframe(hist, replay_date, timeframe)
 
         if prepared.empty:
             print(
@@ -474,8 +494,8 @@ class ReplayService:
 
         Important:
             * Weekends are skipped.
-            * Raw replay data is always loaded as 1-minute bars.
-            * The Watch Interval dropdown should resample the chart display only.
+            * Range replay data is loaded at the selected native timeframe.
+            * Watch chart rendering may still resample when needed.
             * The stitched DataFrame is installed into ReplayEngine, so visible_bars(),
               current_bar(), info(), the replay slider, paper trading, and backtests all
               read from the same multi-day dataset.
@@ -507,9 +527,23 @@ class ReplayService:
         if not days:
             raise ValueError("No weekday trading days found in selected range.")
 
-        # The replay engine uses 1-minute source bars. Display intervals are handled
-        # later by Watch chart rendering / BarViewService resampling.
-        load_timeframe = "1 min"
+        # Use the selected replay timeframe as the native cache/provider timeframe.
+        # Earlier builds forced multi-day replay ranges through 1-minute cache keys,
+        # which made 1-hour/1-day ranges slow and could hide candles during render.
+        try:
+            from services.replay.timeframe_routing import normalize_replay_timeframe
+            load_timeframe = normalize_replay_timeframe(timeframe or "1 min")
+        except Exception:
+            load_timeframe = str(timeframe or "1 min").strip() or "1 min"
+
+        is_one_min_source = self._is_one_min_timeframe(load_timeframe)
+
+        print(
+            f"[REPLAY RANGE TIMEFRAME] symbol={symbol} selected={timeframe} "
+            f"load_timeframe={load_timeframe}",
+            flush=True,
+        )
+
         chunks: list[pd.DataFrame] = []
 
         for day in days:
@@ -524,13 +558,19 @@ class ReplayService:
                 print(f"[REPLAY RANGE] {symbol} {day}: load failed: {exc}", flush=True)
                 continue
 
-            day_bars = self._filter_regular_session(hist, day)
+            if is_one_min_source:
+                day_bars = self._filter_regular_session(hist, day)
+            else:
+                # For native higher timeframes, especially daily bars, timestamps may be
+                # midnight or end-of-day rather than inside 09:30-16:00. Do not apply
+                # the one-minute regular-session filter because it can drop valid bars.
+                day_bars = self._normalize_replay_bars(hist)
 
             if day_bars is None or day_bars.empty:
                 print(f"[REPLAY RANGE] {symbol} {day}: no regular-session bars.", flush=True)
                 continue
 
-            if self._is_historical_replay_date(day):
+            if is_one_min_source and self._is_historical_replay_date(day):
                 ok, reason = self._cache_is_complete_for_replay_day(day_bars, day)
                 if not ok:
                     print(
@@ -602,7 +642,7 @@ class ReplayService:
             force_refresh=force_refresh,
         )
 
-        hist = self._prepare_history_for_replay_date(hist, replay_date)
+        hist = self._prepare_history_for_timeframe(hist, replay_date, timeframe)
 
         self.current_symbol = symbol
         self.current_timeframe = timeframe

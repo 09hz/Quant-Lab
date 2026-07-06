@@ -4,6 +4,7 @@ from dash import dcc, html
 from datetime import date, timedelta
 import sys
 from datetime import datetime
+from ui.newsroom_ui import build_newsroom_tab
 
 
 CHART_CONFIG = {
@@ -132,21 +133,10 @@ def build_dashboard_tab(symbol_options, timeframe_map, default_symbol, default_t
         ],
     )
 
-
-def _build_strategy_lab_panel():
+def _build_strategy_editor_panel():
     return html.Div(
-        className="strategy-lab-panel watch-workspace-panel",
+        className="strategy-editor-panel strategy-section-panel",
         children=[
-            html.Div(
-                className="strategy-lab-header",
-                children=[
-                    html.Div("Strategy Lab", className="strategy-lab-title"),
-                    html.Div(
-                        "Indicator script only · No auto-trading yet",
-                        className="strategy-lab-subtitle",
-                    ),
-                ],
-            ),
             dcc.Textarea(
                 id="strategy-script-input",
                 value=(
@@ -194,160 +184,251 @@ def _build_strategy_lab_panel():
                 className="strategy-status",
                 children="Strategy Lab ready.",
             ),
+        ],
+    )
+
+
+def _build_strategy_backtest_panel():
+    return html.Div(
+        className="strategy-backtest-panel strategy-section-panel",
+        children=[
+            html.Div("Backtest", className="strategy-backtest-title"),
             html.Div(
-                className="strategy-backtest-panel",
+                className="strategy-backtest-controls",
                 children=[
-                    html.Div("Backtest", className="strategy-backtest-title"),
                     html.Div(
-                        className="strategy-backtest-controls",
+                        className="control-box strategy-backtest-input-box",
                         children=[
-                            html.Div(
-                                className="control-box strategy-backtest-input-box",
-                                children=[
-                                    html.Label("Initial Cash"),
-                                    dcc.Input(
-                                        id="backtest-initial-cash",
-                                        type="number",
-                                        min=100,
-                                        step=100,
-                                        value=100000,
-                                        className="paper-input",
-                                        debounce=True,
-                                    ),
-                                ],
-                            ),
-                            html.Div(
-                                className="control-box strategy-backtest-input-box",
-                                children=[
-                                    html.Label("Quantity"),
-                                    dcc.Input(
-                                        id="backtest-quantity",
-                                        type="number",
-                                        min=1,
-                                        step=1,
-                                        value=10,
-                                        className="paper-input",
-                                        debounce=True,
-                                    ),
-                                ],
-                            ),
-                            html.Button(
-                                "Run Backtest",
-                                id="strategy-run-backtest",
-                                n_clicks=0,
-                                className="strategy-run-btn",
+                            html.Label("Initial Cash"),
+                            dcc.Input(
+                                id="backtest-initial-cash",
+                                type="number",
+                                min=100,
+                                step=100,
+                                value=100000,
+                                className="paper-input",
+                                debounce=True,
                             ),
                         ],
                     ),
                     html.Div(
-                        id="backtest-status",
-                        className="strategy-status",
-                        children="Backtest ready.",
-                    ),
-                    html.Div(
-                        id="backtest-results-panel",
-                        className="backtest-results-panel",
+                        className="control-box strategy-backtest-input-box",
                         children=[
-                            html.Div("Run a backtest to see results.", className="paper-empty"),
+                            html.Label("Quantity"),
+                            dcc.Input(
+                                id="backtest-quantity",
+                                type="number",
+                                min=1,
+                                step=1,
+                                value=10,
+                                className="paper-input",
+                                debounce=True,
+                            ),
                         ],
+                    ),
+                    html.Button(
+                        "Run Backtest",
+                        id="strategy-run-backtest",
+                        n_clicks=0,
+                        className="strategy-run-btn",
                     ),
                 ],
             ),
             html.Div(
-                className="strategy-help-panel",
+                id="backtest-status",
+                className="strategy-status",
+                children="Backtest ready.",
+            ),
+            html.Div(
+                id="backtest-results-panel",
+                className="backtest-results-panel",
                 children=[
-                    html.Div(
-                        className="strategy-help-header",
-                        children=[
-                            html.Div("Strategy Help", className="strategy-help-title"),
-                            html.Div(
-                                "Language guide, function reference, and examples",
-                                className="strategy-help-subtitle",
-                            ),
-                        ],
-                    ),
-                    html.Div(
-                        className="strategy-help-controls",
-                        children=[
-                            html.Div(
-                                className="strategy-help-example-control",
-                                children=[
-                                    html.Label("Load Example"),
-                                    dcc.Dropdown(
-                                        id="strategy-example-dropdown",
-                                        options=[
-                                            {
-                                                "label": "EMA Crossover",
-                                                "value": "ema_crossover.txt",
-                                            },
-                                            {
-                                                "label": "Fast SMA Test",
-                                                "value": "sma_fast_test.txt",
-                                            },
-                                            {
-                                                "label": "RSI Mean Reversion",
-                                                "value": "rsi_mean_reversion.txt",
-                                            },
-                                            {
-                                                "label": "Boolean Crossover",
-                                                "value": "boolean_crossover.txt",
-                                            },
-                                            {
-                                                "label": "EMA + ATR Filter",
-                                                "value": "ema_supertrend.txt",
-                                            },
-                                            {
-                                                "label": "Background Regime Filter",
-                                                "value": "background_regime_test.txt",
-                                            },
-                                        ],
-                                        value="ema_crossover.txt",
-                                        clearable=False,
-                                        searchable=False,
-                                        className="black-dropdown",
-                                    ),
-                                ],
-                            ),
-                            html.Div(
-                                className="strategy-help-button-row",
-                                children=[
-                                    html.Button(
-                                        "Insert Example",
-                                        id="strategy-insert-example",
-                                        n_clicks=0,
-                                        className="strategy-run-btn strategy-help-btn",
-                                    ),
-                                    html.Button(
-                                        "Language Guide",
-                                        id="strategy-show-language-guide",
-                                        n_clicks=0,
-                                        className="range-btn strategy-help-btn",
-                                    ),
-                                    html.Button(
-                                        "Function Reference",
-                                        id="strategy-show-function-reference",
-                                        n_clicks=0,
-                                        className="range-btn strategy-help-btn",
-                                    ),
-                                ],
-                            ),
-                        ],
-                    ),
-                    html.Div(
-                        id="strategy-help-content",
-                        className="strategy-help-content",
-                        children=[
-                            html.Div(
-                                "Choose an example, insert it into the editor, or open the language guide.",
-                                className="paper-empty",
-                            ),
-                        ],
-                    ),
+                    html.Div("Run a backtest to see results.", className="paper-empty"),
                 ],
             ),
         ],
     )
 
+
+def _strategy_build_ai_advisor_panel():
+    return html.Div(
+        children=[
+            html.Div(
+                children=[
+                    html.H4("AI Advisor", className="strategy-ai-title"),
+                    html.P(
+                        "Ask advisory-only questions about the current strategy. "
+                        "Use Attach Current Strategy Context when you want the AI to include "
+                        "the current script, symbol, timeframe, dates, and visible backtest result.",
+                        className="strategy-ai-subtitle",
+                    ),
+                ],
+                className="strategy-ai-header",
+            ),
+            html.Div(
+                children=[
+                    html.Label("Template", className="strategy-ai-label"),
+                    dcc.Dropdown(
+                        id="strategy-ai-advisor-template",
+                        options=[
+                            {"label": "General", "value": "general"},
+                            {"label": "Provider/status", "value": "provider_status"},
+                            {"label": "Backtest summary", "value": "backtest_summary"},
+                            {"label": "Strategy explainer", "value": "strategy_explainer"},
+                        ],
+                        value="general",
+                        clearable=False,
+                        className="strategy-ai-dropdown",
+                    ),
+                ],
+                className="strategy-ai-field",
+            ),
+            html.Div(
+                children=[
+                    html.Label("Prompt", className="strategy-ai-label"),
+                    dcc.Textarea(
+                        id="strategy-ai-advisor-prompt",
+                        value="",
+                        placeholder="Ask about your strategy, backtest, symbol, or research context...",
+                        className="strategy-ai-textarea",
+                    ),
+                ],
+                className="strategy-ai-field",
+            ),
+            html.Div(
+                children=[
+                    html.Label("Attached context", className="strategy-ai-label"),
+                    dcc.Textarea(
+                        id="strategy-ai-advisor-context",
+                        value="",
+                        placeholder="Attached Strategy/Backtest/Research context will appear here.",
+                        className="strategy-ai-contextarea",
+                    ),
+                ],
+                className="strategy-ai-field",
+            ),
+            html.Div(
+                children=[
+                    html.Button(
+                        "Attach Current Strategy Context",
+                        id="strategy-ai-context-attach",
+                        n_clicks=0,
+                        className="secondary-button",
+                    ),
+                    html.Button(
+                        "Clear Context",
+                        id="strategy-ai-context-clear",
+                        n_clicks=0,
+                        className="secondary-button",
+                    ),
+                    html.Button(
+                        "Export Context JSON",
+                        id="strategy-export-context-json",
+                        n_clicks=0,
+                        className="secondary-button",
+                    ),
+                    html.Button(
+                        "Export Context Markdown",
+                        id="strategy-export-context-md",
+                        n_clicks=0,
+                        className="secondary-button",
+                    ),
+                    dcc.Download(id="strategy-context-download-json"),
+                    dcc.Download(id="strategy-context-download-md"),
+                ],
+                className="strategy-ai-context-actions",
+            ),
+            html.Div(
+                id="strategy-ai-context-status",
+                className="strategy-ai-context-status",
+                children="No Strategy context attached yet.",
+            ),
+            html.Div(
+                children=[
+                    html.Label("Max output tokens", className="strategy-ai-label"),
+                    dcc.Input(
+                        id="strategy-ai-advisor-max-output",
+                        type="number",
+                        value=500,
+                        min=20,
+                        max=2000,
+                        step=10,
+                        className="strategy-ai-number",
+                    ),
+                    html.Button(
+                        "Ask Advisor",
+                        id="strategy-ai-advisor-ask",
+                        n_clicks=0,
+                        className="primary-button",
+                    ),
+                ],
+                className="strategy-ai-actions",
+            ),
+            html.Div(
+                id="strategy-ai-advisor-status",
+                className="strategy-ai-status",
+                children="AI Advisor is advisory-only. Broker access and order placement remain blocked.",
+            ),
+            html.Pre(
+                id="strategy-ai-advisor-response",
+                className="strategy-ai-response",
+                children="",
+            ),
+        ],
+        className="strategy-ai-advisor-panel",
+    )
+
+def _build_strategy_lab_panel():
+    return html.Div(
+        className="strategy-lab-panel watch-workspace-panel",
+        children=[
+            html.Div(
+                className="strategy-lab-header",
+                children=[
+                    html.Div("Strategy Lab", className="strategy-lab-title"),
+                    html.Div(
+                        "Script editor · Backtest · AI advisor · Help",
+                        className="strategy-lab-subtitle",
+                    ),
+                ],
+            ),
+            dcc.Tabs(
+                id="strategy-lab-inner-tabs",
+                value="strategy-editor",
+                className="strategy-inner-tabs",
+                children=[
+                    dcc.Tab(
+                        label="Editor",
+                        value="strategy-editor",
+                        className="strategy-inner-tab",
+                        selected_className="strategy-inner-tab-selected",
+                        children=[_build_strategy_editor_panel()],
+                    ),
+                    dcc.Tab(
+                        label="Backtest",
+                        value="strategy-backtest",
+                        className="strategy-inner-tab",
+                        selected_className="strategy-inner-tab-selected",
+                        children=[_build_strategy_backtest_panel()],
+                    ),
+                    dcc.Tab(
+                        label="AI Advisor",
+                        value="strategy-ai-advisor",
+                        className="strategy-inner-tab",
+                        selected_className="strategy-inner-tab-selected",
+                        children=[_strategy_build_ai_advisor_panel()],
+                    ),
+                    dcc.Tab(
+                        label="Help",
+                        value="strategy-help",
+                        className="strategy-inner-tab",
+                        selected_className="strategy-inner-tab-selected",
+                        children=[_build_strategy_help_panel()],
+                    ),
+                ],
+            ),
+        ],
+    )
 
 def _build_paper_trading_panel():
     return html.Div(
@@ -678,7 +759,22 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                     ),
                 ],
             ),
+            html.Div( id="watch-live-guard-banner", className="watch-live-guard-banner",children=[],),
             html.Div(id="watch-status", className="status-text"),
+            html.Div(
+                id="replay-range-job-panel",
+                className="replay-range-job-panel",
+                children=[
+                    html.Div(id="replay-range-progress", className="replay-range-progress"),
+                    html.Button(
+                        "Cancel range load",
+                        id="replay-range-cancel",
+                        n_clicks=0,
+                        disabled=True,
+                        className="secondary-button replay-range-cancel",
+                    ),
+                ],
+            ),
             html.Div(id="watch-metrics-strip", className="metrics-strip"),
             html.Div(
                 className="range-row chart-control-row",
@@ -708,560 +804,186 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
 
 
 def build_quotes_tab(symbol_options, default_symbol):
+    return build_newsroom_tab()
+
+
+# --- Patch 20b compatibility aliases ---
+# Keep old app.py imports working while visible rooms are repurposed.
+def build_quotes_tab(*args, **kwargs):
+    # Compatibility: the old Quotes room now renders Newsroom.
+    return build_newsroom_tab(*args, **kwargs)
+
+
+def build_charts_tab(*args, **kwargs):
+    # Compatibility: app.py may still import build_charts_tab after Charts became Settings.
+    try:
+        return build_settings_tab(*args, **kwargs)  # type: ignore[name-defined]
+    except Exception:
+        from dash import html
+        return html.Div(
+            [
+                html.H3("Settings"),
+                html.Div("Settings tab builder is not available."),
+            ],
+            className="settings-tab-placeholder",
+        )
+# --- End Patch 20b compatibility aliases ---
+# --- Patch 20c compatibility restore: Settings/Charts tab builders ---
+# Keep this at the bottom so it overrides temporary fallback builders created by
+# tab-repurposing patches.
+try:
+    from ui.settings_ui import build_settings_tab as _restored_build_settings_tab
+except Exception:
+    try:
+        from .settings_ui import build_settings_tab as _restored_build_settings_tab
+    except Exception:
+        _restored_build_settings_tab = None
+
+
+def build_settings_tab():
+    if _restored_build_settings_tab is not None:
+        return _restored_build_settings_tab()
+    from dash import html
     return html.Div(
-        className="tab-panel quotes-tab-panel",
+        [
+            html.H2("Settings"),
+            html.Div("Settings tab builder failed to import ui.settings_ui."),
+        ],
+        className="settings-tab settings-tab-error",
+    )
+
+
+def build_charts_tab():
+    # The old Charts slot has been repurposed as Settings.
+    return build_settings_tab()
+
+# >>> PATCH_21_NEWSROOM_SETTINGS_COMPAT
+
+# Compatibility wrappers after the Quotes/Charts room repurpose.
+# These wrappers accept legacy app.py arguments like symbol_options/default_symbol/default_timeframe.
+def build_charts_tab(*args, **kwargs):
+    try:
+        from ui.settings_ui import build_settings_tab as _build_settings_tab
+        return _build_settings_tab(*args, **kwargs)
+    except TypeError:
+        from ui.settings_ui import build_settings_tab as _build_settings_tab
+        return _build_settings_tab()
+    except Exception:
+        try:
+            from dash import html
+            return html.Div([
+                html.H2("Settings"),
+                html.P("Settings tab builder failed to load. Check ui/settings_ui.py.")
+            ])
+        except Exception:
+            return None
+
+
+def build_settings_tab(*args, **kwargs):
+    try:
+        from ui.settings_ui import build_settings_tab as _build_settings_tab
+        return _build_settings_tab(*args, **kwargs)
+    except TypeError:
+        from ui.settings_ui import build_settings_tab as _build_settings_tab
+        return _build_settings_tab()
+
+
+def build_quotes_tab(*args, **kwargs):
+    try:
+        from ui.newsroom_ui import build_newsroom_tab as _build_newsroom_tab
+        return _build_newsroom_tab(*args, **kwargs)
+    except TypeError:
+        from ui.newsroom_ui import build_newsroom_tab as _build_newsroom_tab
+        return _build_newsroom_tab()
+
+
+def build_newsroom_tab(*args, **kwargs):
+    try:
+        from ui.newsroom_ui import build_newsroom_tab as _build_newsroom_tab
+        return _build_newsroom_tab(*args, **kwargs)
+    except TypeError:
+        from ui.newsroom_ui import build_newsroom_tab as _build_newsroom_tab
+        return _build_newsroom_tab()
+# <<< PATCH_21_NEWSROOM_SETTINGS_COMPAT
+
+# =============================================================================
+# Strategy Lab Help Panel Restore
+# =============================================================================
+def _build_strategy_help_panel():
+    return html.Div(
+        className="strategy-help-panel strategy-section-panel",
         children=[
             html.Div(
-                className="controls-row",
+                className="strategy-help-header",
+                children=[
+                    html.Div("Strategy Help", className="strategy-help-title"),
+                    html.Div(
+                        "Language guide, function reference, and examples",
+                        className="strategy-help-subtitle",
+                    ),
+                ],
+            ),
+            html.Div(
+                className="strategy-help-controls",
                 children=[
                     html.Div(
-                        className="control-box control-symbol",
+                        className="strategy-help-example-control",
                         children=[
-                            html.Label("Instrument"),
+                            html.Label("Load Example"),
                             dcc.Dropdown(
-                                id="quotes-symbol-dropdown",
-                                options=symbol_options,
-                                value=default_symbol,
-                                placeholder="Search ticker, symbol, or company...",
-                                searchable=True,
+                                id="strategy-example-dropdown",
+                                options=[
+                                    {"label": "EMA Crossover", "value": "ema_crossover.txt"},
+                                    {"label": "Fast SMA Test", "value": "sma_fast_test.txt"},
+                                    {"label": "RSI Mean Reversion", "value": "rsi_mean_reversion.txt"},
+                                    {"label": "Boolean Crossover", "value": "boolean_crossover.txt"},
+                                    {"label": "EMA + ATR Filter", "value": "ema_supertrend.txt"},
+                                    {"label": "Background Regime Filter", "value": "background_regime_test.txt"},
+                                ],
+                                value="ema_crossover.txt",
                                 clearable=False,
+                                searchable=False,
                                 className="black-dropdown",
                             ),
                         ],
                     ),
-                ],
-            ),
-            html.Div(id="quotes-status", className="status-text"),
-            html.Div(
-                className="chart-card",
-                children=[
                     html.Div(
-                        id="quotes-panel",
-                        className="quote-strip",
-                        children="Ready for quotes",
-                    ),
-                ],
-            ),
-        ],
-    )
-
-# =============================================================================
-# Settings tab foundation (Patch 09)
-# =============================================================================
-
-def _settings_env_value(name: str, default: str = "not set", *, mask: bool = False) -> str:
-    """
-    Return a display-safe environment setting.
-
-    Secrets are never rendered directly into the Dash page.
-    """
-    try:
-        value = os.getenv(name)
-    except Exception:
-        value = None
-
-    if value is None or str(value).strip() == "":
-        return default
-
-    if mask:
-        return "configured (hidden)"
-
-    return str(value)
-
-
-def _settings_env_present(name: str) -> bool:
-    try:
-        value = os.getenv(name)
-    except Exception:
-        value = None
-
-    return value is not None and str(value).strip() != ""
-
-
-def _settings_bool_text(value: bool) -> str:
-    return "Yes" if bool(value) else "No"
-
-
-def _settings_env_bool(name: str, default: bool = False) -> bool:
-    """
-    Parse a boolean environment variable safely.
-    """
-    try:
-        value = os.getenv(name)
-    except Exception:
-        value = None
-
-    if value is None or str(value).strip() == "":
-        return bool(default)
-
-    return str(value).strip().lower() in {"1", "true", "yes", "y", "on"}
-
-
-def _settings_row(label: str, value, note: str | None = None):
-    children = [
-        html.Div(str(label), className="settings-label"),
-        html.Div(str(value), className="settings-value"),
-    ]
-
-    if note:
-        children.append(html.Div(str(note), className="settings-note"))
-
-    return html.Div(className="settings-row", children=children)
-
-
-def _settings_command(text: str):
-    return html.Code(str(text), className="settings-command")
-
-
-def _settings_status_pill(text: str, tone: str = "neutral"):
-    return html.Span(str(text), className=f"settings-status-pill settings-status-{tone}")
-
-
-def _settings_lock_row(label: str, enabled: bool, *, safe_when: bool = False, note: str | None = None):
-    """
-    Render a future-AI safety lock row.
-
-    safe_when means the value that should be considered the safe state.
-    Example:
-        AI_ALLOW_ORDER_PLACEMENT=false is safe, so safe_when=False.
-        AI_ADVISORY_ONLY=true is safe, so safe_when=True.
-    """
-    is_safe = bool(enabled) is bool(safe_when)
-    tone = "good" if is_safe else "danger"
-    value_text = "ON" if enabled else "OFF"
-
-    children = [
-        html.Div(str(label), className="settings-lock-label"),
-        html.Div(
-            children=[
-                _settings_status_pill(value_text, tone),
-                html.Span(" safe" if is_safe else " review", className=f"settings-lock-text settings-lock-{tone}"),
-            ],
-            className="settings-lock-value",
-        ),
-    ]
-
-    if note:
-        children.append(html.Div(str(note), className="settings-lock-note"))
-
-    return html.Div(className="settings-lock-row", children=children)
-
-
-def _settings_cache_summary(root_text: str) -> dict:
-    """
-    Return a lightweight local data cache summary.
-
-    This only counts files and size. It does not parse CSV data and should stay
-    fast enough to run during Dash layout construction.
-    """
-    root = Path(str(root_text or "cache/replay")).expanduser()
-
-    if not root.is_absolute():
-        root = Path.cwd() / root
-
-    summary = {
-        "root": str(root),
-        "exists": root.exists(),
-        "files": 0,
-        "bytes": 0,
-    }
-
-    if not root.exists():
-        return summary
-
-    extensions = {".csv", ".parquet", ".pq", ".feather"}
-
-    try:
-        for path in root.rglob("*"):
-            if path.is_file() and path.suffix.lower() in extensions:
-                summary["files"] += 1
-                try:
-                    summary["bytes"] += path.stat().st_size
-                except OSError:
-                    pass
-    except Exception:
-        # Avoid breaking app startup just because a cache path cannot be read.
-        pass
-
-    return summary
-
-
-def _settings_format_bytes(value: int) -> str:
-    try:
-        size = float(value)
-    except Exception:
-        return "0 B"
-
-    units = ["B", "KB", "MB", "GB", "TB"]
-    unit = 0
-
-    while size >= 1024 and unit < len(units) - 1:
-        size /= 1024
-        unit += 1
-
-    if unit == 0:
-        return f"{int(size)} {units[unit]}"
-
-    return f"{size:.2f} {units[unit]}"
-
-
-def _settings_llm_status() -> tuple[str, str, str]:
-    """
-    Return a display status for the LLM based only on the Dash process env.
-
-    This does not call any external LLM API. It only explains whether the current
-    process appears configured enough for advisory LLM use.
-    """
-    ai_enabled = _settings_env_bool("AI_FEATURES_ENABLED", False)
-    provider = _settings_env_value("LLM_PROVIDER", "none").strip().lower()
-    key_configured = _settings_env_present("OPENAI_API_KEY") or _settings_env_present("LLM_API_KEY")
-    model = _settings_env_value("LLM_MODEL", "")
-
-    if not ai_enabled:
-        return ("AI disabled", "good", "AI_FEATURES_ENABLED is false or missing in this Dash process.")
-
-    if provider in {"", "none", "noop", "disabled"}:
-        return ("LLM provider missing", "warn", "AI is enabled, but LLM_PROVIDER is none/missing.")
-
-    if provider in {"openai", "openai-compatible", "compatible"} and not key_configured:
-        return ("API key missing", "danger", "This Dash process does not see OPENAI_API_KEY or LLM_API_KEY.")
-
-    if provider in {"openai", "openai-compatible", "compatible"} and not model:
-        return ("model missing", "warn", "This Dash process does not see LLM_MODEL.")
-
-    return ("configured", "warn", "Configuration is present. Use check_llm_provider.py to test a real API call.")
-
-
-def _settings_build_runtime_card():
-    """
-    Show what the running Dash process actually sees.
-
-    This is intentionally read-only. Environment variables are process-scoped on
-    Windows/PowerShell, so this card helps catch cases where the user tests a
-    script in one terminal but launches Dash from another terminal.
-    """
-    try:
-        generated_at = datetime.now().isoformat(timespec="seconds")
-    except Exception:
-        generated_at = "unknown"
-
-    try:
-        pid = os.getpid()
-    except Exception:
-        pid = "unknown"
-
-    try:
-        cwd = str(Path.cwd())
-    except Exception:
-        cwd = "unknown"
-
-    try:
-        python_exe = sys.executable
-    except Exception:
-        python_exe = "unknown"
-
-    llm_status, llm_tone, llm_note = _settings_llm_status()
-
-    return html.Div(
-        className="settings-card settings-wide-card settings-runtime-card",
-        children=[
-            html.Div(
-                className="settings-card-title-row",
-                children=[
-                    html.Div("Settings Runtime Diagnostics", className="settings-card-title"),
-                    _settings_status_pill(llm_status, llm_tone),
-                ],
-            ),
-            html.Div(
-                "This shows what the running Dash process sees right now. If you changed PowerShell $env values, restart Dash from that same terminal.",
-                className="settings-card-description",
-            ),
-            html.Div(
-                className="settings-runtime-grid",
-                children=[
-                    _settings_row("Generated at", generated_at),
-                    _settings_row("Process ID", pid),
-                    _settings_row("Working directory", cwd),
-                    _settings_row("Python executable", python_exe),
-                    _settings_row("LLM readiness note", llm_note),
-                    _settings_row("Restart required", "Yes", "Dash does not automatically inherit env changes made after launch."),
-                    _settings_row("MARKET_DATA_PROVIDER", _settings_env_value("MARKET_DATA_PROVIDER", "ibkr")),
-                    _settings_row("CSV_MARKET_DATA_ROOT", _settings_env_value("CSV_MARKET_DATA_ROOT", "cache/replay")),
-                    _settings_row("IBKR_HOST", _settings_env_value("IBKR_HOST", "127.0.0.1")),
-                    _settings_row("IBKR_PORT", _settings_env_value("IBKR_PORT", "not set")),
-                    _settings_row("IBKR_CLIENT_ID", _settings_env_value("IBKR_CLIENT_ID", "not set")),
-                    _settings_row("LLM_PROVIDER", _settings_env_value("LLM_PROVIDER", "none")),
-                    _settings_row("LLM_BASE_URL", _settings_env_value("LLM_BASE_URL", "not configured")),
-                    _settings_row("LLM_MODEL", _settings_env_value("LLM_MODEL", "not configured")),
-                    _settings_row("LLM_CHAT_TOKEN_PARAM", _settings_env_value("LLM_CHAT_TOKEN_PARAM", "auto")),
-                    _settings_row("LLM_SEND_TEMPERATURE", _settings_env_value("LLM_SEND_TEMPERATURE", "auto")),
-                    _settings_row("OPENAI_API_KEY", _settings_env_value("OPENAI_API_KEY", "not configured", mask=True)),
-                ],
-            ),
-        ],
-    )
-
-
-def _settings_build_ai_lock_card():
-    """
-    Read-only future AI safety settings.
-
-    These controls are intentionally display-only. Runtime AI switching and
-    secret editing should not happen in Dash browser state.
-    """
-    ai_enabled = _settings_env_bool("AI_FEATURES_ENABLED", False)
-    ai_advisory_only = _settings_env_bool("AI_ADVISORY_ONLY", True)
-    ai_allow_orders = _settings_env_bool("AI_ALLOW_ORDER_PLACEMENT", False)
-    ai_allow_broker_access = _settings_env_bool("AI_ALLOW_BROKER_ACCESS", False)
-    ai_allow_external_tools = _settings_env_bool("AI_ALLOW_EXTERNAL_TOOLS", False)
-    ai_require_confirmation = _settings_env_bool("AI_REQUIRE_HUMAN_CONFIRMATION", True)
-
-    llm_provider = _settings_env_value("LLM_PROVIDER", "none")
-    llm_base_url = _settings_env_value("LLM_BASE_URL", "not configured")
-    llm_model = _settings_env_value("LLM_MODEL", "not configured")
-    openai_key = _settings_env_value("OPENAI_API_KEY", "not configured", mask=True)
-
-    if not ai_enabled:
-        ai_state = _settings_status_pill("AI disabled", "good")
-    elif ai_advisory_only and not ai_allow_orders and not ai_allow_broker_access:
-        ai_state = _settings_status_pill("AI advisory-only", "warn")
-    else:
-        ai_state = _settings_status_pill("AI needs review", "danger")
-
-    return html.Div(
-        className="settings-card settings-ai-lock-card",
-        children=[
-            html.Div(
-                className="settings-card-title-row",
-                children=[
-                    html.Div("Future AI Safety Locks", className="settings-card-title"),
-                    ai_state,
-                ],
-            ),
-            html.Div(
-                "This section is read-only. It reserves a safe place for future AI controls without enabling AI trading.",
-                className="settings-card-description",
-            ),
-            _settings_row("LLM provider", llm_provider),
-            _settings_row("LLM base URL", llm_base_url, "Use localhost/LAN only until authentication exists."),
-            _settings_row("LLM model", llm_model),
-            _settings_row("OpenAI API key", openai_key, "Masked. Never show API keys in the browser."),
-            html.Div(className="settings-lock-list", children=[
-                _settings_lock_row(
-                    "AI features",
-                    ai_enabled,
-                    safe_when=False,
-                    note="Default safe state is OFF. ON is acceptable only for advisory diagnostics.",
-                ),
-                _settings_lock_row(
-                    "Advisory-only mode",
-                    ai_advisory_only,
-                    safe_when=True,
-                    note="AI may explain/suggest, but should not execute.",
-                ),
-                _settings_lock_row(
-                    "Order placement allowed",
-                    ai_allow_orders,
-                    safe_when=False,
-                    note="Must remain OFF until broker-safety code and confirmations exist.",
-                ),
-                _settings_lock_row(
-                    "Broker/account access",
-                    ai_allow_broker_access,
-                    safe_when=False,
-                    note="Must remain OFF until explicit permission gates exist.",
-                ),
-                _settings_lock_row(
-                    "External tools/network actions",
-                    ai_allow_external_tools,
-                    safe_when=False,
-                    note="Must remain OFF until allowlists and audit logs exist.",
-                ),
-                _settings_lock_row(
-                    "Human confirmation required",
-                    ai_require_confirmation,
-                    safe_when=True,
-                    note="Should remain ON for any future AI-assisted action.",
-                ),
-            ]),
-        ],
-    )
-
-
-def build_charts_tab(symbol_options, timeframe_map, default_symbol, default_timeframe):
-    """
-    Compatibility name.
-
-    The old Charts tab is now the Settings tab. The function name is intentionally
-    kept as build_charts_tab so existing app imports do not break.
-    """
-    provider = _settings_env_value("MARKET_DATA_PROVIDER", "ibkr")
-    csv_root = _settings_env_value("CSV_MARKET_DATA_ROOT", "cache/replay")
-    ibkr_host = _settings_env_value("IBKR_HOST", "127.0.0.1")
-    ibkr_port = _settings_env_value("IBKR_PORT", "not set")
-    ibkr_client_id = _settings_env_value("IBKR_CLIENT_ID", "not set")
-    tradier_env = _settings_env_value("TRADIER_ENV", "sandbox")
-    tradier_token = _settings_env_value("TRADIER_ACCESS_TOKEN", "not configured", mask=True)
-
-    cache = _settings_cache_summary(csv_root)
-
-    return html.Div(
-        className="tab-panel settings-tab-panel",
-        children=[
-            html.Div(
-                className="settings-header",
-                children=[
-                    html.Div("Settings", className="settings-title"),
-                    html.Div(
-                        "Read-only app configuration, provider status, local data summary, and future safety locks.",
-                        className="settings-subtitle",
-                    ),
-                ],
-            ),
-
-            _settings_build_runtime_card(),
-
-            html.Div(
-                className="settings-grid",
-                children=[
-                    html.Div(
-                        className="settings-card",
+                        className="strategy-help-button-row",
                         children=[
-                            html.Div("Market Data Provider", className="settings-card-title"),
-                            _settings_row("Active provider", provider),
-                            _settings_row("CSV cache root", csv_root),
-                            _settings_row(
-                                "Provider selection",
-                                "Restart required",
-                                "For now, change MARKET_DATA_PROVIDER before launching Dash.",
+                            html.Button(
+                                "Insert Example",
+                                id="strategy-insert-example",
+                                n_clicks=0,
+                                className="strategy-run-btn strategy-help-btn",
+                            ),
+                            html.Button(
+                                "Language Guide",
+                                id="strategy-show-language-guide",
+                                n_clicks=0,
+                                className="range-btn strategy-help-btn",
+                            ),
+                            html.Button(
+                                "Function Reference",
+                                id="strategy-show-function-reference",
+                                n_clicks=0,
+                                className="range-btn strategy-help-btn",
                             ),
                         ],
                     ),
-
-                    html.Div(
-                        className="settings-card",
-                        children=[
-                            html.Div("IBKR / Gateway", className="settings-card-title"),
-                            _settings_row("Host", ibkr_host),
-                            _settings_row("Port", ibkr_port, "Your Gateway live port is commonly 4001."),
-                            _settings_row("Client ID", ibkr_client_id),
-                            _settings_row(
-                                "Connection note",
-                                "External",
-                                "IB Gateway/TWS must be running for exports or live IBKR data.",
-                            ),
-                        ],
-                    ),
-
-                    html.Div(
-                        className="settings-card",
-                        children=[
-                            html.Div("Tradier", className="settings-card-title"),
-                            _settings_row("Environment", tradier_env),
-                            _settings_row("Access token", tradier_token),
-                            _settings_row(
-                                "Status",
-                                "Scaffold only",
-                                "Do not enable Tradier until the account/API token is ready.",
-                            ),
-                        ],
-                    ),
-
-                    html.Div(
-                        className="settings-card",
-                        children=[
-                            html.Div("Local Data Cache", className="settings-card-title"),
-                            _settings_row("Root path", cache["root"]),
-                            _settings_row("Exists", _settings_bool_text(cache["exists"])),
-                            _settings_row("Data files", cache["files"]),
-                            _settings_row("Approx size", _settings_format_bytes(cache["bytes"])),
-                        ],
-                    ),
                 ],
             ),
-
-            _settings_build_ai_lock_card(),
-
             html.Div(
-                className="settings-card settings-wide-card",
+                id="strategy-help-content",
+                className="strategy-help-content",
                 children=[
-                    html.Div("Useful Commands", className="settings-card-title"),
-                    html.Div("Check what this terminal sees:", className="settings-command-label"),
-                    _settings_command(
-                        "python -c \"import os; print(os.getenv('AI_FEATURES_ENABLED'), os.getenv('LLM_PROVIDER'), bool(os.getenv('OPENAI_API_KEY')))\""
-                    ),
-                    html.Div("Check AI safety policy:", className="settings-command-label"),
-                    _settings_command("python .\\Live\\scripts\\check_ai_safety_policy.py"),
-                    html.Div("Check LLM provider:", className="settings-command-label"),
-                    _settings_command(
-                        "python .\\Live\\scripts\\check_llm_provider.py --provider openai --prompt \"Reply with exactly: LLM_OK\" --max-output-tokens 20"
-                    ),
-                    html.Div("Inspect cache:", className="settings-command-label"),
-                    _settings_command("python .\\Live\\scripts\\inspect_market_data_cache.py"),
-                    html.Div("Check active provider:", className="settings-command-label"),
-                    _settings_command(
-                        "python .\\Live\\scripts\\check_market_data_provider.py "
-                        "--provider csv --symbol MSFT --timeframe \"1 min\""
-                    ),
-                    html.Div("Export IB Gateway history:", className="settings-command-label"),
-                    _settings_command(
-                        "python .\\Live\\scripts\\export_ibkr_history_to_csv.py "
-                        "--symbol MSFT --timeframe \"1 min\" --start 2026-06-15 "
-                        "--end 2026-06-19 --port 4001 --client-id 31"
-                    ),
-                ],
-            ),
-
-            html.Div(
-                className="settings-card settings-wide-card settings-security-card",
-                children=[
-                    html.Div("Security Rules", className="settings-card-title"),
-                    html.Ul(
-                        children=[
-                            html.Li("Never commit .env or real API tokens."),
-                            html.Li("Secrets are masked in this tab and should stay out of browser storage."),
-                            html.Li("Provider switching remains restart-based until a safe runtime config layer exists."),
-                            html.Li("This Settings tab is read-only; it does not place orders or change broker state."),
-                            html.Li("Future AI features must stay advisory-only until explicit safety gates exist."),
-                            html.Li("AI code must never call broker/order functions directly."),
-                        ],
-                    ),
-                ],
-            ),
-
-            # Legacy hidden Charts IDs.
-            #
-            # Existing callbacks may still reference these old IDs. Keeping them
-            # hidden avoids breaking callback registration while the visible tab
-            # becomes Settings.
-            html.Div(
-                className="settings-legacy-charts-hidden",
-                style={"display": "none"},
-                children=[
-                    dcc.Dropdown(
-                        id="charts-symbol-dropdown",
-                        options=symbol_options,
-                        value=default_symbol,
-                        searchable=True,
-                        clearable=False,
-                    ),
-                    dcc.Dropdown(
-                        id="charts-timeframe-dropdown",
-                        options=make_timeframe_options(timeframe_map),
-                        value=default_timeframe,
-                        clearable=False,
-                        searchable=True,
-                    ),
-                    html.Div(id="charts-status"),
-                    dcc.Graph(
-                        id="charts-main-graph",
-                        config=CHART_CONFIG,
+                    html.Div(
+                        "Choose an example, insert it into the editor, or open the language guide.",
+                        className="paper-empty",
                     ),
                 ],
             ),
         ],
     )
-
 # =============================================================================
-# End Settings tab foundation (Patch 09)
+# End Strategy Lab Help Panel Restore
 # =============================================================================
