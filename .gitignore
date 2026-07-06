@@ -54,4 +54,40 @@ research_brief_exports/
 # Patch 24 local AI context scratch
 strategy_runtime_context_exports/
 current_strategy_context.md
-current_strategy_context.json
+current_strategy_context.json\n\n# Local research/newsroom exports\n/research_brief_exports/\n/newsroom_exports/
+
+# Research Autolab generated data/artifacts
+Live/data/autolab_bars/
+Live/data/autolab_macro/
+
+Live/data/autolab_results/autolab_results.json
+Live/data/autolab_results/autolab_macro_results.json
+Live/autolab_baseline_results.json
+Live/autolab_overlay_comparison.json
+Live/autolab_overlay_comparison.md
+Live/autolab_overlay_comparison.csv
+Live/data/autolab_comparison/autolab_ui_overlay_comparison.json
+Live/data/autolab_comparison/autolab_ui_overlay_comparison.csv
+Live/data/autolab_report/autolab_detailed_report.md
+Live/data/autolab_payload/autolab_detailed_payload.json
+Live/data/autolab_journal/autolab_strategy_journal.csv
+Live/autolab_strategy_cards/
+
+# Optional local helper scripts if you do not want to commit them
+Live/download_autolab_bars.py
+Live/download_fred_macro.py
+Live/run_autolab_csv_smoke.py
+
+
+# Research Autolab generated/local data folders
+Live/data/autolab_bars/
+Live/data/autolab_comparison/
+Live/data/autolab_journal/
+Live/data/autolab_macro/
+Live/data/autolab_payload/
+Live/data/autolab_report/
+Live/data/autolab_results/
+
+# Local symbol universe files
+Live/data/nasdaq_symbol_names_filled.csv
+Live/data/nasdaq_tickers_simple.txt

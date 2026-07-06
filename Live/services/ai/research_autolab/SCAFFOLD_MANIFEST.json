@@ -1,0 +1,12 @@
+{
+  "package": "C:\\Users\\sunny\\Documents\\GitHub\\AlgoTrader\\Live\\services\\ai\\research_autolab",
+  "files": [
+    "C:\\Users\\sunny\\Documents\\GitHub\\AlgoTrader\\Live\\services\\ai\\research_autolab\\__init__.py",
+    "C:\\Users\\sunny\\Documents\\GitHub\\AlgoTrader\\Live\\services\\ai\\research_autolab\\models.py",
+    "C:\\Users\\sunny\\Documents\\GitHub\\AlgoTrader\\Live\\services\\ai\\research_autolab\\safety.py",
+    "C:\\Users\\sunny\\Documents\\GitHub\\AlgoTrader\\Live\\services\\ai\\research_autolab\\planner.py",
+    "C:\\Users\\sunny\\Documents\\GitHub\\AlgoTrader\\Live\\services\\ai\\research_autolab\\runner_stub.py",
+    "C:\\Users\\sunny\\Documents\\GitHub\\AlgoTrader\\Live\\services\\ai\\research_autolab\\cli.py"
+  ],
+  "next_step": "Wire runner_stub.run_backtest_request() to the existing BackTestEngine after validating data availability."
+}

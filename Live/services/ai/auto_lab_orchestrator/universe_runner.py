@@ -1,0 +1,423 @@
+from __future__ import annotations
+
+from pathlib import Path
+from datetime import datetime, timezone
+import argparse
+import json
+import sys
+import traceback
+
+
+def _bootstrap_import_path() -> Path:
+    here = Path(__file__).resolve()
+    live_root = here.parents[3]
+    repo_root = here.parents[4]
+    for path in (str(live_root), str(repo_root)):
+        if path not in sys.path:
+            sys.path.insert(0, path)
+    return live_root
+
+
+def _parse_symbols(text: str) -> list[str]:
+    symbols = []
+    for part in (text or "").replace(";", ",").split(","):
+        item = part.strip().upper()
+        if item and item not in symbols:
+            symbols.append(item)
+    return symbols
+
+
+def _run_id() -> str:
+    return "universe_" + datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
+
+
+def _candidate_family(candidate_id: str) -> str:
+    text = candidate_id or ""
+    for token in ("_rsi_", "_fast_", "_slow_", "_buy_thr_", "_sell_thr_"):
+        if token in text:
+            return text.split(token)[0]
+    return text
+
+
+def _result_rows(run, scorecards) -> list[dict]:
+    result_by_key = {(r.candidate_id, r.symbol): r for r in run.results}
+    rows = []
+    for sc in sorted(scorecards, key=lambda item: item.total_score, reverse=True):
+        result = result_by_key.get((sc.candidate_id, sc.symbol))
+        metrics = dict(getattr(result, "metrics", {}) or {}) if result else {}
+        rows.append(
+            {
+                "candidate_id": sc.candidate_id,
+                "symbol": sc.symbol,
+                "strategy_family": _candidate_family(sc.candidate_id),
+                "score": sc.total_score,
+                "grade": sc.grade,
+                "engine_pass": sc.engine_pass,
+                "research_pass": sc.research_pass,
+                "objective_hit": sc.objective_hit,
+                "objective_progress_pct": sc.objective_progress_pct,
+                "total_return_pct": metrics.get("total_return_pct", 0.0),
+                "max_drawdown_pct": metrics.get("max_drawdown_pct", 0.0),
+                "trade_count": metrics.get("trade_count", 0),
+                "final_equity": metrics.get("final_equity", 0.0),
+                "warnings": list(getattr(sc, "warnings", []) or []),
+                "fail_reasons": list(getattr(sc, "fail_reasons", []) or []),
+            }
+        )
+    return rows
+
+
+def _read_text_if_exists(path: Path) -> str:
+    try:
+        if path.exists():
+            return path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+    return ""
+
+
+def run_symbol_pipeline(
+    *,
+    live_root: Path,
+    symbol: str,
+    args,
+) -> dict:
+    from services.ai.auto_lab_orchestrator.models import ExperimentGoal
+    from services.ai.auto_lab_orchestrator.orchestrator import AutoLabOrchestrator
+    from services.ai.auto_lab_orchestrator.adapters import CoreStrategyBacktestAdapter
+    from services.ai.auto_lab_orchestrator.bars_bootstrapper import bootstrap_bars_csv
+    from services.ai.auto_lab_orchestrator.data_adapters import load_csv_bars
+    from services.ai.auto_lab_orchestrator.seed_library import discover_strategy_seed_candidates
+    from services.ai.auto_lab_orchestrator.sizing import SizingConfig, apply_simulation_sizing
+    from services.ai.auto_lab_orchestrator.mutator import generate_mutations_for_parents
+    from services.ai.auto_lab_orchestrator.execution_quality import normalize_run_execution_quality, write_execution_quality_report
+    from services.ai.auto_lab_orchestrator.report_builder import write_run_bundle
+    from services.ai.auto_lab_orchestrator.mutation_reporter import write_mutation_artifacts
+    from services.ai.auto_lab_orchestrator.real_data_reporter import write_real_data_report
+    from services.ai.auto_lab_orchestrator.csv_mutation_retest_sized import write_same_data_baseline_artifacts
+    from services.ai.auto_lab_orchestrator.strategy_trace import write_strategy_build_trace_for_report_dir
+
+    boot = bootstrap_bars_csv(
+        live_root=live_root,
+        symbol=symbol,
+        start=args.start,
+        end=args.end,
+        timeframe=args.timeframe,
+        prefer_local=not args.yfinance_first,
+        allow_yfinance=not args.local_only,
+    )
+    bars, profile = load_csv_bars(
+        csv_path=boot.csv_path,
+        symbol=symbol,
+        start=args.start,
+        end=args.end,
+    )
+    data_profile = profile.to_dict()
+
+    seeds = discover_strategy_seed_candidates(
+        live_root=live_root,
+        symbol=symbol,
+        max_examples=args.max_examples,
+        include_built_ins=True,
+    )
+
+    sizing_config = SizingConfig(
+        sizing_mode=args.sizing_mode,
+        cash_exposure_pct=args.cash_exposure_pct,
+        fixed_quantity=args.fixed_quantity,
+        simulation_only=True,
+    )
+    initial_cash = float(args.initial_cash)
+    target_equity = float(args.target_equity)
+
+    sized_seeds, sizing_info = apply_simulation_sizing(
+        seeds,
+        bars=bars,
+        initial_cash=initial_cash,
+        config=sizing_config,
+    )
+
+    orchestrator = AutoLabOrchestrator(adapter=CoreStrategyBacktestAdapter(), live_root=live_root)
+
+    baseline_goal = ExperimentGoal(
+        question=f"v21.5 multi-symbol same-data baseline for {symbol}.",
+        symbols=[symbol],
+        timeframe=args.timeframe,
+        starting_cash=initial_cash,
+        target_equity=target_equity,
+        max_drawdown_pct=args.max_drawdown_pct,
+        min_trades=1,
+        max_runs=len(sized_seeds),
+        simulation_only=True,
+        notes="Universe runner baseline; simulation-only.",
+    )
+    baseline_run = orchestrator.run_experiment(
+        goal=baseline_goal,
+        candidates=sized_seeds,
+        bars_by_symbol={symbol: bars},
+    )
+    baseline_run.summary["data_mode"] = "csv_historical_bars"
+    baseline_run.summary["universe_runner"] = True
+    baseline_run.summary["sizing"] = sizing_info
+    baseline_run.summary["data_profile"] = data_profile
+    baseline_quality_summary = normalize_run_execution_quality(baseline_run, context=f"{symbol}_universe_baseline")
+    write_run_bundle(baseline_run, Path(baseline_run.artifacts["report_md"]).parent)
+
+    baseline_scorecards = list(baseline_run.scorecards)
+    baseline_pass_ids = {sc.candidate_id for sc in baseline_scorecards if sc.engine_pass and sc.research_pass}
+    eligible_parents = [candidate for candidate in sized_seeds if candidate.candidate_id in baseline_pass_ids]
+    eligible_parent_scorecards = [sc for sc in baseline_scorecards if sc.candidate_id in baseline_pass_ids]
+
+    if not eligible_parents and not args.strict_parent_gate:
+        # Allow engine-pass candidates if none clear research pass, so the universe report still shows why a symbol failed.
+        engine_pass_ids = {sc.candidate_id for sc in baseline_scorecards if sc.engine_pass}
+        eligible_parents = [candidate for candidate in sized_seeds if candidate.candidate_id in engine_pass_ids]
+        eligible_parent_scorecards = [sc for sc in baseline_scorecards if sc.candidate_id in engine_pass_ids]
+
+    mutations = []
+    if eligible_parents:
+        mutations = generate_mutations_for_parents(
+            parents=eligible_parents,
+            max_mutations_per_parent=args.max_mutations_per_parent,
+            max_total=args.max_total_runs_per_symbol,
+            mutate_quantity=args.mutate_quantity,
+        )
+
+    if not mutations:
+        run_dir = Path(baseline_run.artifacts["report_md"]).parent
+        return {
+            "symbol": symbol,
+            "status": "no_mutations",
+            "error": "No mutations generated from eligible baseline parents.",
+            "data_source": boot.source,
+            "csv_path": boot.csv_path,
+            "row_count": data_profile.get("row_count"),
+            "first_date": data_profile.get("first_date"),
+            "last_date": data_profile.get("last_date"),
+            "baseline_run_id": baseline_run.run_id,
+            "run_dir": str(run_dir),
+            "baseline_research_pass_parents": len(eligible_parents),
+            "mutation_count": 0,
+            "ranked_mutations": [],
+        }
+
+    sized_mutations, mutation_sizing_info = apply_simulation_sizing(
+        mutations,
+        bars=bars,
+        initial_cash=initial_cash,
+        config=sizing_config,
+    )
+
+    mutation_goal = ExperimentGoal(
+        question=f"v21.5 multi-symbol mutation retest for {symbol}.",
+        symbols=[symbol],
+        timeframe=args.timeframe,
+        starting_cash=initial_cash,
+        target_equity=target_equity,
+        max_drawdown_pct=args.max_drawdown_pct,
+        min_trades=1,
+        max_runs=len(sized_mutations),
+        simulation_only=True,
+        notes="Universe runner mutation retest; simulation-only.",
+    )
+    run = orchestrator.run_experiment(
+        goal=mutation_goal,
+        candidates=sized_mutations,
+        bars_by_symbol={symbol: bars},
+    )
+    run.summary["data_mode"] = "csv_historical_bars"
+    run.summary["universe_runner"] = True
+    run.summary["synthetic_vs_real_data"] = "csv_historical_bars"
+    run.summary["same_data_baseline"] = True
+    run.summary["sizing"] = mutation_sizing_info
+    run.summary["data_profile"] = data_profile
+    mutation_quality_summary = normalize_run_execution_quality(run, context=f"{symbol}_universe_mutation")
+    write_run_bundle(run, Path(run.artifacts["report_md"]).parent)
+
+    settings = {
+        "universe_runner": True,
+        "symbol": symbol,
+        "csv_path": boot.csv_path,
+        "data_source": boot.source,
+        "start": args.start,
+        "end": args.end,
+        "max_parent_strategies": args.max_parent_strategies,
+        "max_muts_per_parent": args.max_mutations_per_parent,
+        "max_total_runs": args.max_total_runs_per_symbol,
+        "mutate_quantity": args.mutate_quantity,
+        "sizing_mode": args.sizing_mode,
+        "cash_exposure_pct": args.cash_exposure_pct,
+        "fixed_quantity": args.fixed_quantity,
+        "data_mode": "csv_historical_bars",
+        "same_data_delta": True,
+        "simulation_only": True,
+    }
+
+    mutation_artifacts = write_mutation_artifacts(
+        run=run,
+        parents=eligible_parents,
+        parent_scorecards=eligible_parent_scorecards,
+        settings=settings,
+    )
+    run.artifacts.update(mutation_artifacts)
+
+    real_data_artifacts = write_real_data_report(run=run, data_profile=data_profile, settings=settings)
+    run.artifacts.update(real_data_artifacts)
+
+    baseline_artifacts = write_same_data_baseline_artifacts(
+        baseline_run=baseline_run,
+        report_dir=Path(run.artifacts["report_md"]).parent,
+        sizing_info=sizing_info,
+        data_profile=data_profile,
+    )
+    run.artifacts.update(baseline_artifacts)
+
+    trace_artifacts = write_strategy_build_trace_for_report_dir(Path(run.artifacts["report_md"]).parent)
+    run.artifacts.update(trace_artifacts)
+
+    execution_quality_artifacts = write_execution_quality_report(
+        run=run,
+        report_dir=Path(run.artifacts["report_md"]).parent,
+        normalization_summary={
+            "baseline": baseline_quality_summary,
+            "mutation": mutation_quality_summary,
+        },
+    )
+    run.artifacts.update(execution_quality_artifacts)
+
+    write_run_bundle(run, Path(run.artifacts["report_md"]).parent)
+
+    ranked_rows = _result_rows(run, run.scorecards)
+    run_dir = Path(run.artifacts["report_md"]).parent
+
+    return {
+        "symbol": symbol,
+        "status": "ok",
+        "data_source": boot.source,
+        "csv_path": boot.csv_path,
+        "row_count": data_profile.get("row_count"),
+        "first_date": data_profile.get("first_date"),
+        "last_date": data_profile.get("last_date"),
+        "reference_price": mutation_sizing_info.get("reference_price"),
+        "example_quantity": mutation_sizing_info.get("example_quantity"),
+        "baseline_run_id": baseline_run.run_id,
+        "mutation_run_id": run.run_id,
+        "run_dir": str(run_dir),
+        "baseline_research_pass_parents": len(eligible_parents),
+        "mutation_count": len(sized_mutations),
+        "research_pass_count": sum(1 for sc in run.scorecards if sc.research_pass),
+        "objective_hit_count": sum(1 for sc in run.scorecards if sc.objective_hit),
+        "ranked_mutations": ranked_rows,
+        "artifacts": dict(run.artifacts),
+        "top_strategy_algorithm_text": _read_text_if_exists(run_dir / "top_strategy_algorithm.md"),
+    }
+
+
+def main() -> int:
+    live_root = _bootstrap_import_path()
+
+    parser = argparse.ArgumentParser(description="Run Auto Lab across a multi-symbol equity universe.")
+    parser.add_argument("--symbols", default="AMD,NVDA,MSFT,AAPL,TSLA")
+    parser.add_argument("--start", default="2020-01-01")
+    parser.add_argument("--end", default="")
+    parser.add_argument("--timeframe", default="1d")
+    parser.add_argument("--local-only", action="store_true")
+    parser.add_argument("--yfinance-first", action="store_true")
+    parser.add_argument("--sizing-mode", default="percent_cash_exposure", choices=["fixed_quantity", "max_affordable_shares", "percent_cash_exposure"])
+    parser.add_argument("--cash-exposure-pct", type=float, default=95.0)
+    parser.add_argument("--fixed-quantity", type=int, default=10)
+    parser.add_argument("--initial-cash", type=float, default=12000.0)
+    parser.add_argument("--target-equity", type=float, default=24000.0)
+    parser.add_argument("--max-drawdown-pct", type=float, default=30.0)
+    parser.add_argument("--max-examples", type=int, default=8)
+    parser.add_argument("--max-parent-strategies", type=int, default=999)
+    parser.add_argument("--max-mutations-per-parent", type=int, default=4)
+    parser.add_argument("--max-total-runs-per-symbol", type=int, default=20)
+    parser.add_argument("--mutate-quantity", action="store_true")
+    parser.add_argument("--strict-parent-gate", action="store_true")
+    parser.add_argument("--continue-on-error", action="store_true")
+    args = parser.parse_args()
+
+    from services.ai.auto_lab_orchestrator.universe_reporter import build_universe_payload, write_universe_artifacts
+
+    symbols = _parse_symbols(args.symbols)
+    if not symbols:
+        print("No symbols provided.")
+        return 2
+
+    universe_run_id = _run_id()
+    out_dir = live_root / "data" / "auto_lab_universe_runs" / universe_run_id
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    settings = {
+        "symbols": symbols,
+        "start": args.start,
+        "end": args.end,
+        "timeframe": args.timeframe,
+        "local_only": args.local_only,
+        "yfinance_first": args.yfinance_first,
+        "sizing_mode": args.sizing_mode,
+        "cash_exposure_pct": args.cash_exposure_pct,
+        "fixed_quantity": args.fixed_quantity,
+        "initial_cash": args.initial_cash,
+        "target_equity": args.target_equity,
+        "max_drawdown_pct": args.max_drawdown_pct,
+        "max_examples": args.max_examples,
+        "max_parent_strategies": args.max_parent_strategies,
+        "max_mutations_per_parent": args.max_mutations_per_parent,
+        "max_total_runs_per_symbol": args.max_total_runs_per_symbol,
+        "mutate_quantity": args.mutate_quantity,
+        "simulation_only": True,
+    }
+
+    symbol_results = []
+    errors = []
+
+    for symbol in symbols:
+        print(f"=== Running universe symbol: {symbol} ===")
+        try:
+            result = run_symbol_pipeline(live_root=live_root, symbol=symbol, args=args)
+            symbol_results.append(result)
+            best = (result.get("ranked_mutations") or [{}])[0]
+            print(
+                f"{symbol}: status={result.get('status')} "
+                f"best={best.get('candidate_id', '')} "
+                f"score={best.get('score', 0.0)} "
+                f"objective_hit={best.get('objective_hit', False)} "
+                f"progress={best.get('objective_progress_pct', 0.0)}"
+            )
+        except Exception as exc:
+            error = {
+                "symbol": symbol,
+                "status": "error",
+                "error_type": exc.__class__.__name__,
+                "error": str(exc),
+                "traceback": traceback.format_exc(),
+            }
+            symbol_results.append(error)
+            errors.append(error)
+            print(f"{symbol}: ERROR {exc.__class__.__name__}: {exc}")
+            if not args.continue_on_error:
+                break
+
+    payload = build_universe_payload(
+        universe_run_id=universe_run_id,
+        symbols=symbols,
+        settings=settings,
+        symbol_results=symbol_results,
+    )
+    artifacts = write_universe_artifacts(payload, out_dir)
+
+    print("AI Auto Lab universe run complete.")
+    print(f"universe_run_id: {universe_run_id}")
+    print(f"symbols_requested: {len(symbols)}")
+    print(f"symbols_completed: {sum(1 for r in symbol_results if r.get('status') == 'ok')}")
+    print(f"errors: {len(errors)}")
+    for key, value in artifacts.items():
+        print(f"{key}: {value}")
+
+    return 1 if errors and not args.continue_on_error else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

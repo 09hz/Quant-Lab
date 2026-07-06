@@ -1,0 +1,39 @@
+/* Watch live-day guard.
+   This stylesheet does not target Plotly graphs. */
+
+.watch-live-guard-banner {
+  margin: 8px 0 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--sv-border);
+  border-radius: 10px;
+  background: rgba(16, 22, 32, 0.86);
+  box-shadow: var(--sv-shadow-sm), var(--sv-shadow-inset);
+}
+
+.watch-live-guard-inner {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.watch-live-guard-title {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--sv-text-primary);
+}
+
+.watch-live-guard-detail {
+  opacity: 0.86;
+  font-size: 0.9rem;
+  color: var(--sv-text-secondary);
+}
+
+.watch-live-guard-open {
+  border-color: var(--sv-positive-border);
+}
+
+.watch-live-guard-closed {
+  border-color: var(--sv-negative-border);
+  background: rgba(87, 28, 28, 0.18);
+}

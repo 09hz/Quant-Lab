@@ -8,24 +8,20 @@ Intent:
 */
 
 :root {
-  --sv-input-bg: #101827;
-  --sv-input-bg-focus: #111d31;
-  --sv-input-border: #1d3354;
-  --sv-input-border-focus: #2f6fb2;
-  --sv-input-text: #ffffff;
-  --sv-input-muted: #7f90b2;
-  --sv-input-radius: 5px;
-  --sv-input-height: 41px;
+  --sv-input-bg: var(--sv-surface-1, #0f141d);
+  --sv-input-bg-focus: var(--sv-surface-2, #141a24);
+  --sv-input-border: var(--sv-border, #1f2836);
+  --sv-input-border-focus: var(--sv-accent-border, #5a8fd1);
+  --sv-input-text: var(--sv-text-primary, #edf3fb);
+  --sv-input-muted: var(--sv-text-tertiary, #66778e);
+  --sv-input-radius: 10px;
+  --sv-input-height: 40px;
 }
 
 /* --------------------------------------------------------------------------
    Backtest amount inputs
    -------------------------------------------------------------------------- */
 
-/*
-The earlier problem was the value being horizontally scrolled/right-aligned inside
-a narrow number input. These selectors are ID-specific and avoid all chart areas.
-*/
 #backtest-initial-cash,
 #backtest-quantity {
   box-sizing: border-box !important;
@@ -53,7 +49,6 @@ a narrow number input. These selectors are ID-specific and avoid all chart areas
   -moz-appearance: textfield !important;
 }
 
-/* Hide number spinners so the text has more usable room. */
 #backtest-initial-cash::-webkit-outer-spin-button,
 #backtest-initial-cash::-webkit-inner-spin-button,
 #backtest-quantity::-webkit-outer-spin-button,
@@ -68,10 +63,6 @@ a narrow number input. These selectors are ID-specific and avoid all chart areas
   border-color: var(--sv-input-border-focus) !important;
 }
 
-/*
-Give the two backtest control cards enough width so 100000 / 10 are visible
-without needing arrow keys.
-*/
 .strategy-backtest-input-box {
   box-sizing: border-box !important;
   min-width: 138px !important;
@@ -87,12 +78,6 @@ without needing arrow keys.
    Replay DatePickerSingle controls
    -------------------------------------------------------------------------- */
 
-/*
-The replay dates are Dash dcc.DatePickerSingle components, not normal dropdowns.
-Dash/react-dates creates nested wrappers:
-.date-picker-dark -> .SingleDatePicker -> .SingleDatePickerInput -> .DateInput -> input.
-We style only this chain.
-*/
 .date-picker-dark,
 .date-picker-dark .SingleDatePicker,
 .date-picker-dark .SingleDatePickerInput,
@@ -104,7 +89,6 @@ We style only this chain.
   background: var(--sv-input-bg) !important;
 }
 
-/* The DatePicker component should fill the same visual slot as Interval/Speed. */
 .date-picker-dark .SingleDatePicker {
   display: block !important;
 }
@@ -125,7 +109,6 @@ We style only this chain.
   align-items: stretch !important;
 }
 
-/* Kill the white DateInput strip that react-dates adds by default. */
 .date-picker-dark .DateInput {
   height: calc(var(--sv-input-height) - 2px) !important;
   min-height: calc(var(--sv-input-height) - 2px) !important;
@@ -150,7 +133,7 @@ We style only this chain.
   background: var(--sv-input-bg) !important;
   color: var(--sv-input-text) !important;
   caret-color: var(--sv-input-text) !important;
-  font-size: 16px !important;
+  font-size: 15px !important;
   font-weight: 700 !important;
   text-align: center !important;
   outline: none !important;
@@ -168,17 +151,12 @@ We style only this chain.
   color: var(--sv-input-text) !important;
 }
 
-/* Hide the react-dates underline/triangle artifacts that can create white edges. */
 .date-picker-dark .DateInput_fang,
 .date-picker-dark .DateInput_fangShape,
 .date-picker-dark .DateInput_fangStroke {
   display: none !important;
 }
 
-/*
-Make only the replay date control boxes slightly wider than Interval/Speed because
-MM/DD/YYYY needs 10 visible characters. This avoids the white squeezed look.
-*/
 .control-box:has(#replay-date),
 .control-box:has(#replay-end-date) {
   box-sizing: border-box !important;
@@ -186,9 +164,6 @@ MM/DD/YYYY needs 10 visible characters. This avoids the white squeezed look.
   width: 156px !important;
 }
 
-/*
-Fallback for browsers/environments that expose the actual DatePicker input IDs.
-*/
 #replay-date,
 #replay-end-date {
   background: var(--sv-input-bg) !important;
@@ -196,28 +171,27 @@ Fallback for browsers/environments that expose the actual DatePicker input IDs.
   text-align: center !important;
 }
 
-/* Calendar popup only; does not touch graphs. */
 .CalendarMonth,
 .CalendarMonth_table,
 .DayPicker,
 .DayPicker_transitionContainer,
 .CalendarMonthGrid,
 .CalendarMonthGrid_month__horizontal {
-  background: #0b0f19 !important;
+  background: var(--sv-surface-0, #0a0e14) !important;
   color: var(--sv-input-text) !important;
 }
 
 .CalendarDay {
-  background: #101827 !important;
+  background: var(--sv-input-bg) !important;
   color: var(--sv-input-text) !important;
-  border-color: #1d3354 !important;
+  border-color: var(--sv-input-border) !important;
 }
 
 .CalendarDay__selected,
 .CalendarDay__selected:active,
 .CalendarDay__selected:hover {
-  background: #1e5ea8 !important;
-  border-color: #2f6fb2 !important;
+  background: var(--sv-accent) !important;
+  border-color: var(--sv-input-border-focus) !important;
   color: #ffffff !important;
 }
 
@@ -225,6 +199,6 @@ Fallback for browsers/environments that expose the actual DatePicker input IDs.
 .CalendarDay__blocked_calendar:active,
 .CalendarDay__blocked_calendar:hover {
   background: #070b13 !important;
-  color: #53617c !important;
+  color: var(--sv-input-muted) !important;
   border-color: #111827 !important;
 }

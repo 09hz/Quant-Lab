@@ -1,233 +1,220 @@
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any
-
 from dash import dcc, html
-
-try:
-    from services.research.source_registry import build_default_source_registry
-except Exception:
-    build_default_source_registry = None
-
-try:
-    from services.research.research_brief import build_research_brief
-except Exception:
-    build_research_brief = None
+from ui.structured_evidence_preview_ui import build_structured_evidence_preview_panel
+from ui.research_autolab_ui import build_research_autolab_panel
 
 
-def _source_value(source: Any, *names: str, default: str = "") -> str:
+def _safe_get(obj: Any, *names: str, default: str = "") -> str:
     for name in names:
-        if hasattr(source, name):
-            value = getattr(source, name)
-            if value is not None and str(value).strip():
-                return str(value)
-        if isinstance(source, dict) and source.get(name):
-            return str(source.get(name))
+        value = obj.get(name) if isinstance(obj, dict) else getattr(obj, name, None)
+        if value is not None and str(value).strip():
+            return str(value)
     return default
 
 
-def _source_list() -> list[Any]:
-    if build_default_source_registry is None:
-        return []
-
-    registry = build_default_source_registry()
-
-    if registry is None:
-        return []
-
-    if hasattr(registry, "all") and callable(getattr(registry, "all")):
-        try:
-            return list(registry.all())
-        except Exception:
-            pass
-
+def _load_source_cards() -> list[Any]:
     try:
-        return list(registry)
+        from services.research.source_registry import build_default_source_registry
+        registry = build_default_source_registry()
+        sources = registry.all() if hasattr(registry, "all") else list(registry)
     except Exception:
-        return []
-
-
-def _source_cards():
-    sources = _source_list()
-
-    if not sources:
-        return [
-            html.Div(
-                [
-                    html.H4("Research sources unavailable"),
-                    html.P(
-                        "The research source registry could not be loaded. "
-                        "Check Live/services/research/source_registry.py.",
-                    ),
-                ],
-                className="newsroom-card newsroom-card-warning",
-            )
+        sources = [
+            {"name": "FRED", "category": "macro", "description": "Federal Reserve economic time-series research.", "url": "https://fred.stlouisfed.org/", "authority": "official"},
+            {"name": "SEC EDGAR", "category": "filings", "description": "Company filings and disclosure research.", "url": "https://www.sec.gov/edgar", "authority": "official"},
+            {"name": "BLS", "category": "labor/inflation", "description": "Labor, CPI, PPI, and employment statistics.", "url": "https://www.bls.gov/data/", "authority": "official"},
+            {"name": "BEA", "category": "macro", "description": "GDP, income, spending, and national accounts.", "url": "https://www.bea.gov/data", "authority": "official"},
         ]
 
     cards = []
-
     for source in sources:
-        name = _source_value(source, "name", "title", "id", default="Unnamed source")
-        category = _source_value(source, "category", "source_type", "kind", default="research")
-        reliability = _source_value(
-            source,
-            "reliability",
-            "trust_level",
-            "quality",
-            "authority",
-            default="trusted source",
+        name = _safe_get(source, "name", "title", "id", default="Research Source")
+        category = _safe_get(source, "category", "source_type", "kind", default="research")
+        authority = _safe_get(source, "authority", "trust_level", "quality", "reliability", default="trusted")
+        description = _safe_get(source, "description", "summary", "notes", default="")
+        url = _safe_get(source, "url", "base_url", "home_url", "docs_url", default="#")
+        cards.append(
+            html.Div(
+                className="newsroom-source-card",
+                children=[
+                    html.Div([html.Div(name, className="newsroom-source-name"), html.Div([html.Span(category, className="newsroom-badge"), html.Span(authority, className="newsroom-badge newsroom-badge-muted")], className="newsroom-source-badges")], className="newsroom-source-card-top"),
+                    html.Div(description, className="newsroom-source-desc"),
+                    html.A("Open source", href=url, target="_blank", className="newsroom-source-link"),
+                ],
+            )
         )
-        description = _source_value(
-            source,
-            "description",
-            "summary",
-            "notes",
-            default="Trusted research/economic context source.",
-        )
-        url = _source_value(source, "url", "base_url", "home_url", "docs_url", default="")
-        api_required = _source_value(source, "api_key_required", "requires_api_key", default="")
-        cadence = _source_value(source, "cadence", "update_frequency", "frequency", default="")
-
-        badges = [
-            html.Span(category, className="newsroom-badge"),
-            html.Span(reliability, className="newsroom-badge newsroom-badge-muted"),
-        ]
-
-        if api_required:
-            badges.append(
-                html.Span(
-                    f"API key: {api_required}",
-                    className="newsroom-badge newsroom-badge-muted",
-                )
-            )
-
-        if cadence:
-            badges.append(
-                html.Span(
-                    cadence,
-                    className="newsroom-badge newsroom-badge-muted",
-                )
-            )
-
-        children = [
-            html.Div(badges, className="newsroom-badge-row"),
-            html.H4(name),
-            html.P(description),
-        ]
-
-        if url:
-            children.append(
-                html.Div(
-                    url,
-                    className="newsroom-source-url",
-                    title=url,
-                )
-            )
-
-        cards.append(html.Div(children, className="newsroom-card"))
-
     return cards
 
 
-def _research_brief_preview():
-    if build_research_brief is None:
-        return "Research brief builder unavailable."
-
-    try:
-        brief = build_research_brief(include_news=False)
-    except TypeError:
-        try:
-            brief = build_research_brief()
-        except Exception as exc:
-            return f"Research brief unavailable: {exc}"
-    except Exception as exc:
-        return f"Research brief unavailable: {exc}"
-
-    if hasattr(brief, "to_markdown") and callable(getattr(brief, "to_markdown")):
-        try:
-            return brief.to_markdown()
-        except Exception:
-            pass
-
-    return str(brief)
-
-
-def build_newsroom_tab(*args, **kwargs):
-    # Accept legacy Quotes-tab args such as symbol_options/default_symbol.
-    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+def build_newsroom_tab(*args: Any, **kwargs: Any) -> Any:
+    source_options = [
+        {"label": "FRED", "value": "fred"},
+        {"label": "SEC EDGAR", "value": "sec"},
+        {"label": "BLS", "value": "bls"},
+        {"label": "BEA", "value": "bea"},
+        {"label": "Federal Reserve", "value": "fed"},
+        {"label": "Treasury", "value": "treasury"},
+        {"label": "IMF", "value": "imf"},
+        {"label": "World Bank", "value": "worldbank"},
+        {"label": "WEF", "value": "wef"},
+        {"label": "General Economic News", "value": "news"},
+    ]
 
     return html.Div(
-        [
+        className="newsroom-page",
+        children=[
+            dcc.Store(id="newsroom-results-store", data=[], storage_type="session"),
+            dcc.Store(id="newsroom-brief-store", data=[], storage_type="session"),
+            dcc.Store(id="newsroom-recommendations-store", data=[], storage_type="session"),
+            dcc.Store(id="newsroom-rejected-recommendations-store", data=[], storage_type="session"),
+            dcc.Download(id="newsroom-download-json"),
+            dcc.Download(id="newsroom-download-markdown"),
             html.Div(
-                [
-                    html.Div(
-                        [
-                            html.H2("Newsroom"),
-                            html.P(
-                                "Read-only market context, research sources, and future AI research inputs.",
-                                className="newsroom-subtitle",
-                            ),
-                        ],
-                    ),
-                    html.Div(
-                        [
-                            html.Span("read-only", className="newsroom-status-pill"),
-                            html.Span(f"generated {generated_at}", className="newsroom-status-muted"),
-                        ],
-                        className="newsroom-status-row",
-                    ),
+                className="newsroom-hero",
+                children=[
+                    html.Div([html.Div("Newsroom", className="newsroom-title"), html.Div("Interactive research workspace for trusted sources, clickable links, research briefs, and future AI research context.", className="newsroom-subtitle")]),
+                    html.Div([html.Span("Read-only research", className="newsroom-pill"), html.Span("No broker access", className="newsroom-pill newsroom-pill-safe"), html.Span("User-selected AI context", className="newsroom-pill newsroom-pill-safe")], className="newsroom-pill-row"),
                 ],
-                className="newsroom-header",
             ),
             html.Div(
-                [
+                className="newsroom-grid",
+                children=[
                     html.Div(
-                        [
-                            html.H3("Trusted Research Sources"),
-                            html.P(
-                                "These sources are the approved context pool for future research-aware AI features. "
-                                "The AI should receive a controlled research brief, not unrestricted browsing.",
-                                className="newsroom-section-note",
+                        className="newsroom-panel",
+                        children=[
+                            html.Div("Research Search", className="newsroom-panel-title"),
+                            html.Label("Topic, ticker, or question", className="newsroom-label"),
+                            dcc.Input(id="newsroom-topic-input", type="text", value="inflation rates Fed market conditions", debounce=True, className="newsroom-input", placeholder="Example: MSFT inflation rates Fed semiconductors"),
+                            html.Label("Sources", className="newsroom-label"),
+                            dcc.Checklist(id="newsroom-source-filter", options=source_options, value=["fred", "sec", "bls", "bea", "fed", "news"], className="newsroom-checklist", inputClassName="newsroom-check-input", labelClassName="newsroom-check-label"),
+                            html.Div([html.Button("Fetch Research", id="newsroom-fetch", n_clicks=0, className="newsroom-btn primary"), html.Button("Add Selected to Brief", id="newsroom-add-selected", n_clicks=0, className="newsroom-btn"), html.Button("Clear Brief", id="newsroom-clear-brief", n_clicks=0, className="newsroom-btn danger")], className="newsroom-button-row"),
+                            html.Div(id="newsroom-status", className="newsroom-status"),
+                            html.Div(
+                                className="newsroom-recommendation-panel",
+                                children=[
+                                    html.Div("Evidence Recommendation Queue", className="newsroom-panel-subtitle"),
+                                    html.Div(
+                                        "Generate missing-source candidates from the current brief. Review them, then approve only what you want added.",
+                                        className="newsroom-help-text",
+                                    ),
+                                    html.Div(
+                                        [
+                                            html.Button("Generate Missing Evidence Recommendations", id="newsroom-generate-recommendations", n_clicks=0, className="newsroom-btn"),
+                                            html.Button("Approve Selected Recommendations", id="newsroom-approve-recommendations", n_clicks=0, className="newsroom-btn primary"),
+                                            html.Button("Reject Selected", id="newsroom-reject-recommendations", n_clicks=0, className="newsroom-btn danger"),
+                                        ],
+                                        className="newsroom-button-row",
+                                    ),
+                                    dcc.Checklist(
+                                        id="newsroom-recommendation-selection",
+                                        options=[],
+                                        value=[],
+                                        className="newsroom-result-checklist",
+                                        inputClassName="newsroom-check-input",
+                                        labelClassName="newsroom-result-label",
+                                    ),
+                                    html.Div(id="newsroom-recommendation-status", className="newsroom-status"),
+                                    html.Pre(id="newsroom-recommendation-preview", className="newsroom-brief-preview"),
+                                ],
                             ),
-                            html.Div(_source_cards(), className="newsroom-source-grid"),
                         ],
-                        className="newsroom-section",
                     ),
                     html.Div(
-                        [
-                            html.H3("Research Brief Preview"),
-                            html.P(
-                                "This preview is intentionally read-only. Later, Strategy AI can attach a sanitized "
-                                "brief when the user chooses to include research context.",
-                                className="newsroom-section-note",
+                        className="newsroom-panel",
+                        children=[
+                            html.Div("Results", className="newsroom-panel-title"),
+                            html.Div("Select results, open links, then add selected items to the research brief.", className="newsroom-help-text"),
+                            dcc.Checklist(id="newsroom-result-selection", options=[], value=[], className="newsroom-result-checklist", inputClassName="newsroom-check-input", labelClassName="newsroom-result-label"),
+                            html.Div(id="newsroom-results-list", className="newsroom-results-list"),
+                        ],
+                    ),
+                ],
+            ),
+            html.Div(
+                className="newsroom-panel newsroom-brief-panel",
+                children=[
+                    html.Div([html.Div("Research Brief", className="newsroom-panel-title"), html.Div([html.Button("Export JSON", id="newsroom-export-json", n_clicks=0, className="newsroom-btn"), html.Button("Export Markdown", id="newsroom-export-markdown", n_clicks=0, className="newsroom-btn"), html.Button("Send Brief to Strategy AI", id="newsroom-send-to-ai", n_clicks=0, className="newsroom-btn disabled", disabled=True)], className="newsroom-button-row")], className="newsroom-brief-header"),
+                    html.Div("Add selected results to the brief, then send the selected brief to Strategy AI as read-only advisory context.", className="newsroom-help-text"),
+                    html.Div(
+                        id="research-analyst-panel",
+                        className="research-analyst-panel",
+                        children=[
+                            html.Div("AI Research Analyst", className="research-analyst-title"),
+                            html.Div(
+                                "Ask questions about the current Newsroom brief. Answers are grounded in the evidence packet and source links.",
+                                className="research-analyst-subtitle",
                             ),
                             dcc.Textarea(
-                                id="newsroom-research-brief-preview",
-                                value=_research_brief_preview(),
-                                readOnly=True,
-                                className="newsroom-brief-textarea",
+                                id="research-analyst-question",
+                                value="",
+                                placeholder="Example: What are the most important highlights, how valid is the evidence, and what is the likely market/stock impact?",
+                                className="research-analyst-question",
                             ),
-                        ],
-                        className="newsroom-section",
-                    ),
-                    html.Div(
-                        [
-                            html.H3("Future workflow"),
-                            html.Ul(
-                                [
-                                    html.Li("Fetch curated economic/news items."),
-                                    html.Li("Build a sanitized research context pack."),
-                                    html.Li("Attach that pack to Strategy AI only when the user chooses it."),
-                                    html.Li("Keep broker access and order placement blocked."),
-                                ]
+                            html.Div(
+                                className="research-analyst-controls",
+                                children=[
+                                    html.Div(
+                                        className="research-analyst-control",
+                                        children=[
+                                            html.Label("Output style", className="research-analyst-label"),
+                                            dcc.Dropdown(
+                                                id="research-analyst-style",
+                                                options=[
+                                                    {"label": "Concise", "value": "concise"},
+                                                    {"label": "Detailed", "value": "detailed"},
+                                                    {"label": "Bullet brief", "value": "bullet_brief"},
+                                                    {"label": "Validity check", "value": "validity_check"},
+                                                ],
+                                                value="concise",
+                                                clearable=False,
+                                            ),
+                                        ],
+                                    ),
+                                    html.Div(
+                                        className="research-analyst-control research-analyst-control-max-output",
+                                        children=[
+                                            html.Label("Max output tokens", className="research-analyst-label"),
+                                            dcc.Input(
+                                                id="research-analyst-max-output",
+                                                type="number",
+                                                min=800,
+                                                max=8000,
+                                                step=100,
+                                                value=3000,
+                                                className="research-analyst-number",
+                                            ),
+                                            html.Div(
+                                                "Recommended: 3,000-5,000 for market impact, sector, and correlation questions. This is an output-token cap, not a credit estimate.",
+                                                className="research-analyst-help",
+                                            ),
+                                        ],
+                                    ),
+                                    html.Button(
+                                        "Ask Research Analyst",
+                                        id="research-analyst-ask",
+                                        n_clicks=0,
+                                        className="primary-button",
+                                    ),
+                                ],
                             ),
+                            html.Div(id="research-analyst-status", className="research-analyst-status"),
+                            html.Div(id="research-analyst-response", className="research-analyst-response"),
+                            html.Div(id="research-analyst-sources", className="research-analyst-sources"),
                         ],
-                        className="newsroom-section",
                     ),
+
+                    html.Pre(id="newsroom-brief-preview", className="newsroom-brief-preview"),
                 ],
-                className="newsroom-body",
             ),
+            html.Div(
+                className="newsroom-section newsroom-structured-evidence-section",
+                children=[build_structured_evidence_preview_panel()],
+            ),
+            html.Div(
+                className="newsroom-panel newsroom-autolab-panel",
+                children=[build_research_autolab_panel()],
+            ),
+            html.Div(className="newsroom-panel", children=[html.Div("Trusted Source Registry", className="newsroom-panel-title"), html.Div(_load_source_cards(), className="newsroom-source-grid")]),
         ],
-        className="newsroom-tab",
     )

@@ -139,6 +139,32 @@ def _build_context_text(
     return "\n".join(parts)
 
 
+
+def _merge_context_text(existing_context: Any, new_context: Any, *, max_chars: int = 24000) -> str:
+    # Append strategy/research context instead of replacing the current AI context box.
+    existing = redact_secrets(str(existing_context or "").strip())
+    new = redact_secrets(str(new_context or "").strip())
+
+    if not new:
+        return existing
+    if not existing:
+        return new
+    if new in existing:
+        return existing
+
+    combined = existing + "\n\n---\n\n# Attached Context Update\n\n" + new
+    if len(combined) <= max_chars:
+        return combined
+
+    keep_tail = max_chars - 180
+    if keep_tail < 1000:
+        keep_tail = max_chars
+    return (
+        "[Older attached context truncated to keep Strategy AI context size safe]\n\n"
+        + combined[-keep_tail:].lstrip()
+    )
+
+
 def _build_payload(
     strategy_script: Any,
     symbol: Any,
@@ -201,12 +227,14 @@ def register_strategy_ai_context_callbacks(app) -> None:
         Output("strategy-ai-context-status", "children"),
         Input("strategy-ai-context-attach", "n_clicks"),
         Input("strategy-ai-context-clear", "n_clicks"),
+        State("strategy-ai-advisor-context", "value"),
         *context_states,
         prevent_initial_call=True,
     )
     def attach_or_clear_context(
         attach_clicks,
         clear_clicks,
+        existing_context,
         strategy_script,
         symbol,
         timeframe,
@@ -241,12 +269,14 @@ def register_strategy_ai_context_callbacks(app) -> None:
             watch_chart_state=watch_chart_state,
         )
 
+        merged_context = _merge_context_text(existing_context, context_text)
+        appended = bool(str(existing_context or "").strip())
         status = (
-            f"Attached current Strategy context for {symbol or 'unknown symbol'} "
+            f"{'Appended' if appended else 'Attached'} current Strategy context for {symbol or 'unknown symbol'} "
             f"({timeframe or 'unknown timeframe'}). "
-            "Backtest results are included if currently visible."
+            "Backtest results are included if currently visible. Clear Context is the only UI action that resets this stack."
         )
-        return context_text, status
+        return merged_context, status
 
     @app.callback(
         Output("strategy-context-download-json", "data"),
