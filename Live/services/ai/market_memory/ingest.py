@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import EvidenceItem, ResearchRunRecord, stable_hash, utc_now_iso
+from .hypothesis_engine import hypotheses_from_evidence, strategy_memory_from_text
 from .relationship_engine import (
     entities_from_signals,
     extract_memory_signals,
@@ -112,6 +113,30 @@ def ingest_text_packet(
     for rel in rels:
         store.upsert_relationship(rel)
 
+    hypotheses = hypotheses_from_evidence(
+        evidence_id=evidence_id,
+        source_type=source_type,
+        title=title,
+        text=text,
+        symbols=signals.get("symbols", []),
+        themes=signals.get("themes", []),
+        metadata=metadata,
+    )
+    for hypothesis in hypotheses:
+        store.save_hypothesis(hypothesis)
+
+    strategy_items = strategy_memory_from_text(
+        evidence_id=evidence_id,
+        source_type=source_type,
+        title=title,
+        text=text,
+        symbols=signals.get("symbols", []),
+        themes=signals.get("themes", []),
+        metadata=metadata,
+    )
+    for strategy_item in strategy_items:
+        store.save_strategy_memory(strategy_item)
+
     if source_type.startswith("auto_lab"):
         run = ResearchRunRecord(
             id=stable_hash(source_path, prefix="run_"),
@@ -133,6 +158,8 @@ def ingest_text_packet(
         "symbols": signals.get("symbols", []),
         "themes": signals.get("themes", []),
         "relationship_count": len(rels),
+        "hypothesis_count": len(hypotheses),
+        "strategy_memory_count": len(strategy_items),
     }
 
 

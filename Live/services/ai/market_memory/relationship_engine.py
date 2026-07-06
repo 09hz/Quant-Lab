@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import EntityRecord, RelationshipRecord, stable_hash, utc_now_iso
+from .symbol_hygiene import clean_symbol_list, is_valid_research_symbol
 
 
 SYMBOL_NAME_MAP: dict[str, str] = {
@@ -84,7 +85,7 @@ def extract_symbols(text: str) -> list[str]:
     symbols: list[str] = []
     for match in SYMBOL_RE.findall(text or ""):
         symbol = normalize_symbol(match)
-        if symbol in SYMBOL_NAME_MAP or symbol in PEER_MAP or len(symbol) >= 2:
+        if is_valid_research_symbol(symbol, known_symbols=set(SYMBOL_NAME_MAP) | set(PEER_MAP)):
             symbols.append(symbol)
     return list(dict.fromkeys(symbols))
 
@@ -106,7 +107,7 @@ def extract_memory_signals(text: str, metadata: dict[str, Any] | None = None) ->
         explicit_symbols = re.split(r"[,;\s]+", explicit_symbols)
     for raw in explicit_symbols:
         symbol = normalize_symbol(str(raw))
-        if symbol:
+        if is_valid_research_symbol(symbol, known_symbols=set(SYMBOL_NAME_MAP) | set(PEER_MAP)):
             symbols.append(symbol)
 
     themes = extract_themes(text)
@@ -117,7 +118,7 @@ def extract_memory_signals(text: str, metadata: dict[str, Any] | None = None) ->
         if str(theme).strip():
             themes.append(str(theme).strip())
 
-    symbols = list(dict.fromkeys(symbols))
+    symbols = clean_symbol_list(symbols, known_symbols=set(SYMBOL_NAME_MAP) | set(PEER_MAP))
     themes = list(dict.fromkeys(themes))
 
     entities: list[dict[str, Any]] = []

@@ -73,6 +73,20 @@ def render_market_memory_report(snapshot: dict[str, Any]) -> str:
     lines.extend(_table_rows(snapshot.get("top_relationships", [])[:25], ["source_entity", "relationship_type", "target_entity", "confidence", "evidence_count", "last_seen_at"]))
     lines.extend(["", "## Recent evidence", ""])
     lines.extend(_table_rows(snapshot.get("recent_evidence", [])[:20], ["title", "source_type", "symbols", "themes", "ingested_at"]))
+
+    lines.extend(["", "## Open / Active Hypotheses", ""])
+    hypotheses = snapshot.get("open_hypotheses", [])[:15]
+    if hypotheses:
+        lines.extend(_table_rows(hypotheses, ["title", "status", "confidence", "symbols", "themes", "updated_at"]))
+    else:
+        lines.append("No hypotheses stored yet.")
+
+    lines.extend(["", "## Strategy Memory", ""])
+    strategies = snapshot.get("strategy_memory", [])[:15]
+    if strategies:
+        lines.extend(_table_rows(strategies, ["strategy_name", "strategy_family", "status", "score", "symbols", "updated_at"]))
+    else:
+        lines.append("No strategy memory stored yet.")
     lines.extend(
         [
             "",

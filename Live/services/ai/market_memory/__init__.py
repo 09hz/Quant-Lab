@@ -11,4 +11,12 @@ __all__ = [
     "ingest_latest_artifacts",
     "ingest_text_packet",
     "write_memory_reports",
+    "build_research_packet",
+    "write_research_packet",
 ]
+
+from .research_packet import build_research_packet, write_research_packet
+
+from .symbol_hygiene import clean_symbol_list, is_valid_research_symbol
+
+from .reindex_memory import reindex_market_memory
