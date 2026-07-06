@@ -892,13 +892,156 @@ def _sec_companyfacts_full_evidence_markdown(*payloads: Any) -> str:
 
     return "\n".join(lines).strip()
 
+def _router_only_evidence_packet_markdown() -> str:
+    """
+    v20.0 router-only Analyst context.
+
+    Reads the current selected Research Brief EvidencePacket produced by the
+    v19.1 legacy bridge and renders it as the only authoritative Analyst context.
+    """
+    try:
+        import json
+        from pathlib import Path
+
+        live_root = Path(__file__).resolve().parents[2]
+        packet_path = live_root / "data" / "autolab_payload" / "router_last_evidence_packet.json"
+        if not packet_path.exists():
+            return (
+                "ROUTER ONLY SELECTED RESEARCH BRIEF EVIDENCE PACKET MISSING\n"
+                "No router_last_evidence_packet.json was found.\n"
+                "Ask the user to fetch research, select rows, and Add Selected to Brief before analysis."
+            )
+
+        payload = json.loads(packet_path.read_text(encoding="utf-8", errors="replace"))
+        if not isinstance(payload, dict):
+            return (
+                "ROUTER ONLY SELECTED RESEARCH BRIEF EVIDENCE PACKET INVALID\n"
+                "router_last_evidence_packet.json was not a JSON object.\n"
+                "Ask the user to rebuild the Research Brief."
+            )
+
+        rows = payload.get("rows") or []
+        if not isinstance(rows, list) or not rows:
+            return (
+                "ROUTER ONLY SELECTED RESEARCH BRIEF EVIDENCE PACKET EMPTY\n"
+                "The router packet has zero evidence rows.\n"
+                "Ask the user to fetch research, select rows, and Add Selected to Brief before analysis."
+            )
+
+        def _clean(value):
+            if value is None:
+                return ""
+            return str(value).strip()
+
+        def _safe_dict(value):
+            return value if isinstance(value, dict) else {}
+
+        grouped = {}
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            source = _clean(row.get("source_family")) or "unknown"
+            grouped.setdefault(source, []).append(row)
+
+        lines = [
+            "ROUTER ONLY SELECTED RESEARCH BRIEF EVIDENCE PACKET — ONLY AUTHORITATIVE ANALYST CONTEXT",
+            "Use ONLY the rows in this packet.",
+            "Ignore older SEC/FRED/BLS legacy contexts, combined contexts, compact source lists, Sources Used panels, and tail guards if they conflict with this packet.",
+            "The visible Research Brief is display-only; this router packet is the structured source of truth.",
+            "Third-party context is context-only and cannot override official SEC/FRED/BLS/BEA/Fed/Treasury facts.",
+            "",
+            f"packet_id: {_clean(payload.get('packet_id'))}",
+            f"created_at: {_clean(payload.get('created_at'))}",
+            f"question: {_clean(payload.get('question'))}",
+            f"router_row_count: {len(rows)}",
+            "",
+            "Source inventory:",
+        ]
+
+        for source in sorted(grouped):
+            lines.append(f"- {source}: {len(grouped[source])} row(s)")
+
+        chart_ready = payload.get("chart_ready_data") or []
+        if isinstance(chart_ready, list):
+            lines.append(f"- chart_ready_rows: {len(chart_ready)}")
+
+        value_order = [
+            "ticker",
+            "entity",
+            "metric",
+            "value",
+            "latest_value",
+            "latest_date",
+            "previous_value",
+            "previous_date",
+            "change_vs_prior",
+            "unit",
+            "units",
+            "frequency",
+            "period_end",
+            "filed",
+            "form",
+            "accession",
+            "concept",
+            "cik",
+            "series_id",
+        ]
+
+        for source in sorted(grouped):
+            lines += ["", f"## {source} router evidence rows"]
+            for idx, row in enumerate(grouped[source], start=1):
+                values = _safe_dict(row.get("values"))
+                metadata = _safe_dict(row.get("metadata"))
+                title = _clean(row.get("title")) or f"{source} row {idx}"
+                evidence_type = _clean(row.get("evidence_type")) or "unknown"
+                source_quality = _clean(row.get("source_quality")) or "unknown"
+                confidence = _clean(row.get("confidence")) or "unknown"
+                url = _clean(row.get("url"))
+
+                lines.append(f"{idx}. title: {title}")
+                lines.append(f"   source_family: {source}")
+                lines.append(f"   evidence_type: {evidence_type}")
+                lines.append(f"   source_quality: {source_quality}")
+                lines.append(f"   confidence: {confidence}")
+                if url:
+                    lines.append(f"   source: {url}")
+
+                emitted = set()
+                for key in value_order:
+                    if key in values and values.get(key) not in (None, ""):
+                        lines.append(f"   {key}: {values.get(key)}")
+                        emitted.add(key)
+
+                for key in sorted(values):
+                    if key not in emitted and values.get(key) not in (None, ""):
+                        lines.append(f"   {key}: {values.get(key)}")
+
+                evidence_status = metadata.get("evidence_status")
+                if evidence_status:
+                    lines.append(f"   evidence_status: {evidence_status}")
+
+                legacy_index = metadata.get("legacy_index")
+                if legacy_index not in (None, ""):
+                    lines.append(f"   selected_brief_index: {legacy_index}")
+
+        return "\n".join(lines).strip()
+    except Exception as exc:
+        try:
+            return (
+                "ROUTER ONLY SELECTED RESEARCH BRIEF EVIDENCE PACKET ERROR\n"
+                + str(exc)
+                + "\nAsk the user to rebuild the Research Brief."
+            )
+        except Exception:
+            return ""
+
 def _fred_newsroom_evidence_markdown(*payloads: Any) -> str:
     """
     Build an explicit FRED evidence table from raw Newsroom brief/result data.
 
-    This handles normal Newsroom FRED cards with kind='fred-data'. It does not
-    require the older hydrated-FRED path, so selected FRED cards in the Research
-    Brief reach the Analyst the same way SEC cards now do.
+    Numeric FRED rows use kind='fred-data' or a "Latest FRED value..." summary.
+    Metadata-only official-series cards are kept in a separate section so the
+    Analyst does not mislabel them as blank numeric data rows.
     """
     import re
 
@@ -951,8 +1094,7 @@ def _fred_newsroom_evidence_markdown(*payloads: Any) -> str:
         kind = pick(item, "kind").lower()
         return (
             source == "fred"
-            or kind == "fred-data"
-            or kind == "fred-data-warning"
+            or kind in {"fred-data", "fred-data-warning", "official-series"}
             or "latest fred value" in blob
             or "fred.stlouisfed.org/series/" in blob
             or re.search(r"\bfred-data-\d+-[a-z0-9_]+", blob) is not None
@@ -962,16 +1104,17 @@ def _fred_newsroom_evidence_markdown(*payloads: Any) -> str:
         text = text_blob(item)
         out: dict[str, str] = {}
 
-        # Title style: CPIAUCSL: Consumer Price Index...
         title = pick(item, "title", "headline") or str(item.get("title") or "")
         tm = re.match(r"\s*([A-Z0-9_]{2,20})\s*:\s*(.+?)\s*$", title)
         if tm:
             out["series_id"] = tm.group(1).upper()
             out["title"] = tm.group(2).strip()
 
-        # Summary style:
-        # Latest FRED value for CPIAUCSL: 333.979 on 2026-05-01 (Index ..., Monthly).
-        # Prior value: 332.407 on 2026-04-01; change vs prior: +1.572.
+        # Metadata-only cards often look like: "FRED series: Nonfarm Payrolls (PAYEMS)"
+        meta = re.search(r"\(([A-Z0-9_]{2,20})\)\s*$", title)
+        if meta and "series_id" not in out:
+            out["series_id"] = meta.group(1).upper()
+
         m = re.search(
             r"Latest FRED value for\s+([A-Z0-9_]+)\s*:\s*([-+0-9.,]+|n/a)\s+on\s+([0-9]{4}-[0-9]{2}-[0-9]{2}|n/a)\s*\((.*?),\s*([^)]+)\)",
             text,
@@ -996,7 +1139,8 @@ def _fred_newsroom_evidence_markdown(*payloads: Any) -> str:
 
         return out
 
-    rows: list[dict[str, str]] = []
+    numeric_rows: list[dict[str, str]] = []
+    metadata_rows: list[dict[str, str]] = []
 
     for payload in payloads:
         for item in walk(payload):
@@ -1004,19 +1148,235 @@ def _fred_newsroom_evidence_markdown(*payloads: Any) -> str:
                 continue
 
             parsed = parse_summary(item)
+            blob = text_blob(item).lower()
+            kind = pick(item, "kind").lower()
+            source = pick(item, "source").upper()
+            if source != "FRED" and "fred" not in kind and "fred.stlouisfed.org/series/" not in blob:
+                continue
+
             series_id = (
                 pick(item, "series_id", "fred_series_id", "ticker")
                 or parsed.get("series_id", "")
             ).upper()
 
-            # Avoid false positives where ticker from SEC got treated as series id.
-            source = pick(item, "source")
-            kind = pick(item, "kind")
-            if source.upper() != "FRED" and "fred" not in kind.lower() and "latest fred value" not in text_blob(item).lower():
-                continue
-
             title = pick(item, "title", "headline") or parsed.get("title", "")
             if title.upper().startswith(series_id + ":"):
+                title = title.split(":", 1)[1].strip()
+
+            latest_value = pick(item, "latest_value", "value", "latest") or parsed.get("latest_value", "")
+            latest_date = pick(item, "latest_date", "date") or parsed.get("latest_date", "")
+            has_numeric_payload = bool(latest_value and latest_date) or "latest fred value" in blob
+            is_metadata_only = kind == "official-series" and not has_numeric_payload
+
+            if is_metadata_only:
+                metadata_rows.append(
+                    {
+                        "series_id": series_id or "unknown",
+                        "title": title or parsed.get("title", "") or "unknown",
+                        "url": pick(item, "source_url", "url", "link") or str(item.get("url") or ""),
+                        "summary": pick(item, "summary") or "",
+                        "kind": kind or "official-series",
+                        "evidence_status": "metadata-only FRED source link; numeric latest/prior values were not read or provided",
+                    }
+                )
+                continue
+
+            row = {
+                "series_id": series_id or "unknown",
+                "title": title or parsed.get("title", "") or "unknown",
+                "latest_value": latest_value,
+                "latest_date": latest_date,
+                "previous_value": pick(item, "previous_value", "prior_value", "previous") or parsed.get("previous_value", ""),
+                "previous_date": pick(item, "previous_date", "prior_date") or parsed.get("previous_date", ""),
+                "change": pick(item, "change", "delta", "change_vs_prior") or parsed.get("change", ""),
+                "units": pick(item, "units", "unit") or parsed.get("units", ""),
+                "frequency": pick(item, "frequency", "freq") or parsed.get("frequency", ""),
+                "url": pick(item, "source_url", "url", "link") or str(item.get("url") or ""),
+                "kind": kind or "fred-data",
+            }
+
+            if row["series_id"] == "unknown" and not row["latest_value"]:
+                continue
+            numeric_rows.append(row)
+
+    def quality(row: dict[str, str]) -> int:
+        return sum(1 for value in row.values() if value)
+
+    def dedupe(rows: list[dict[str, str]]) -> list[dict[str, str]]:
+        merged: dict[str, dict[str, str]] = {}
+        for row in rows:
+            key = row.get("series_id") or row.get("title") or row.get("url") or ""
+            if not key:
+                continue
+            old = merged.get(key)
+            if old is None or quality(row) > quality(old):
+                merged[key] = dict(row)
+            else:
+                for field, value in row.items():
+                    if value and not old.get(field):
+                        old[field] = value
+        final = list(merged.values())
+        final.sort(key=lambda r: r.get("series_id", ""))
+        return final
+
+    final_numeric = dedupe(numeric_rows)
+    final_metadata = dedupe(metadata_rows)
+
+    if not final_numeric and not final_metadata:
+        return ""
+
+    lines = [
+        "FULL CURRENT NEWSROOM FRED EVIDENCE TABLE",
+        f"FRED numeric data card count: {len(final_numeric)}",
+        "Use every numeric row in this table. Metadata-only FRED source links are listed separately and are not numeric evidence.",
+        "",
+    ]
+
+    for idx, row in enumerate(final_numeric, start=1):
+        is_blank = not row.get("latest_value") or not row.get("latest_date")
+        lines.extend(
+            [
+                f"{idx}. series_id: {row.get('series_id') or 'unknown'}",
+                f"   title: {row.get('title') or 'unknown'}",
+                f"   latest_value: {row.get('latest_value') or 'blank/unavailable'}",
+                f"   latest_date: {row.get('latest_date') or 'blank/unavailable'}",
+                f"   previous_value: {row.get('previous_value') or 'blank/unavailable'}",
+                f"   previous_date: {row.get('previous_date') or 'blank/unavailable'}",
+                f"   change_vs_prior: {row.get('change') or 'blank/unavailable'}",
+                f"   units: {row.get('units') or 'unknown'}",
+                f"   frequency: {row.get('frequency') or 'unknown'}",
+                f"   source: {row.get('url') or 'unknown'}",
+                f"   evidence_status: {'blank or incomplete FRED numeric data row' if is_blank else 'readable FRED data row'}",
+                "",
+            ]
+        )
+
+    if final_metadata:
+        lines.extend(
+            [
+                "FRED METADATA-ONLY SOURCE LINKS",
+                f"FRED metadata-only link count: {len(final_metadata)}",
+                "These rows are official source links or search leads only. Do not treat them as blank numeric data rows.",
+                "",
+            ]
+        )
+        for idx, row in enumerate(final_metadata, start=1):
+            lines.extend(
+                [
+                    f"{idx}. series_id: {row.get('series_id') or 'unknown'}",
+                    f"   title: {row.get('title') or 'unknown'}",
+                    f"   source: {row.get('url') or 'unknown'}",
+                    f"   summary: {row.get('summary') or 'metadata-only source link'}",
+                    f"   evidence_status: {row.get('evidence_status') or 'metadata-only FRED source link'}",
+                    "",
+                ]
+            )
+
+    return "\n".join(lines).strip()
+
+def _bls_newsroom_evidence_markdown(*payloads: Any) -> str:
+    """
+    Build an explicit BLS evidence table from raw Newsroom brief/result data.
+    Normal BLS cards use source='BLS' and kind='bls-data'.
+    """
+    import re
+
+    def walk(obj: Any) -> list[dict[str, Any]]:
+        found: list[dict[str, Any]] = []
+        if isinstance(obj, list):
+            for value in obj:
+                found.extend(walk(value))
+            return found
+        if isinstance(obj, dict):
+            found.append(obj)
+            for key in ("items", "source_links", "links", "results", "brief", "data", "metadata", "children"):
+                value = obj.get(key)
+                if isinstance(value, (list, dict)):
+                    found.extend(walk(value))
+            return found
+        return found
+
+    def pick(item: dict[str, Any], *names: str) -> str:
+        pools = [item]
+        for key in ("metadata", "data", "raw", "fact", "extra"):
+            value = item.get(key)
+            if isinstance(value, dict):
+                pools.append(value)
+        for pool in pools:
+            for name in names:
+                value = pool.get(name)
+                if value not in (None, ""):
+                    return str(value)
+        return ""
+
+    def blob(item: dict[str, Any]) -> str:
+        pools = [item]
+        for key in ("metadata", "data", "raw", "fact", "extra"):
+            value = item.get(key)
+            if isinstance(value, dict):
+                pools.append(value)
+        parts: list[str] = []
+        for pool in pools:
+            for name in (
+                "id", "kind", "source", "title", "headline", "summary", "url",
+                "source_url", "series_id", "units", "unit", "frequency", "evidence_status",
+            ):
+                parts.append(str(pool.get(name) or ""))
+        return " ".join(parts)
+
+    def is_bls(item: dict[str, Any]) -> bool:
+        text = blob(item).lower()
+        return (
+            pick(item, "source").upper() == "BLS"
+            or pick(item, "kind").lower() in {"bls-data", "bls-data-warning"}
+            or "latest bls value" in text
+            or "data.bls.gov/timeseries/" in text
+        )
+
+    def parse_summary(item: dict[str, Any]) -> dict[str, str]:
+        text = blob(item)
+        out: dict[str, str] = {}
+
+        title = pick(item, "title", "headline") or str(item.get("title") or "")
+        tm = re.match(r"\s*([A-Z0-9_]{2,30})\s*:\s*(.+?)\s*$", title)
+        if tm:
+            out["series_id"] = tm.group(1).upper()
+            out["title"] = tm.group(2).strip()
+
+        m = re.search(
+            r"Latest BLS value for\s+([A-Z0-9_]+)\s*:\s*([-+0-9.,]+|n/a)\s+on\s+([^()]+?)\s*\((.*?),\s*([^)]+)\)",
+            text,
+            flags=re.I,
+        )
+        if m:
+            out["series_id"] = m.group(1).upper()
+            out["latest_value"] = m.group(2).replace(",", "")
+            out["latest_date"] = m.group(3).strip()
+            out["units"] = m.group(4).strip()
+            out["frequency"] = m.group(5).strip()
+
+        p = re.search(
+            r"Prior value:\s*([-+0-9.,]+|n/a)\s+on\s+([^;]+?)\s*;\s*change vs prior:\s*([-+0-9.,]+|n/a)",
+            text,
+            flags=re.I,
+        )
+        if p:
+            out["previous_value"] = p.group(1).replace(",", "")
+            out["previous_date"] = p.group(2).strip()
+            out["change"] = p.group(3).replace(",", "")
+
+        return out
+
+    rows: list[dict[str, str]] = []
+    for payload in payloads:
+        for item in walk(payload):
+            if not isinstance(item, dict) or not is_bls(item):
+                continue
+
+            parsed = parse_summary(item)
+            series_id = (pick(item, "series_id", "ticker") or parsed.get("series_id", "")).upper()
+            title = pick(item, "title", "headline") or parsed.get("title", "")
+            if series_id and title.upper().startswith(series_id + ":"):
                 title = title.split(":", 1)[1].strip()
 
             row = {
@@ -1029,23 +1389,21 @@ def _fred_newsroom_evidence_markdown(*payloads: Any) -> str:
                 "change": pick(item, "change", "delta", "change_vs_prior") or parsed.get("change", ""),
                 "units": pick(item, "units", "unit") or parsed.get("units", ""),
                 "frequency": pick(item, "frequency", "freq") or parsed.get("frequency", ""),
+                "category": pick(item, "category") or "macro_data",
                 "url": pick(item, "source_url", "url", "link") or str(item.get("url") or ""),
-                "kind": kind or "fred-data",
+                "evidence_status": pick(item, "evidence_status") or "",
             }
 
             if row["series_id"] == "unknown" and not row["latest_value"]:
                 continue
             rows.append(row)
 
-    # De-dupe by series id, keeping the row with the most fields.
     def quality(row: dict[str, str]) -> int:
         return sum(1 for value in row.values() if value)
 
     merged: dict[str, dict[str, str]] = {}
     for row in rows:
         key = row.get("series_id") or row.get("title") or row.get("url") or ""
-        if not key:
-            continue
         old = merged.get(key)
         if old is None or quality(row) > quality(old):
             merged[key] = dict(row)
@@ -1058,12 +1416,12 @@ def _fred_newsroom_evidence_markdown(*payloads: Any) -> str:
     if not final_rows:
         return ""
 
-    final_rows.sort(key=lambda r: r.get("series_id", ""))
+    final_rows.sort(key=lambda r: (r.get("category", ""), r.get("series_id", "")))
 
     lines = [
-        "FULL CURRENT NEWSROOM FRED EVIDENCE TABLE",
-        f"FRED card count: {len(final_rows)}",
-        "Use every row in this table. If a FRED row is blank or malformed, report that explicitly.",
+        "FULL CURRENT NEWSROOM BLS EVIDENCE TABLE",
+        f"BLS card count: {len(final_rows)}",
+        "Use every row in this table. If a BLS row is blank or malformed, report that explicitly.",
         "",
     ]
 
@@ -1080,8 +1438,9 @@ def _fred_newsroom_evidence_markdown(*payloads: Any) -> str:
                 f"   change_vs_prior: {row.get('change') or 'blank/unavailable'}",
                 f"   units: {row.get('units') or 'unknown'}",
                 f"   frequency: {row.get('frequency') or 'unknown'}",
+                f"   category: {row.get('category') or 'macro_data'}",
                 f"   source: {row.get('url') or 'unknown'}",
-                f"   evidence_status: {'blank or incomplete FRED row' if is_blank else 'readable FRED data row'}",
+                f"   evidence_status: {row.get('evidence_status') or ('blank or incomplete BLS row' if is_blank else 'readable BLS data row')}",
                 "",
             ]
         )
@@ -1397,44 +1756,82 @@ def register_research_analyst_callbacks(app) -> None:
                 context = approved_structured_context_final + "\n\n" + context
             # v16 combined SEC/FRED evidence table
             fred_newsroom_brief_md = _fred_newsroom_evidence_markdown(brief_store, results_store, packet.get('items', []), packet.get('source_links', []))
+            bls_newsroom_brief_md = _bls_newsroom_evidence_markdown(brief_store, results_store, packet.get('items', []), packet.get('source_links', []))
             combined_newsroom_evidence_md = "\n\n".join(
-                part for part in [sec_companyfacts_brief_md, fred_newsroom_brief_md] if part
+                part for part in [sec_companyfacts_brief_md, fred_newsroom_brief_md, bls_newsroom_brief_md] if part
             )
             try:
                 _debug_dir = __import__('pathlib').Path('data') / 'autolab_payload'
                 _debug_dir.mkdir(parents=True, exist_ok=True)
                 (_debug_dir / 'research_analyst_last_fred_context.txt').write_text(fred_newsroom_brief_md or '', encoding='utf-8')
+                (_debug_dir / 'research_analyst_last_bls_context.txt').write_text(bls_newsroom_brief_md or '', encoding='utf-8')
                 (_debug_dir / 'research_analyst_last_combined_context.txt').write_text(combined_newsroom_evidence_md or '', encoding='utf-8')
+                (_debug_dir / 'research_analyst_last_sec_tail_guard.txt').write_text(sec_companyfacts_brief_md or '', encoding='utf-8')
+                (_debug_dir / 'research_analyst_last_authoritative_prompt.txt').write_text(combined_newsroom_evidence_md or '', encoding='utf-8')
             except Exception:
                 pass
             # end v16 combined SEC/FRED evidence table
-            # v15 SEC/FRED table evidence-context override
-            analyst_evidence_context = str(context or "")
-            if combined_newsroom_evidence_md and combined_newsroom_evidence_md not in analyst_evidence_context:
-                analyst_evidence_context = (
-                    combined_newsroom_evidence_md
-                    + "\n\nOTHER RESEARCH ANALYST EVIDENCE CONTEXT:\n"
-                    + analyst_evidence_context
-                )
-            # end v15 SEC/FRED table evidence-context override
-            # v14 combined SEC/FRED table user-prompt override
+            # v20.0 router-only Analyst evidence-context override
+            router_only_evidence_packet_md = _router_only_evidence_packet_markdown()
+
+            # Router-only rule:
+            # If a router packet exists, it is the only source of truth.
+            # If it is missing/empty/invalid, the Analyst should ask the user to add selected rows first.
+            analyst_evidence_context = router_only_evidence_packet_md
+
+            # Runtime cleanup for old tail-guard debug files. They are stale by design in v20.0.
+            try:
+                from pathlib import Path
+                _router_live_root = Path(__file__).resolve().parents[2]
+                _router_debug_dir = _router_live_root / "data" / "autolab_payload"
+                _router_debug_dir.mkdir(parents=True, exist_ok=True)
+                (_router_debug_dir / "research_analyst_last_router_only_context.txt").write_text(router_only_evidence_packet_md or "", encoding="utf-8")
+                for _tail_name in (
+                    "research_analyst_last_sec_tail_guard.txt",
+                    "research_analyst_last_fred_tail_guard.txt",
+                    "research_analyst_last_bls_tail_guard.txt",
+                ):
+                    try:
+                        (_router_debug_dir / _tail_name).unlink(missing_ok=True)
+                    except TypeError:
+                        _tail_path = _router_debug_dir / _tail_name
+                        if _tail_path.exists():
+                            _tail_path.unlink()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+            # end v20.0 router-only Analyst evidence-context override
+            # v20.0 router-only Analyst user-prompt override
+            try:
+                router_only_evidence_packet_md
+            except NameError:
+                router_only_evidence_packet_md = _router_only_evidence_packet_markdown()
+
             analyst_user_prompt = str(getattr(prompt, "user_prompt", "") or "")
-            if combined_newsroom_evidence_md:
-                analyst_user_prompt = (
-                    "CRITICAL NEWSROOM EVIDENCE — USE THESE TABLES FIRST.\n"
-                    "The compact source list may be incomplete or title-only.\n"
-                    "Use both SEC companyfacts rows and FRED rows when they appear below.\n"
-                    "If a FRED row is blank or malformed, explicitly report that it lacks readable evidence.\n"
-                    "Do not claim a SEC or FRED metric is missing when it appears below.\n\n"
-                    + combined_newsroom_evidence_md
-                    + "\n\nRequired answer behavior:\n"
-                    + "1. Inventory every SEC row and every FRED row in the tables above.\n"
-                    + "2. Categorize FRED rows by inflation/price-level, rates/financial conditions, labor, growth, or other macro category when possible.\n"
-                    + "3. Interpret SEC company facts and FRED macro facts separately, then connect them cautiously as interpretation only.\n"
-                    + "4. Only mark a metric missing if it is absent from the tables above.\n\n"
-                    + analyst_user_prompt
-                )
-            # end v14 combined SEC/FRED table user-prompt override
+            analyst_user_prompt = (
+                "ROUTER ONLY SELECTED RESEARCH BRIEF EVIDENCE PACKET — USE THIS AS THE ONLY SOURCE OF TRUTH.\n"
+                "The current selected Research Brief has been converted into the router evidence packet below.\n"
+                "Do not use older SEC/FRED/BLS legacy contexts, old tail guards, compact source lists, previous brief states, or Sources Used panels if they conflict with this packet.\n"
+                "If this packet is missing, empty, or invalid, do not improvise from stale context; ask the user to fetch research, select rows, and Add Selected to Brief first.\n"
+                "If the router packet lists FRED rows, do not say FRED is missing.\n"
+                "If the router packet lists only four SEC rows, inventory only those four SEC rows and do not add older SEC metrics.\n"
+                "Treat metadata-only FRED rows as source links, not blank numeric data.\n"
+                "Official SEC/FRED/BLS/BEA/Fed/Treasury rows override third-party context.\n"
+                "Third-party context is context-only and cannot override official numeric facts.\n"
+                "Keep this research-only and simulation/advisory only; no broker actions, live trading instructions, order placement, or personalized position sizing.\n\n"
+                + (router_only_evidence_packet_md or "")
+                + "\n\nRequired answer behavior:\n"
+                + "1. Inventory every row in the router packet by source family.\n"
+                + "2. Separate FRED numeric rows from FRED metadata-only source links.\n"
+                + "3. Use only SEC rows present in the router packet for company fundamentals.\n"
+                + "4. Use only FRED/BLS rows present in the router packet for macro facts.\n"
+                + "5. Clearly separate facts from interpretation.\n"
+                + "6. If the packet is missing or empty, stop and ask the user to rebuild the selected Research Brief.\n"
+                + "\n\nUSER QUESTION STARTS BELOW:\n"
+                + analyst_user_prompt
+            )
+            # end v20.0 router-only Analyst user-prompt override
 
             answer = _call_ai_research_advisor(
                 system_prompt=prompt.system_prompt,

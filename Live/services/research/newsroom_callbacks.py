@@ -32,6 +32,11 @@ try:
 except Exception:
     extend_results_with_sec_companyfacts = None
 
+try:
+    from services.research.bls_newsroom_adapter import extend_results_with_bls
+except Exception:
+    extend_results_with_bls = None
+
 def _topic_text(topic: str | None) -> str:
     topic = str(topic or "").strip()
     return topic or "market conditions"
@@ -77,6 +82,26 @@ def _build_results(topic: str, sources: list[str] | None) -> list[dict[str, Any]
                 "selectable": False,
                 "metadata": {"connector": "fred", "error": str(exc)},
                 "fetched_at": datetime.now().isoformat(timespec="seconds"),
+            })
+
+    if extend_results_with_bls is not None:
+        try:
+            results = extend_results_with_bls(topic, sources or None, results)
+        except Exception as exc:
+            results.insert(0, {
+                "id": "bls-ui-extension-error",
+                "title": "BLS structured data unavailable",
+                "source": "BLS",
+                "url": "https://www.bls.gov/developers/",
+                "summary": f"BLS UI integration could not build structured cards: {exc}",
+                "topic": topic,
+                "kind": "bls-data-warning",
+                "confidence": "low",
+                "source_type": "macro_data",
+                "needs_manual_search": False,
+                "selectable": True,
+                "evidence_status": "blank or incomplete BLS row",
+                "metadata": {"connector": "bls", "error": str(exc)},
             })
 
     if extend_results_with_sec_companyfacts is not None:
@@ -405,9 +430,9 @@ def _brief_dedupe_key(item: dict[str, Any]) -> str:
     # row IDs do not accidentally block distinct source cards.
     return _clean_brief_key_part(item.get("brief_selection_id") or item.get("id"), limit=240)
 
-def _sec_companyfacts_card_markdown(item: dict[str, Any]) -> str:
+def _sec_companyfacts_card_markdown(item: dict[str, Any], index: int | None = None) -> str:
     """
-    Render SEC companyfacts result objects as explicit evidence cards in the Newsroom brief.
+    Render SEC companyfacts result objects as explicit numbered evidence cards in the Newsroom brief.
     The Research Analyst needs a clear card-shaped block, not only an SEC URL.
     """
     if not isinstance(item, dict):
@@ -465,8 +490,16 @@ def _sec_companyfacts_card_markdown(item: dict[str, Any]) -> str:
         if m:
             ticker = m.group(1)
 
+    display_index = ""
+    try:
+        if index is not None:
+            display_index = f"{int(index)}. "
+    except Exception:
+        display_index = ""
+
+    heading_metric = metric or concept or "metric"
     lines = [
-        "### SEC companyfacts official-data card",
+        f"### {display_index}SEC companyfacts: {ticker or 'unknown'} {heading_metric}",
         f"- Ticker: {ticker or 'unknown'}",
         f"- Entity: {entity or 'unknown'}",
         f"- Metric: {metric or concept or 'unknown'}",
@@ -589,13 +622,18 @@ def _brief_markdown(brief: list[dict[str, Any]]) -> str:
     lines = ["# Research Brief", "", f"Generated: {datetime.now().isoformat(timespec='seconds')}", "", "## Selected Research Links", ""]
     if not brief:
         lines.append("_No items selected yet._")
-    for idx, item in enumerate(brief, start=1):
-        sec_md = _sec_companyfacts_card_markdown(item)
+
+    for idx, item in enumerate(brief or [], start=1):
+        if not isinstance(item, dict):
+            continue
+
+        item = _normalize_sec_companyfacts_brief_item(item)
+        sec_md = _sec_companyfacts_card_markdown(item, idx)
         if sec_md:
             lines.append(sec_md)
             lines.append("")
             continue
-        item = _normalize_sec_companyfacts_brief_item(item)
+
         lines += [
             f"### {idx}. {item.get('title', 'Untitled')}",
             f"- Source: {item.get('source', 'Unknown')}",
@@ -606,8 +644,35 @@ def _brief_markdown(brief: list[dict[str, Any]]) -> str:
             f"- Summary: {item.get('summary', '')}",
             "",
         ]
-    lines += ["## AI Use Notes", "", "Use this brief as user-selected research context only.", "These entries may be direct official pages, search links, or data pages.", "Separate facts from assumptions.", "Do not infer broker/account data from this brief."]
-    return "\n".join(lines)
+
+    lines += [
+        "## AI Use Notes",
+        "",
+        "Use this brief as user-selected research context only.",
+        "These entries may be direct official pages, search links, or data pages.",
+        "Separate facts from assumptions.",
+        "Do not infer broker/account data from this brief.",
+    ]
+    markdown = "\n".join(lines)
+
+    # v19.1 experimental router bridge: write structured EvidencePacket diagnostics
+    # from selected Research Brief rows without changing current Analyst behavior.
+    try:
+        from pathlib import Path
+        from services.ai.tool_router.legacy_bridge import write_router_packet_diagnostics_from_legacy_brief
+
+        live_root = Path(__file__).resolve().parents[2]
+        write_router_packet_diagnostics_from_legacy_brief(
+            brief or [],
+            output_dir=live_root / "data" / "autolab_payload",
+            question="Legacy Newsroom Research Brief",
+            include_bea_placeholder=False,
+        )
+    except Exception:
+        # Diagnostic bridge must never break the existing Newsroom UI.
+        pass
+
+    return markdown
 
 def _brief_stable_key(item: dict[str, Any]) -> str:
     # Stable dedupe key for a Newsroom brief item. Prefer URL, then source/title/summary.
