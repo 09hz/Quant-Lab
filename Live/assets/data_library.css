@@ -107,3 +107,52 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* v24.1 PostgreSQL Data Library panel */
+.data-library-postgres-panel {
+  border: 1px solid rgba(120, 120, 120, 0.35);
+  border-radius: 10px;
+  padding: 14px;
+  margin-top: 18px;
+}
+
+.data-library-postgres-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 10px 0;
+}
+
+.data-library-postgres-controls input {
+  max-width: 160px;
+}
+
+.data-library-pg-ok {
+  padding: 8px;
+  border-radius: 8px;
+  margin: 8px 0;
+}
+
+.data-library-pg-bad {
+  font-weight: 700;
+  padding: 8px 0;
+}
+
+.data-library-pg-mini-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 8px 0 14px 0;
+}
+
+.data-library-pg-mini-table td,
+.data-library-pg-mini-table th {
+  border: 1px solid rgba(120, 120, 120, 0.35);
+  padding: 6px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.data-library-pg-status-output pre {
+  white-space: pre-wrap;
+}

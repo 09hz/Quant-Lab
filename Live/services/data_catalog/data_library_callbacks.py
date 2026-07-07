@@ -107,3 +107,17 @@ def register_data_library_callbacks(app) -> None:
             return get_artifact_preview(artifact_id=str(artifact_id))
         except Exception as exc:
             return f"Preview failed:\n\n```text\n{exc}\n```"
+
+# --- v24.1 PostgreSQL Status Callback integration ---
+try:
+    from services.data_catalog.postgres_status_callbacks import register_postgres_status_callbacks as _v24_1_register_postgres_status_callbacks
+
+    _v24_1_original_register_data_library_callbacks = register_data_library_callbacks
+
+    def register_data_library_callbacks(app):
+        result = _v24_1_original_register_data_library_callbacks(app)
+        _v24_1_register_postgres_status_callbacks(app)
+        return result
+except Exception as _v24_1_pg_callback_error:
+    print(f"v24.1 PostgreSQL callback integration failed: {_v24_1_pg_callback_error}")
+# --- end v24.1 PostgreSQL Status Callback integration ---

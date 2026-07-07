@@ -165,3 +165,48 @@ def build_data_library_layout():
             ),
         ],
     )
+
+# --- v24.1 PostgreSQL Status Panel integration ---
+try:
+    from services.data_catalog.postgres_status_ui import build_postgres_status_panel as _v24_1_build_postgres_status_panel
+
+    _v24_1_original_build_data_library_layout = build_data_library_layout
+
+    def _v24_1_has_postgres_panel(component):
+        stack = [component]
+        while stack:
+            item = stack.pop()
+            if item is None:
+                continue
+            if isinstance(item, (list, tuple)):
+                stack.extend(item)
+                continue
+            if getattr(item, "id", None) == "data-library-postgres-status-panel":
+                return True
+            children = getattr(item, "children", None)
+            if isinstance(children, (list, tuple)):
+                stack.extend(children)
+            elif children is not None and not isinstance(children, str):
+                stack.append(children)
+        return False
+
+    def build_data_library_layout(*args, **kwargs):
+        layout = _v24_1_original_build_data_library_layout(*args, **kwargs)
+        if _v24_1_has_postgres_panel(layout):
+            return layout
+        panel = _v24_1_build_postgres_status_panel()
+        children = getattr(layout, "children", None)
+        try:
+            if children is None:
+                layout.children = [panel]
+            elif isinstance(children, (list, tuple)):
+                layout.children = [*list(children), panel]
+            else:
+                layout.children = [children, panel]
+            return layout
+        except Exception:
+            from dash import html as _v24_1_html
+            return _v24_1_html.Div([layout, panel])
+except Exception as _v24_1_pg_ui_error:
+    print(f"v24.1 PostgreSQL panel integration failed: {_v24_1_pg_ui_error}")
+# --- end v24.1 PostgreSQL Status Panel integration ---
