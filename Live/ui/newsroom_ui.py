@@ -218,3 +218,84 @@ def build_newsroom_tab(*args: Any, **kwargs: Any) -> Any:
             html.Div(className="newsroom-panel", children=[html.Div("Trusted Source Registry", className="newsroom-panel-title"), html.Div(_load_source_cards(), className="newsroom-source-grid")]),
         ],
     )
+
+# --- v23.3 Newsroom Auto Lab Render Removal ---
+try:
+    def _v23_3_text(value):
+        return str(value or "").lower().replace("_", " ").replace("-", " ")
+
+    def _v23_3_is_autolab(component):
+        blob = f"{_v23_3_text(getattr(component, 'id', ''))} {_v23_3_text(getattr(component, 'className', ''))}"
+        if any(token in blob for token in ["auto lab", "autolab", "research autolab"]):
+            return True
+        children = getattr(component, "children", None)
+        if isinstance(children, str):
+            txt = _v23_3_text(children)
+            return ("auto lab" in txt and len(txt) < 140)
+        return False
+
+    def _v23_3_clean(component):
+        if component is None:
+            return None
+        if isinstance(component, list):
+            out = []
+            for item in component:
+                cleaned = _v23_3_clean(item)
+                if cleaned is None:
+                    continue
+                if isinstance(cleaned, list):
+                    out.extend(cleaned)
+                else:
+                    out.append(cleaned)
+            return out
+        if isinstance(component, tuple):
+            return _v23_3_clean(list(component))
+        if _v23_3_is_autolab(component):
+            return None
+        children = getattr(component, "children", None)
+        if isinstance(children, (list, tuple)):
+            try:
+                component.children = _v23_3_clean(list(children))
+            except Exception:
+                pass
+        elif children is not None and not isinstance(children, str):
+            try:
+                component.children = _v23_3_clean(children)
+            except Exception:
+                pass
+        return component
+
+    def _v23_3_should_wrap(name, obj):
+        if not callable(obj) or str(name).startswith("_"):
+            return False
+        module_name = str(getattr(obj, "__module__", ""))
+        if module_name.startswith("dash") or module_name.startswith("plotly"):
+            return False
+        lowered = str(name).lower()
+        return "newsroom" in lowered or any(token in lowered for token in ["layout", "tab", "page", "build", "render"])
+
+    def _v23_3_wrap(fn):
+        if getattr(fn, "_v23_3_newsroom_autolab_removed", False):
+            return fn
+
+        def _wrapped(*args, **kwargs):
+            return _v23_3_clean(fn(*args, **kwargs))
+
+        _wrapped.__name__ = getattr(fn, "__name__", "wrapped_newsroom_layout")
+        _wrapped.__doc__ = getattr(fn, "__doc__", None)
+        _wrapped._v23_3_newsroom_autolab_removed = True
+        return _wrapped
+
+    for _name, _obj in list(globals().items()):
+        if _v23_3_should_wrap(_name, _obj):
+            globals()[_name] = _v23_3_wrap(_obj)
+
+    for _name, _obj in list(globals().items()):
+        if str(_name).startswith("_") or callable(_obj):
+            continue
+        if hasattr(_obj, "children") or hasattr(_obj, "to_plotly_json"):
+            globals()[_name] = _v23_3_clean(_obj)
+
+except Exception as _v23_3_error:
+    print(f"v23.3 Newsroom Auto Lab Render Removal failed: {_v23_3_error}")
+# --- end v23.3 Newsroom Auto Lab Render Removal ---

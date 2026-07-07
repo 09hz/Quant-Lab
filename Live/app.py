@@ -381,5 +381,274 @@ except Exception as exc:
 # End structured official evidence preview callback registration
 # =============================================================================
 
+# --- v23.4.1 Data Library Runtime Wiring Fix ---
+try:
+    from dash import dcc as _v23_4_1_dcc, html as _v23_4_1_html
+    from ui.data_library_ui import build_data_library_layout as _v23_4_1_build_data_library_layout
+    from services.data_catalog.data_library_callbacks import register_data_library_callbacks as _v23_4_1_register_data_library_callbacks
+
+    def _v23_4_1_has_data_library(component):
+        stack = [component]
+        while stack:
+            item = stack.pop()
+            if item is None:
+                continue
+            if isinstance(item, (list, tuple)):
+                stack.extend(item)
+                continue
+            if getattr(item, "id", None) == "data-library-root":
+                return True
+            children = getattr(item, "children", None)
+            if isinstance(children, (list, tuple)):
+                stack.extend(children)
+            elif children is not None:
+                stack.append(children)
+        return False
+
+    def _v23_4_1_is_tabs(component):
+        name = component.__class__.__name__.lower()
+        return name == "tabs" or name.endswith(".tabs") or "tabs" in name
+
+    def _v23_4_1_make_data_library_tab():
+        try:
+            return _v23_4_1_dcc.Tab(
+                label="Data Library",
+                value="data-library",
+                children=[_v23_4_1_build_data_library_layout()],
+            )
+        except Exception:
+            return _v23_4_1_html.Div(
+                id="data-library-tab-fallback",
+                children=[_v23_4_1_build_data_library_layout()],
+            )
+
+    def _v23_4_1_attach_to_tabs(component):
+        attached = {"done": False}
+
+        def _walk(value):
+            if value is None or attached["done"]:
+                return value
+
+            if isinstance(value, list):
+                return [_walk(item) for item in value]
+            if isinstance(value, tuple):
+                return tuple(_walk(item) for item in value)
+
+            if _v23_4_1_has_data_library(value):
+                attached["done"] = True
+                return value
+
+            if _v23_4_1_is_tabs(value):
+                children = getattr(value, "children", None)
+                tab = _v23_4_1_make_data_library_tab()
+                try:
+                    if children is None:
+                        value.children = [tab]
+                    elif isinstance(children, (list, tuple)):
+                        value.children = [*list(children), tab]
+                    else:
+                        value.children = [children, tab]
+                    attached["done"] = True
+                    return value
+                except Exception:
+                    pass
+
+            children = getattr(value, "children", None)
+            if isinstance(children, (list, tuple)):
+                try:
+                    value.children = [_walk(item) for item in children]
+                except Exception:
+                    pass
+            elif children is not None and not isinstance(children, str):
+                try:
+                    value.children = _walk(children)
+                except Exception:
+                    pass
+
+            return value
+
+        return _walk(component), attached["done"]
+
+    def _v23_4_1_attach_data_library(layout):
+        if layout is None:
+            return _v23_4_1_build_data_library_layout()
+
+        if _v23_4_1_has_data_library(layout):
+            return layout
+
+        try:
+            layout, attached_to_tabs = _v23_4_1_attach_to_tabs(layout)
+            if attached_to_tabs or _v23_4_1_has_data_library(layout):
+                return layout
+        except Exception:
+            pass
+
+        panel = _v23_4_1_html.Div(
+            id="data-library-runtime-fallback-section",
+            children=[
+                _v23_4_1_html.Hr(),
+                _v23_4_1_html.H2("Data Library"),
+                _v23_4_1_build_data_library_layout(),
+            ],
+        )
+        try:
+            children = getattr(layout, "children", None)
+            if children is None:
+                layout.children = [panel]
+            elif isinstance(children, (list, tuple)):
+                layout.children = [*list(children), panel]
+            else:
+                layout.children = [children, panel]
+            return layout
+        except Exception:
+            return _v23_4_1_html.Div([layout, panel])
+
+    def _v23_4_1_wrap_layout_callable(fn):
+        if getattr(fn, "_v23_4_1_data_library_wrapped", False):
+            return fn
+
+        def _wrapped(*args, **kwargs):
+            return _v23_4_1_attach_data_library(fn(*args, **kwargs))
+
+        _wrapped.__name__ = getattr(fn, "__name__", "wrapped_data_library_layout_v23_4_1")
+        _wrapped.__doc__ = getattr(fn, "__doc__", None)
+        _wrapped._v23_4_1_data_library_wrapped = True
+        return _wrapped
+
+    if "app" in globals():
+        if callable(getattr(app, "layout", None)):
+            app.layout = _v23_4_1_wrap_layout_callable(app.layout)
+        elif getattr(app, "layout", None) is not None:
+            app.layout = _v23_4_1_attach_data_library(app.layout)
+        else:
+            app.layout = _v23_4_1_build_data_library_layout()
+
+        try:
+            if getattr(app, "validation_layout", None) is not None:
+                app.validation_layout = _v23_4_1_attach_data_library(app.validation_layout)
+        except Exception:
+            pass
+
+        _v23_4_1_register_data_library_callbacks(app)
+        print("v23.4.1 Data Library runtime wiring loaded.")
+
+except Exception as _v23_4_1_data_library_error:
+    print(f"v23.4.1 Data Library Runtime Wiring Fix failed: {_v23_4_1_data_library_error}")
+# --- end v23.4.1 Data Library Runtime Wiring Fix ---
+
 if __name__ == "__main__":
     app.run(debug=False)
+
+# --- v23.4 Data Library UI Integration ---
+try:
+    from dash import dcc as _v23_4_dcc, html as _v23_4_html
+    from ui.data_library_ui import build_data_library_layout as _v23_4_build_data_library_layout
+    from services.data_catalog.data_library_callbacks import register_data_library_callbacks as _v23_4_register_data_library_callbacks
+
+    def _v23_4_component_has_data_library(component):
+        stack = [component]
+        while stack:
+            item = stack.pop()
+            if item is None:
+                continue
+            if isinstance(item, (list, tuple)):
+                stack.extend(item)
+                continue
+            if getattr(item, "id", None) == "data-library-root":
+                return True
+            children = getattr(item, "children", None)
+            if isinstance(children, (list, tuple)):
+                stack.extend(children)
+            elif children is not None:
+                stack.append(children)
+        return False
+
+    def _v23_4_attach_to_first_tabs(component):
+        attached = {"done": False}
+
+        def _walk(value):
+            if value is None or attached["done"]:
+                return value
+            if isinstance(value, list):
+                return [_walk(item) for item in value]
+            if isinstance(value, tuple):
+                return tuple(_walk(item) for item in value)
+
+            if value.__class__.__name__ == "Tabs" and not _v23_4_component_has_data_library(value):
+                tab = _v23_4_dcc.Tab(
+                    label="Data Library",
+                    value="data-library",
+                    children=[_v23_4_build_data_library_layout()],
+                )
+                children = getattr(value, "children", None)
+                if children is None:
+                    value.children = [tab]
+                elif isinstance(children, (list, tuple)):
+                    value.children = [*list(children), tab]
+                else:
+                    value.children = [children, tab]
+                attached["done"] = True
+                return value
+
+            children = getattr(value, "children", None)
+            if isinstance(children, (list, tuple)):
+                try:
+                    value.children = [_walk(item) for item in children]
+                except Exception:
+                    pass
+            elif children is not None and not isinstance(children, str):
+                try:
+                    value.children = _walk(children)
+                except Exception:
+                    pass
+            return value
+
+        return _walk(component), attached["done"]
+
+    def _v23_4_attach_data_library(layout):
+        if _v23_4_component_has_data_library(layout):
+            return layout
+
+        try:
+            layout, attached_to_tabs = _v23_4_attach_to_first_tabs(layout)
+            if attached_to_tabs or _v23_4_component_has_data_library(layout):
+                return layout
+        except Exception:
+            pass
+
+        panel = _v23_4_build_data_library_layout()
+        try:
+            children = getattr(layout, "children", None)
+            if children is None:
+                layout.children = [panel]
+            elif isinstance(children, (list, tuple)):
+                layout.children = [*list(children), panel]
+            else:
+                layout.children = [children, panel]
+            return layout
+        except Exception:
+            return _v23_4_html.Div([layout, panel])
+
+    def _v23_4_wrap_layout_callable(fn):
+        if getattr(fn, "_v23_4_data_library_wrapped", False):
+            return fn
+
+        def _wrapped(*args, **kwargs):
+            return _v23_4_attach_data_library(fn(*args, **kwargs))
+
+        _wrapped.__name__ = getattr(fn, "__name__", "wrapped_data_library_layout")
+        _wrapped.__doc__ = getattr(fn, "__doc__", None)
+        _wrapped._v23_4_data_library_wrapped = True
+        return _wrapped
+
+    if "app" in globals():
+        if callable(getattr(app, "layout", None)):
+            app.layout = _v23_4_wrap_layout_callable(app.layout)
+        elif getattr(app, "layout", None) is not None:
+            app.layout = _v23_4_attach_data_library(app.layout)
+
+        _v23_4_register_data_library_callbacks(app)
+
+except Exception as _v23_4_data_library_error:
+    print(f"v23.4 Data Library UI Integration failed: {_v23_4_data_library_error}")
+# --- end v23.4 Data Library UI Integration ---
