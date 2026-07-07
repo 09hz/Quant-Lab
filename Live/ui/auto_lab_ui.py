@@ -337,3 +337,185 @@ def build_auto_lab_tab() -> html.Div:
             ),
         ],
     )
+
+# --- v23.2.2 Market Memory Packet Direct Attachment ---
+try:
+    from dash import html as _v23_2_2_html
+    from ui.auto_lab_memory_packet_ui import build_market_memory_packet_panel as _v23_2_2_build_market_memory_packet_panel
+
+    def _v23_2_2_componentish(value):
+        if value is None:
+            return False
+        if isinstance(value, (list, tuple)):
+            return True
+        return hasattr(value, "children") or hasattr(value, "to_plotly_json") or hasattr(value, "id")
+
+    def _v23_2_2_has_memory_panel(value):
+        stack = [value]
+        while stack:
+            item = stack.pop()
+            if item is None:
+                continue
+            if isinstance(item, (list, tuple)):
+                stack.extend(item)
+                continue
+            if getattr(item, "id", None) == "main-autolab-memory-packet-panel":
+                return True
+            children = getattr(item, "children", None)
+            if isinstance(children, (list, tuple)):
+                stack.extend(children)
+            elif children is not None:
+                stack.append(children)
+        return False
+
+    def _v23_2_2_attach_panel(value):
+        if not _v23_2_2_componentish(value):
+            return value
+        if _v23_2_2_has_memory_panel(value):
+            return value
+        panel = _v23_2_2_build_market_memory_packet_panel()
+        if isinstance(value, list):
+            return [panel, *value]
+        if isinstance(value, tuple):
+            return [panel, *list(value)]
+        try:
+            children = getattr(value, "children", None)
+            if children is None:
+                value.children = [panel]
+            elif isinstance(children, (list, tuple)):
+                value.children = [panel, *list(children)]
+            else:
+                value.children = [panel, children]
+            return value
+        except Exception:
+            return _v23_2_2_html.Div([panel, value])
+
+    def _v23_2_2_should_wrap_callable(name, obj):
+        if not callable(obj):
+            return False
+        if str(name).startswith("_"):
+            return False
+        module_name = str(getattr(obj, "__module__", ""))
+        if module_name.startswith("dash") or module_name.startswith("plotly"):
+            return False
+        lowered = str(name).lower()
+        return any(token in lowered for token in [
+            "auto_lab", "autolab", "layout", "tab", "page", "ui", "build", "create", "render"
+        ])
+
+    def _v23_2_2_wrap_callable(fn):
+        if getattr(fn, "_v23_2_2_memory_panel_wrapped", False):
+            return fn
+
+        def _wrapped(*args, **kwargs):
+            return _v23_2_2_attach_panel(fn(*args, **kwargs))
+
+        _wrapped.__name__ = getattr(fn, "__name__", "wrapped_market_memory_panel_layout")
+        _wrapped.__doc__ = getattr(fn, "__doc__", None)
+        _wrapped._v23_2_2_memory_panel_wrapped = True
+        return _wrapped
+
+    for _v23_2_2_name, _v23_2_2_obj in list(globals().items()):
+        if _v23_2_2_should_wrap_callable(_v23_2_2_name, _v23_2_2_obj):
+            globals()[_v23_2_2_name] = _v23_2_2_wrap_callable(_v23_2_2_obj)
+
+    for _v23_2_2_name, _v23_2_2_obj in list(globals().items()):
+        if str(_v23_2_2_name).startswith("_"):
+            continue
+        if _v23_2_2_componentish(_v23_2_2_obj) and not callable(_v23_2_2_obj):
+            globals()[_v23_2_2_name] = _v23_2_2_attach_panel(_v23_2_2_obj)
+
+except Exception as _v23_2_2_memory_panel_error:
+    print(f"v23.2.2 Market Memory Packet Direct Attachment failed: {_v23_2_2_memory_panel_error}")
+# --- end v23.2.2 Market Memory Packet Direct Attachment ---
+
+# --- v23.2.2.1 Market Memory Packet Direct Attachment ---
+try:
+    from dash import html as _v23_2_2_1_html
+    from ui.auto_lab_memory_packet_ui import build_market_memory_packet_panel as _v23_2_2_1_build_market_memory_packet_panel
+
+    def _v23_2_2_1_componentish(value):
+        if value is None:
+            return False
+        if isinstance(value, (list, tuple)):
+            return True
+        return hasattr(value, "children") or hasattr(value, "to_plotly_json") or hasattr(value, "id")
+
+    def _v23_2_2_1_has_memory_panel(value):
+        stack = [value]
+        while stack:
+            item = stack.pop()
+            if item is None:
+                continue
+            if isinstance(item, (list, tuple)):
+                stack.extend(item)
+                continue
+            if getattr(item, "id", None) == "main-autolab-memory-packet-panel":
+                return True
+            children = getattr(item, "children", None)
+            if isinstance(children, (list, tuple)):
+                stack.extend(children)
+            elif children is not None:
+                stack.append(children)
+        return False
+
+    def _v23_2_2_1_attach_panel(value):
+        if not _v23_2_2_1_componentish(value):
+            return value
+        if _v23_2_2_1_has_memory_panel(value):
+            return value
+        panel = _v23_2_2_1_build_market_memory_packet_panel()
+        if isinstance(value, list):
+            return [panel, *value]
+        if isinstance(value, tuple):
+            return [panel, *list(value)]
+        try:
+            children = getattr(value, "children", None)
+            if children is None:
+                value.children = [panel]
+            elif isinstance(children, (list, tuple)):
+                value.children = [panel, *list(children)]
+            else:
+                value.children = [panel, children]
+            return value
+        except Exception:
+            return _v23_2_2_1_html.Div([panel, value])
+
+    def _v23_2_2_1_should_wrap_callable(name, obj):
+        if not callable(obj):
+            return False
+        if str(name).startswith("_"):
+            return False
+        module_name = str(getattr(obj, "__module__", ""))
+        if module_name.startswith("dash") or module_name.startswith("plotly"):
+            return False
+        lowered = str(name).lower()
+        return any(token in lowered for token in [
+            "auto_lab", "autolab", "layout", "tab", "page", "ui", "build", "create", "render"
+        ])
+
+    def _v23_2_2_1_wrap_callable(fn):
+        if getattr(fn, "_v23_2_2_1_memory_panel_wrapped", False):
+            return fn
+
+        def _wrapped(*args, **kwargs):
+            return _v23_2_2_1_attach_panel(fn(*args, **kwargs))
+
+        _wrapped.__name__ = getattr(fn, "__name__", "wrapped_market_memory_panel_layout")
+        _wrapped.__doc__ = getattr(fn, "__doc__", None)
+        _wrapped._v23_2_2_1_memory_panel_wrapped = True
+        return _wrapped
+
+    for _v23_2_2_1_name, _v23_2_2_1_obj in list(globals().items()):
+        if _v23_2_2_1_should_wrap_callable(_v23_2_2_1_name, _v23_2_2_1_obj):
+            globals()[_v23_2_2_1_name] = _v23_2_2_1_wrap_callable(_v23_2_2_1_obj)
+
+    for _v23_2_2_1_name, _v23_2_2_1_obj in list(globals().items()):
+        if str(_v23_2_2_1_name).startswith("_"):
+            continue
+        if _v23_2_2_1_componentish(_v23_2_2_1_obj) and not callable(_v23_2_2_1_obj):
+            globals()[_v23_2_2_1_name] = _v23_2_2_1_attach_panel(_v23_2_2_1_obj)
+
+except Exception as _v23_2_2_1_memory_panel_error:
+    print(f"v23.2.2.1 Market Memory Packet Direct Attachment failed: {_v23_2_2_1_memory_panel_error}")
+# --- end v23.2.2.1 Market Memory Packet Direct Attachment ---

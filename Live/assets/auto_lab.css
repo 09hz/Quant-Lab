@@ -258,3 +258,39 @@
 .autolab-capital-summary-html code {
   color: #dce7ff;
 }
+/* v23.2.2.1 Market Memory Packet styles */
+.autolab-memory-card {
+  border: 1px solid rgba(84, 158, 255, 0.28);
+}
+
+.autolab-memory-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: end;
+  margin: 0.75rem 0;
+}
+
+.autolab-memory-controls .autolab-field {
+  min-width: 240px;
+  flex: 1 1 240px;
+}
+
+.autolab-memory-controls .autolab-small-field {
+  max-width: 140px;
+  min-width: 120px;
+  flex: 0 0 120px;
+}
+
+.autolab-memory-preview {
+  margin-top: 0.75rem;
+  max-height: 520px;
+  overflow: auto;
+  padding: 0.75rem;
+  border-radius: 10px;
+  background: rgba(10, 16, 28, 0.38);
+}
+
+.autolab-badge-research {
+  white-space: nowrap;
+}

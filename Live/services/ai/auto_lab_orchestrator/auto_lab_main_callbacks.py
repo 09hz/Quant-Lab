@@ -283,3 +283,43 @@ def register_auto_lab_main_callbacks(app):
             scripts.get("walk_forward_md", "No walk-forward strategy script loaded."),
             summarize_script_paths(scripts.get("paths", {})),
         )
+
+# --- v23.2.2.1 Market Memory Packet Callback Registration ---
+try:
+    from services.ai.auto_lab_orchestrator.market_memory_packet_callbacks import (
+        register_market_memory_packet_callbacks as _v23_2_2_1_register_market_memory_packet_callbacks,
+    )
+
+    _V23_2_2_1_MEMORY_SYMBOL_INPUT_ID = "main-autolab-symbols"
+
+    def _v23_2_2_1_wrap_callback_register(fn):
+        if getattr(fn, "_v23_2_2_1_market_memory_callbacks_wrapped", False):
+            return fn
+
+        def _wrapped(app, *args, **kwargs):
+            result = fn(app, *args, **kwargs)
+            _v23_2_2_1_register_market_memory_packet_callbacks(
+                app,
+                symbol_input_id=_V23_2_2_1_MEMORY_SYMBOL_INPUT_ID,
+            )
+            return result
+
+        _wrapped.__name__ = getattr(fn, "__name__", "wrapped_market_memory_callback_register")
+        _wrapped.__doc__ = getattr(fn, "__doc__", None)
+        _wrapped._v23_2_2_1_market_memory_callbacks_wrapped = True
+        return _wrapped
+
+    for _v23_2_2_1_name, _v23_2_2_1_obj in list(globals().items()):
+        _v23_2_2_1_lower = str(_v23_2_2_1_name).lower()
+        if (
+            callable(_v23_2_2_1_obj)
+            and "register" in _v23_2_2_1_lower
+            and "callback" in _v23_2_2_1_lower
+            and ("auto" in _v23_2_2_1_lower or "autolab" in _v23_2_2_1_lower or "lab" in _v23_2_2_1_lower)
+            and _v23_2_2_1_name != "register_market_memory_packet_callbacks"
+        ):
+            globals()[_v23_2_2_1_name] = _v23_2_2_1_wrap_callback_register(_v23_2_2_1_obj)
+
+except Exception as _v23_2_2_1_memory_callback_error:
+    print(f"v23.2.2.1 Market Memory Packet Callback Registration failed: {_v23_2_2_1_memory_callback_error}")
+# --- end v23.2.2.1 Market Memory Packet Callback Registration ---
