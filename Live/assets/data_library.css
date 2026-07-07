@@ -156,3 +156,21 @@
 .data-library-pg-status-output pre {
   white-space: pre-wrap;
 }
+
+/* v24.1.2 PostgreSQL setup wizard */
+.data-library-pg-grid {
+  display: grid;
+  grid-template-columns: minmax(120px, 180px) minmax(220px, 1fr);
+  gap: 8px 12px;
+  align-items: center;
+  margin: 10px 0;
+}
+
+.data-library-pg-grid input {
+  width: 100%;
+  max-width: 360px;
+}
+
+.data-library-pg-setup-output ul {
+  margin-top: 8px;
+}

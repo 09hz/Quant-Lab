@@ -69,3 +69,22 @@ The UI displays:
 ## Security
 
 Do not commit real passwords. `.env`, `.env.local`, and `.env.*.local` are ignored.
+
+## Browser setup wizard
+
+The Data Library tab includes a local PostgreSQL setup wizard.
+
+Use it for local development:
+
+1. Open Data Library.
+2. Expand **Connection settings**.
+3. Enter host, port, database, schema, app user, and app password.
+4. Click **Test Typed Credentials**.
+5. If the database/user/schema are not created yet, expand **Local setup / repair database**.
+6. Enter the postgres admin user/password.
+7. Click **Set up / repair PostgreSQL database**.
+8. Click **Ingest JSON/CSV to PostgreSQL**.
+
+Passwords typed into the browser are used for the current Dash callback request only. They are not saved to the repo, not saved in `.env`, and not stored in Dash `dcc.Store`.
+
+For shared or hosted deployments, disable admin setup controls and use environment variables or a secrets manager instead.
