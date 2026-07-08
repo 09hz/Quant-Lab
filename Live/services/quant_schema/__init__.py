@@ -15,3 +15,4 @@ from .repository import (
     insert_model_candidate,
     insert_data_quality_event,
 )
+from .direct_producer_wiring import install_direct_producer_wiring

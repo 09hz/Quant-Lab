@@ -536,6 +536,14 @@ except Exception as _v23_4_1_data_library_error:
     print(f"v23.4.1 Data Library Runtime Wiring Fix failed: {_v23_4_1_data_library_error}")
 # --- end v23.4.1 Data Library Runtime Wiring Fix ---
 
+# BEGIN v24.5 quant output wiring
+try:
+    from services.quant_schema.runtime_wiring import install_quant_output_hooks
+    install_quant_output_hooks()
+except Exception as _v24_5_quant_wiring_exc:
+    print(f"[v24.5 quant wiring] disabled: {type(_v24_5_quant_wiring_exc).__name__}: {_v24_5_quant_wiring_exc}")
+# END v24.5 quant output wiring
+
 if __name__ == "__main__":
     app.run(debug=False)
 
@@ -652,3 +660,11 @@ try:
 except Exception as _v23_4_data_library_error:
     print(f"v23.4 Data Library UI Integration failed: {_v23_4_data_library_error}")
 # --- end v23.4 Data Library UI Integration ---
+
+# BEGIN v24.6 direct producer wiring startup
+try:
+    from services.quant_schema.direct_producer_wiring import install_direct_producer_wiring
+    install_direct_producer_wiring()
+except Exception as _v24_6_direct_wiring_startup_exc:
+    print(f"[v24.6 direct producer wiring] startup disabled: {type(_v24_6_direct_wiring_startup_exc).__name__}: {_v24_6_direct_wiring_startup_exc}")
+# END v24.6 direct producer wiring startup
