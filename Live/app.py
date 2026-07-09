@@ -343,7 +343,6 @@ except Exception as research_analyst_callbacks_exc:
     )
 
 
-
 # =============================================================================
 # Research Autolab callback registration
 # =============================================================================
@@ -543,6 +542,320 @@ try:
 except Exception as _v24_5_quant_wiring_exc:
     print(f"[v24.5 quant wiring] disabled: {type(_v24_5_quant_wiring_exc).__name__}: {_v24_5_quant_wiring_exc}")
 # END v24.5 quant output wiring
+
+
+# BEGIN v24.8.3 native quant dashboard tab
+try:
+    import os as _v24_8_3_os
+    from pathlib import Path as _v24_8_3_Path
+
+    from dash import Input as _v24_8_3_Input
+    from dash import Output as _v24_8_3_Output
+    from dash import dcc as _v24_8_3_dcc
+    from dash import html as _v24_8_3_html
+
+    from services.quant_dashboard.queries import load_quant_dashboard as _v24_8_3_load_quant_dashboard
+
+    def _v24_8_3_find_repo_root():
+        here = _v24_8_3_Path(__file__).resolve()
+        for parent in [here, *here.parents]:
+            if (parent / "Live" / "app.py").exists():
+                return parent
+            if parent.name.lower() == "live" and (parent / "app.py").exists():
+                return parent.parent
+        return here.parent.parent
+
+    def _v24_8_3_children_list(component):
+        children = getattr(component, "children", None)
+        if children is None:
+            return []
+        if isinstance(children, list):
+            return children
+        if isinstance(children, tuple):
+            return list(children)
+        return [children]
+
+    def _v24_8_3_find_component_by_id(component, target_id):
+        if getattr(component, "id", None) == target_id:
+            return component
+        for child in _v24_8_3_children_list(component):
+            found = _v24_8_3_find_component_by_id(child, target_id)
+            if found is not None:
+                return found
+        return None
+
+    def _v24_8_3_tab_label(tab):
+        try:
+            return str(getattr(tab, "label", ""))
+        except Exception:
+            return ""
+
+    def _v24_8_3_tab_value(tab):
+        try:
+            return str(getattr(tab, "value", ""))
+        except Exception:
+            return ""
+
+    def _v24_8_3_is_settings_tab(tab):
+        label = _v24_8_3_tab_label(tab).strip().lower()
+        value = _v24_8_3_tab_value(tab).strip().lower()
+        return label == "settings" or value in {"settings", "charts"}
+
+    def _v24_8_3_is_quant_dashboard_tab(tab):
+        label = _v24_8_3_tab_label(tab).strip().lower()
+        value = _v24_8_3_tab_value(tab).strip().lower()
+        return label == "quant dashboard" or value == "quant-dashboard"
+
+    def _v24_8_3_fmt(value):
+        if value is None:
+            return ""
+        if isinstance(value, float):
+            return f"{value:.4f}"
+        text = str(value)
+        return text if len(text) <= 140 else text[:137] + "..."
+
+    def _v24_8_3_payload_dict(payload):
+        if hasattr(payload, "to_dict"):
+            return payload.to_dict()
+        if isinstance(payload, dict):
+            return payload
+        return {
+            "status": "FAIL",
+            "backend": "",
+            "repo_root": "",
+            "counts": {},
+            "sections": {},
+            "errors": [f"Unsupported payload type: {type(payload).__name__}"],
+            "message": "Quant Dashboard payload could not be rendered.",
+        }
+
+    def _v24_8_3_status_view(payload_data):
+        status = str(payload_data.get("status", "UNKNOWN"))
+        class_name = "quant-native-status-pass" if status == "PASS" else "quant-native-status-warn" if status == "WARN" else "quant-native-status-fail"
+        children = [
+            _v24_8_3_html.Div(f"Status: {status}", className=class_name),
+            _v24_8_3_html.Div(f"Backend: {payload_data.get('backend', '')}"),
+            _v24_8_3_html.Div(str(payload_data.get("message", ""))),
+            _v24_8_3_html.Div(f"Repo: {payload_data.get('repo_root', '')}", className="quant-native-muted"),
+        ]
+        errors = payload_data.get("errors") or []
+        if errors:
+            children.append(
+                _v24_8_3_html.Details(
+                    children=[
+                        _v24_8_3_html.Summary("Warnings / errors"),
+                        _v24_8_3_html.Pre("\n".join(str(item) for item in errors[:15])),
+                    ]
+                )
+            )
+        return _v24_8_3_html.Div(children=children, className="quant-native-card")
+
+    def _v24_8_3_counts_view(counts):
+        counts = counts or {}
+        if not counts:
+            return _v24_8_3_html.Div("No quant table counts available yet.", className="quant-native-muted")
+        return _v24_8_3_html.Div(
+            className="quant-native-count-grid",
+            children=[
+                _v24_8_3_html.Div(
+                    className="quant-native-count-tile",
+                    children=[
+                        _v24_8_3_html.Div(str(table).replace("_", " ").title(), className="quant-native-count-label"),
+                        _v24_8_3_html.Div(str(value), className="quant-native-count-value"),
+                    ],
+                )
+                for table, value in counts.items()
+            ],
+        )
+
+    def _v24_8_3_section_table(section_key, rows):
+        titles = {
+            "recent_experiments": "Recent Experiments",
+            "recent_strategies": "Recent Strategies",
+            "best_backtests": "Best Backtests",
+            "walk_forward_runs": "Walk-Forward Runs",
+            "universe_runs": "Universe Runs",
+            "data_quality_events": "Data Quality Events",
+        }
+        preferences = {
+            "recent_experiments": ["created_at", "experiment_id", "module", "experiment_name", "status"],
+            "recent_strategies": ["created_at", "strategy_run_id", "strategy_name", "strategy_family", "symbol", "status"],
+            "best_backtests": ["created_at", "backtest_run_id", "symbol", "strategy_name", "sharpe", "total_return", "max_drawdown", "win_rate", "trade_count"],
+            "walk_forward_runs": ["created_at", "walk_forward_run_id", "symbol", "strategy_name", "avg_sharpe", "pass_rate", "status"],
+            "universe_runs": ["created_at", "universe_run_id", "universe_name", "theme", "selected_count", "status"],
+            "data_quality_events": ["created_at", "event_id", "symbol", "severity", "event_type", "message"],
+        }
+        rows = rows or []
+        title = titles.get(section_key, str(section_key).replace("_", " ").title())
+        if not rows:
+            return _v24_8_3_html.Div(
+                className="quant-native-card",
+                children=[
+                    _v24_8_3_html.H3(title),
+                    _v24_8_3_html.Div("No rows yet.", className="quant-native-muted"),
+                ],
+            )
+
+        preferred = [col for col in preferences.get(section_key, []) if any(col in row for row in rows)]
+        extras = []
+        for row in rows:
+            for col in row.keys():
+                if col not in preferred and col not in extras:
+                    extras.append(col)
+        columns = (preferred + extras)[:10]
+
+        return _v24_8_3_html.Div(
+            className="quant-native-card quant-native-table-card",
+            children=[
+                _v24_8_3_html.H3(title),
+                _v24_8_3_html.Table(
+                    children=[
+                        _v24_8_3_html.Thead(_v24_8_3_html.Tr([_v24_8_3_html.Th(col) for col in columns])),
+                        _v24_8_3_html.Tbody([
+                            _v24_8_3_html.Tr([_v24_8_3_html.Td(_v24_8_3_fmt(row.get(col))) for col in columns])
+                            for row in rows
+                        ]),
+                    ]
+                ),
+            ],
+        )
+
+    def _v24_8_3_build_native_quant_dashboard_tab():
+        repo_root = str(_v24_8_3_find_repo_root())
+        default_backend = _v24_8_3_os.environ.get("ALGOTRADER_DB_BACKEND", "sqlite").strip().lower()
+        if default_backend not in {"sqlite", "postgres"}:
+            default_backend = "sqlite"
+
+        return _v24_8_3_dcc.Tab(
+            label="Quant Dashboard",
+            value="quant-dashboard",
+            className="main-tab",
+            selected_className="main-tab-selected",
+            children=[
+                _v24_8_3_html.Div(
+                    className="quant-native-page",
+                    children=[
+                        _v24_8_3_html.Div(
+                            className="quant-native-header",
+                            children=[
+                                _v24_8_3_html.Div(
+                                    children=[
+                                        _v24_8_3_html.H2("Quant Research Dashboard"),
+                                        _v24_8_3_html.Div(
+                                            "Native read-only dashboard. One main app, no second terminal. Research/simulation only.",
+                                            className="quant-native-muted",
+                                        ),
+                                    ]
+                                ),
+                                _v24_8_3_html.Div(
+                                    "No broker calls. No live orders.",
+                                    className="quant-native-safety-pill",
+                                ),
+                            ],
+                        ),
+                        _v24_8_3_html.Div(
+                            className="quant-native-controls quant-native-card",
+                            children=[
+                                _v24_8_3_html.Label("Backend"),
+                                _v24_8_3_dcc.Dropdown(
+                                    id="quant-dashboard-native-backend",
+                                    value=default_backend,
+                                    clearable=False,
+                                    options=[
+                                        {"label": "SQLite fallback", "value": "sqlite"},
+                                        {"label": "PostgreSQL", "value": "postgres"},
+                                    ],
+                                ),
+                                _v24_8_3_html.Label("Rows"),
+                                _v24_8_3_dcc.Input(
+                                    id="quant-dashboard-native-limit",
+                                    type="number",
+                                    min=1,
+                                    max=100,
+                                    step=1,
+                                    value=10,
+                                    debounce=True,
+                                ),
+                                _v24_8_3_html.Button(
+                                    "Refresh",
+                                    id="quant-dashboard-native-refresh",
+                                    n_clicks=0,
+                                ),
+                                _v24_8_3_dcc.Store(
+                                    id="quant-dashboard-native-repo-root",
+                                    data=repo_root,
+                                ),
+                            ],
+                        ),
+                        _v24_8_3_html.Div(id="quant-dashboard-native-status"),
+                        _v24_8_3_html.Div(id="quant-dashboard-native-counts"),
+                        _v24_8_3_html.Div(id="quant-dashboard-native-sections", className="quant-native-sections"),
+                    ],
+                )
+            ],
+        )
+
+    def _v24_8_3_install_native_quant_dashboard_tab():
+        main_tabs = _v24_8_3_find_component_by_id(app.layout, "main-tabs")
+        if main_tabs is None:
+            print("[v24.8.3 native quant dashboard tab] main-tabs not found; skipped", flush=True)
+            return
+
+        current_tabs = _v24_8_3_children_list(main_tabs)
+        filtered_tabs = []
+        settings_tabs = []
+        for tab in current_tabs:
+            if _v24_8_3_is_quant_dashboard_tab(tab):
+                continue
+            if _v24_8_3_is_settings_tab(tab):
+                settings_tabs.append(tab)
+                continue
+            filtered_tabs.append(tab)
+
+        filtered_tabs.append(_v24_8_3_build_native_quant_dashboard_tab())
+        filtered_tabs.extend(settings_tabs)
+        main_tabs.children = filtered_tabs
+
+    def _v24_8_3_register_native_quant_dashboard_callbacks():
+        if getattr(app, "_v24_8_3_native_quant_dashboard_callbacks_registered", False):
+            return
+
+        @app.callback(
+            _v24_8_3_Output("quant-dashboard-native-status", "children"),
+            _v24_8_3_Output("quant-dashboard-native-counts", "children"),
+            _v24_8_3_Output("quant-dashboard-native-sections", "children"),
+            _v24_8_3_Input("quant-dashboard-native-refresh", "n_clicks"),
+            _v24_8_3_Input("quant-dashboard-native-backend", "value"),
+            _v24_8_3_Input("quant-dashboard-native-limit", "value"),
+            _v24_8_3_Input("quant-dashboard-native-repo-root", "data"),
+            prevent_initial_call=False,
+        )
+        def _v24_8_3_refresh_native_quant_dashboard(_n_clicks, selected_backend, selected_limit, selected_repo_root):
+            payload = _v24_8_3_load_quant_dashboard(
+                repo_root=selected_repo_root or str(_v24_8_3_find_repo_root()),
+                backend=selected_backend or "sqlite",
+                limit=selected_limit or 10,
+            )
+            data = _v24_8_3_payload_dict(payload)
+            sections = data.get("sections") or {}
+            return (
+                _v24_8_3_status_view(data),
+                _v24_8_3_counts_view(data.get("counts") or {}),
+                [_v24_8_3_section_table(key, rows) for key, rows in sections.items()],
+            )
+
+        app._v24_8_3_native_quant_dashboard_callbacks_registered = True
+
+    _v24_8_3_install_native_quant_dashboard_tab()
+    _v24_8_3_register_native_quant_dashboard_callbacks()
+
+except Exception as _v24_8_3_native_quant_dashboard_exc:
+    print(
+        f"[v24.8.3 native quant dashboard tab] disabled: "
+        f"{type(_v24_8_3_native_quant_dashboard_exc).__name__}: {_v24_8_3_native_quant_dashboard_exc}",
+        flush=True,
+    )
+# END v24.8.3 native quant dashboard tab
 
 if __name__ == "__main__":
     app.run(debug=False)
