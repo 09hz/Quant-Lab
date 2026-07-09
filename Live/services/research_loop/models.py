@@ -25,6 +25,7 @@ class ResearchLoopConfig:
     min_sharpe: float = 0.25
     backend: str = "sqlite"
     mode: str = "simulation_only"
+    evaluation_mode: str = "hybrid_safe"
     timeframe: str = "1d"
     seed: str = "v24_9_0"
     repo_root: str | None = None

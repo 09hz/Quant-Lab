@@ -18,11 +18,16 @@ def build_feedback_markdown(result: ResearchLoopResult) -> str:
     lines.append("")
     lines.append("Research/simulation only. No broker calls or live orders.")
     lines.append("")
+    lines.append("## Role in the system")
+    lines.append("")
+    lines.append("Research Loop is the research manager. Auto Lab is an experiment worker. The loop decides what to test, evaluates outcomes, stores results, and writes lessons for the next iteration.")
+    lines.append("")
     lines.append(f"- Theme: `{result.config.theme}`")
     lines.append(f"- Symbols: `{', '.join(result.config.normalized_symbols())}`")
     lines.append(f"- Status: `{result.status}`")
     lines.append(f"- Candidates tested: `{len(result.evaluations)}`")
     lines.append(f"- Survivors: `{len(result.survivors)}`")
+    lines.append(f"- Quant persist: `{result.quant_persist_status}`")
     lines.append("")
 
     lines.append("## Top candidates")
@@ -31,13 +36,17 @@ def build_feedback_markdown(result: ResearchLoopResult) -> str:
     for item in ranked[:5]:
         c = item.candidate
         m = item.aggregate_metrics
+        u = item.universe_metrics
+        w = item.walk_forward_metrics
         lines.append(
             f"- **{c.strategy_name}** `{item.status}` score `{item.score}` "
             f"avg_sharpe `{m.get('avg_sharpe')}` drawdown `{m.get('worst_drawdown')}` "
-            f"trades `{m.get('total_trades')}`"
+            f"trades `{m.get('total_trades')}` universe_pass `{u.get('pass_rate')}` "
+            f"wf_sharpe `{w.get('avg_sharpe')}`"
         )
         if item.rejection_reasons:
             lines.append(f"  - Rejection reasons: {', '.join(item.rejection_reasons)}")
+        lines.append(f"  - Parameters: `{json.dumps(item.candidate.parameters, sort_keys=True)}`")
     lines.append("")
 
     lines.append("## Lessons for next loop")
@@ -45,11 +54,11 @@ def build_feedback_markdown(result: ResearchLoopResult) -> str:
     if result.survivors:
         for item in result.survivors[:5]:
             lines.append(
-                f"- Strengthen hypothesis: `{item.candidate.strategy_family}` showed simulated robustness "
-                f"with universe pass rate `{item.universe_metrics.get('pass_rate')}`."
+                f"- Strengthen hypothesis: `{item.candidate.strategy_family}` showed proxy robustness "
+                f"with universe pass rate `{item.universe_metrics.get('pass_rate')}` and score `{item.score}`."
             )
     else:
-        lines.append("- No survivors. Lower candidate count is not the issue; improve filters or generate different strategy families.")
+        lines.append("- No survivors. Improve candidate diversity or relax proxy gates only if justified by real backtest results.")
 
     rejected = [item for item in ranked if item.status != "PASS"]
     common_reasons: dict[str, int] = {}
@@ -65,8 +74,11 @@ def build_feedback_markdown(result: ResearchLoopResult) -> str:
     if result.survivors:
         lines.append("- Run real BackTestEngine adapter for the top survivor candidates, then walk-forward validation.")
     else:
-        lines.append("- Generate a wider set of candidates or adjust the theme/symbol universe, then rerun the loop.")
-
+        lines.append("- Generate a wider candidate set or adjust theme/symbol universe, then rerun the loop.")
+    lines.append("")
+    lines.append("## Guardrail")
+    lines.append("")
+    lines.append("- Do not treat proxy scores as trade signals. Use them only to prioritize further research.")
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -86,12 +98,17 @@ def write_memory_feedback(result: ResearchLoopResult) -> str:
                 "theme": result.config.theme,
                 "symbols": result.config.normalized_symbols(),
                 "survivor_count": len(result.survivors),
+                "quant_persist_status": result.quant_persist_status,
                 "top_scores": [
                     {
                         "strategy_name": item.candidate.strategy_name,
                         "strategy_family": item.candidate.strategy_family,
                         "score": item.score,
                         "status": item.status,
+                        "avg_sharpe": item.aggregate_metrics.get("avg_sharpe"),
+                        "worst_drawdown": item.aggregate_metrics.get("worst_drawdown"),
+                        "universe_pass_rate": item.universe_metrics.get("pass_rate"),
+                        "walk_forward_sharpe": item.walk_forward_metrics.get("avg_sharpe"),
                         "rejection_reasons": item.rejection_reasons,
                     }
                     for item in sorted(result.evaluations, key=lambda ev: ev.score, reverse=True)[:10]

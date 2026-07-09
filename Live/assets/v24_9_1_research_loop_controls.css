@@ -1,0 +1,118 @@
+
+/* v24.9.1 Research Loop Controls */
+
+.research-loop-controls-panel {
+  border-color: rgba(168, 85, 247, 0.28);
+  background:
+    radial-gradient(circle at top left, rgba(168, 85, 247, 0.10), transparent 30%),
+    rgba(15, 23, 42, 0.54);
+}
+
+.research-loop-controls-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.research-loop-controls-header h3 {
+  margin: 0 0 4px 0;
+}
+
+.research-loop-safety-pill {
+  border: 1px solid rgba(34, 197, 94, 0.35);
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: rgba(34, 197, 94, 0.10);
+  color: #bbf7d0;
+  white-space: nowrap;
+  font-weight: 800;
+}
+
+.research-loop-controls-grid {
+  display: grid;
+  grid-template-columns: 90px minmax(220px, 1fr) 80px minmax(150px, 180px) 90px minmax(100px, 120px) 80px minmax(180px, 220px) 1fr minmax(170px, 210px);
+  gap: 10px;
+  align-items: center;
+}
+
+.research-loop-controls-grid input,
+.research-loop-controls-grid .Select-control {
+  min-height: 36px;
+}
+
+.research-loop-run-button {
+  min-height: 38px;
+  border: 1px solid rgba(168, 85, 247, 0.50);
+  border-radius: 10px;
+  padding: 8px 12px;
+  background: rgba(168, 85, 247, 0.16);
+  color: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.research-loop-run-button:hover {
+  background: rgba(168, 85, 247, 0.28);
+  border-color: rgba(216, 180, 254, 0.70);
+}
+
+.research-loop-run-status {
+  margin-top: 12px;
+}
+
+.research-loop-last-report {
+  margin-top: 12px;
+}
+
+.research-loop-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.research-loop-summary > div,
+.research-loop-report-paths > div {
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 9px;
+  padding: 8px;
+  background: rgba(15, 23, 42, 0.42);
+  overflow-wrap: anywhere;
+}
+
+.research-loop-report-paths {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.research-loop-top-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.research-loop-top-table th,
+.research-loop-top-table td {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+  padding: 7px 9px;
+  text-align: left;
+  vertical-align: top;
+}
+
+@media (max-width: 1200px) {
+  .research-loop-controls-grid {
+    grid-template-columns: 100px 1fr;
+  }
+
+  .research-loop-controls-header {
+    display: block;
+  }
+
+  .research-loop-safety-pill {
+    display: inline-block;
+    margin-top: 10px;
+  }
+}

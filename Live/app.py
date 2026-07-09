@@ -857,6 +857,289 @@ except Exception as _v24_8_3_native_quant_dashboard_exc:
     )
 # END v24.8.3 native quant dashboard tab
 
+# BEGIN v24.9.1 research loop controls in quant dashboard
+try:
+    from dash import Input as _v24_9_1_Input
+    from dash import Output as _v24_9_1_Output
+    from dash import State as _v24_9_1_State
+    from dash import dcc as _v24_9_1_dcc
+    from dash import html as _v24_9_1_html
+
+    from services.research_loop.models import ResearchLoopConfig as _v24_9_1_ResearchLoopConfig
+    from services.research_loop.orchestrator import run_research_loop as _v24_9_1_run_research_loop
+
+    def _v24_9_1_children_list(component):
+        children = getattr(component, "children", None)
+        if children is None:
+            return []
+        if isinstance(children, list):
+            return children
+        if isinstance(children, tuple):
+            return list(children)
+        return [children]
+
+    def _v24_9_1_find_component_by_id(component, target_id):
+        if getattr(component, "id", None) == target_id:
+            return component
+        for child in _v24_9_1_children_list(component):
+            found = _v24_9_1_find_component_by_id(child, target_id)
+            if found is not None:
+                return found
+        return None
+
+    def _v24_9_1_find_component_by_class(component, target_class):
+        class_name = getattr(component, "className", "") or ""
+        try:
+            class_text = str(class_name)
+        except Exception:
+            class_text = ""
+        if target_class in class_text.split() or target_class in class_text:
+            return component
+        for child in _v24_9_1_children_list(component):
+            found = _v24_9_1_find_component_by_class(child, target_class)
+            if found is not None:
+                return found
+        return None
+
+    def _v24_9_1_parse_symbols(value):
+        symbols = []
+        for part in str(value or "").replace(";", ",").split(","):
+            cleaned = part.strip().upper()
+            if cleaned and cleaned not in symbols:
+                symbols.append(cleaned)
+        return symbols or ["AMD", "NVDA", "SMH"]
+
+    def _v24_9_1_repo_root_from_store(value):
+        if value:
+            return str(value)
+        try:
+            return str(_v24_8_3_find_repo_root())  # defined by v24.8.3 native Quant tab
+        except Exception:
+            from pathlib import Path as _Path
+            here = _Path(__file__).resolve()
+            return str(here.parent.parent)
+
+    def _v24_9_1_build_research_loop_panel():
+        return _v24_9_1_html.Div(
+            id="research-loop-controls-panel",
+            className="quant-native-card research-loop-controls-panel",
+            children=[
+                _v24_9_1_html.Div(
+                    className="research-loop-controls-header",
+                    children=[
+                        _v24_9_1_html.Div(
+                            children=[
+                                _v24_9_1_html.H3("Research Loop"),
+                                _v24_9_1_html.Div(
+                                    "Generate strategy candidates, proxy-test them, store results in Quant Schema, then auto-refresh this dashboard.",
+                                    className="quant-native-muted",
+                                ),
+                            ]
+                        ),
+                        _v24_9_1_html.Div(
+                            "Simulation only",
+                            className="research-loop-safety-pill",
+                        ),
+                    ],
+                ),
+                _v24_9_1_html.Div(
+                    className="research-loop-controls-grid",
+                    children=[
+                        _v24_9_1_html.Label("Theme"),
+                        _v24_9_1_dcc.Input(
+                            id="research-loop-theme",
+                            type="text",
+                            value="AI infrastructure semiconductors",
+                            debounce=True,
+                        ),
+                        _v24_9_1_html.Label("Symbols"),
+                        _v24_9_1_dcc.Input(
+                            id="research-loop-symbols",
+                            type="text",
+                            value="AMD,NVDA,SMH",
+                            debounce=True,
+                        ),
+                        _v24_9_1_html.Label("Candidates"),
+                        _v24_9_1_dcc.Input(
+                            id="research-loop-max-candidates",
+                            type="number",
+                            min=1,
+                            max=25,
+                            step=1,
+                            value=10,
+                            debounce=True,
+                        ),
+                        _v24_9_1_html.Label("Backend"),
+                        _v24_9_1_dcc.Dropdown(
+                            id="research-loop-backend",
+                            value="sqlite",
+                            clearable=False,
+                            options=[
+                                {"label": "SQLite fallback", "value": "sqlite"},
+                                {"label": "PostgreSQL", "value": "postgres"},
+                            ],
+                        ),
+                        _v24_9_1_html.Div(),
+                        _v24_9_1_html.Button(
+                            "Run Research Loop",
+                            id="research-loop-run-button",
+                            n_clicks=0,
+                            className="research-loop-run-button",
+                        ),
+                    ],
+                ),
+                _v24_9_1_html.Div(
+                    id="research-loop-run-status",
+                    className="research-loop-run-status quant-native-muted",
+                    children="Ready. This runs a simulation-only research loop and writes results to Quant Schema.",
+                ),
+                _v24_9_1_html.Div(
+                    id="research-loop-last-report",
+                    className="research-loop-last-report",
+                ),
+            ],
+        )
+
+    def _v24_9_1_install_research_loop_panel():
+        if _v24_9_1_find_component_by_id(app.layout, "research-loop-controls-panel") is not None:
+            return
+
+        quant_page = _v24_9_1_find_component_by_class(app.layout, "quant-native-page")
+        if quant_page is None:
+            print("[v24.9.1 research loop controls] quant-native-page not found; skipped", flush=True)
+            return
+
+        children = _v24_9_1_children_list(quant_page)
+        panel = _v24_9_1_build_research_loop_panel()
+
+        # Insert after header and existing dashboard controls when possible.
+        insert_at = 2 if len(children) >= 2 else len(children)
+        children.insert(insert_at, panel)
+        quant_page.children = children
+
+    def _v24_9_1_register_research_loop_callbacks():
+        if getattr(app, "_v24_9_1_research_loop_callbacks_registered", False):
+            return
+
+        @app.callback(
+            _v24_9_1_Output("research-loop-run-status", "children"),
+            _v24_9_1_Output("research-loop-last-report", "children"),
+            _v24_9_1_Output("quant-dashboard-native-refresh", "n_clicks"),
+            _v24_9_1_Input("research-loop-run-button", "n_clicks"),
+            _v24_9_1_State("research-loop-theme", "value"),
+            _v24_9_1_State("research-loop-symbols", "value"),
+            _v24_9_1_State("research-loop-max-candidates", "value"),
+            _v24_9_1_State("research-loop-backend", "value"),
+            _v24_9_1_State("quant-dashboard-native-repo-root", "data"),
+            _v24_9_1_State("quant-dashboard-native-refresh", "n_clicks"),
+            prevent_initial_call=True,
+        )
+        def _v24_9_1_run_loop_from_browser(n_clicks, theme, symbols_text, max_candidates, backend, repo_root, current_refresh_clicks):
+            if not n_clicks:
+                return "Ready.", "", current_refresh_clicks or 0
+
+            symbols = _v24_9_1_parse_symbols(symbols_text)
+            backend = backend if backend in {"sqlite", "postgres"} else "sqlite"
+            try:
+                max_candidates = int(max_candidates or 10)
+            except Exception:
+                max_candidates = 10
+            max_candidates = max(1, min(max_candidates, 25))
+
+            config = _v24_9_1_ResearchLoopConfig(
+                theme=str(theme or "AI infrastructure semiconductors").strip() or "AI infrastructure semiconductors",
+                symbols=symbols,
+                max_candidates=max_candidates,
+                max_loops=1,
+                min_trades=10,
+                max_drawdown_limit=-0.20,
+                min_sharpe=0.25,
+                backend=backend,
+                mode="simulation_only",
+                timeframe="1d",
+                repo_root=_v24_9_1_repo_root_from_store(repo_root),
+            )
+
+            try:
+                result = _v24_9_1_run_research_loop(config)
+                ranked = sorted(result.evaluations, key=lambda item: item.score, reverse=True)
+                top_rows = []
+                for item in ranked[:5]:
+                    top_rows.append(
+                        _v24_9_1_html.Tr([
+                            _v24_9_1_html.Td(item.candidate.strategy_name),
+                            _v24_9_1_html.Td(item.candidate.strategy_family),
+                            _v24_9_1_html.Td(item.status),
+                            _v24_9_1_html.Td(str(item.score)),
+                            _v24_9_1_html.Td(str(item.aggregate_metrics.get("avg_sharpe"))),
+                            _v24_9_1_html.Td(str(item.aggregate_metrics.get("worst_drawdown"))),
+                            _v24_9_1_html.Td(", ".join(item.rejection_reasons[:3])),
+                        ])
+                    )
+
+                report_children = [
+                    _v24_9_1_html.Div(
+                        className="research-loop-summary",
+                        children=[
+                            _v24_9_1_html.Div(f"Loop ID: {result.loop_id}"),
+                            _v24_9_1_html.Div(f"Status: {result.status}"),
+                            _v24_9_1_html.Div(f"Candidates: {len(result.candidates)}"),
+                            _v24_9_1_html.Div(f"Survivors: {len(result.survivors)}"),
+                            _v24_9_1_html.Div(f"Quant persist: {result.quant_persist_status}"),
+                        ],
+                    ),
+                    _v24_9_1_html.Div(
+                        className="research-loop-report-paths",
+                        children=[
+                            _v24_9_1_html.Div("Report JSON: " + str(result.report_paths.get("json", ""))),
+                            _v24_9_1_html.Div("Report Markdown: " + str(result.report_paths.get("markdown", ""))),
+                            _v24_9_1_html.Div("Memory feedback: " + str(result.feedback_path)),
+                        ],
+                    ),
+                    _v24_9_1_html.Table(
+                        className="research-loop-top-table",
+                        children=[
+                            _v24_9_1_html.Thead(
+                                _v24_9_1_html.Tr([
+                                    _v24_9_1_html.Th("Strategy"),
+                                    _v24_9_1_html.Th("Family"),
+                                    _v24_9_1_html.Th("Status"),
+                                    _v24_9_1_html.Th("Score"),
+                                    _v24_9_1_html.Th("Avg Sharpe"),
+                                    _v24_9_1_html.Th("Worst DD"),
+                                    _v24_9_1_html.Th("Reasons"),
+                                ])
+                            ),
+                            _v24_9_1_html.Tbody(top_rows),
+                        ],
+                    ),
+                ]
+
+                status = (
+                    f"Research loop complete. Status={result.status}; "
+                    f"candidates={len(result.candidates)}; survivors={len(result.survivors)}. "
+                    "Quant Dashboard refresh triggered."
+                )
+                return status, report_children, int(current_refresh_clicks or 0) + 1
+
+            except Exception as exc:
+                status = f"Research loop failed: {type(exc).__name__}: {exc}"
+                details = _v24_9_1_html.Pre(status)
+                return status, details, current_refresh_clicks or 0
+
+        app._v24_9_1_research_loop_callbacks_registered = True
+
+    _v24_9_1_install_research_loop_panel()
+    _v24_9_1_register_research_loop_callbacks()
+
+except Exception as _v24_9_1_research_loop_controls_exc:
+    print(
+        f"[v24.9.1 research loop controls] disabled: "
+        f"{type(_v24_9_1_research_loop_controls_exc).__name__}: {_v24_9_1_research_loop_controls_exc}",
+        flush=True,
+    )
+# END v24.9.1 research loop controls in quant dashboard
+
 if __name__ == "__main__":
     app.run(debug=False)
 
