@@ -30,6 +30,11 @@ from services.strategy_overlay_service import StrategyOverlayService
 from services.bar_view_service import BarViewService
 from services.chart_viewport_service import ChartViewportService
 
+try:
+    from services.watch_chart_state import normalize_watch_chart_state_for_render
+except Exception:
+    normalize_watch_chart_state_for_render = None
+
 from renderers.watch_chart_renderer import WatchChartRenderer
 from renderers.strategy_overlay_renderer import StrategyOverlayRenderer
 
@@ -311,6 +316,197 @@ def _is_today_or_latest_replay_date(replay_date) -> bool:
     except Exception:
         return False
 
+def _env_flag(name: str, default: bool = True) -> bool:
+    try:
+        import os
+
+        raw = os.getenv(name)
+        if raw is None:
+            return bool(default)
+
+        value = str(raw).strip().lower()
+        if value in {"1", "true", "yes", "y", "on", "enabled"}:
+            return True
+        if value in {"0", "false", "no", "n", "off", "disabled"}:
+            return False
+    except Exception:
+        pass
+
+    return bool(default)
+
+
+def _replay_background_range_jobs_enabled() -> bool:
+    return _env_flag("REPLAY_BACKGROUND_RANGE_JOBS_ENABLED", True)
+
+
+def _replay_job_snapshot_to_store(snapshot):
+    if snapshot is None:
+        return None
+
+    try:
+        from dataclasses import asdict
+
+        data = asdict(snapshot)
+    except Exception:
+        data = {
+            "job_id": getattr(snapshot, "job_id", None),
+            "status": getattr(snapshot, "status", None),
+            "message": getattr(snapshot, "message", ""),
+            "percent": getattr(snapshot, "percent", 0.0),
+            "progress_current": getattr(snapshot, "progress_current", 0),
+            "progress_total": getattr(snapshot, "progress_total", 1),
+            "error": getattr(snapshot, "error", None),
+            "result_summary": getattr(snapshot, "result_summary", {}) or {},
+        }
+
+        request = getattr(snapshot, "request", None)
+        if request is not None:
+            data["request"] = {
+                "symbol": getattr(request, "symbol", ""),
+                "timeframe": getattr(request, "timeframe", ""),
+                "start_date": getattr(request, "start_date", ""),
+                "end_date": getattr(request, "end_date", ""),
+                "speed": getattr(request, "speed", 1.0),
+                "force_refresh": getattr(request, "force_refresh", False),
+                "metadata": getattr(request, "metadata", {}) or {},
+            }
+
+    return data
+
+
+def _replay_job_display_percent(snapshot) -> float:
+    """
+    Return a user-facing progress percent for background replay range jobs.
+
+    Patch 35b starts the slow ReplayService.load_date_range(...) call in a worker
+    thread. That loader currently reports only 0 -> 100 because ReplayService does
+    not yet expose per-day progress callbacks. This helper gives the Watch panel
+    a conservative heartbeat percent while the worker is running, then switches
+    to the real job percent whenever the manager reports progress.
+    """
+    try:
+        raw = float(getattr(snapshot, "percent", 0.0) or 0.0)
+    except Exception:
+        raw = 0.0
+
+    raw = max(0.0, min(100.0, raw))
+
+    try:
+        status = str(getattr(snapshot, "status", "") or "").lower().strip()
+    except Exception:
+        status = ""
+
+    if status == "succeeded":
+        return 100.0
+
+    if status not in {"queued", "running"}:
+        return raw
+
+    # If a future ReplayService progress callback reports real progress, use it.
+    if raw > 0.0:
+        return raw
+
+    # Until then, show a safe heartbeat estimate so the UI does not look stuck.
+    try:
+        from datetime import datetime, timezone
+
+        started = (
+            getattr(snapshot, "started_at", None)
+            or getattr(snapshot, "created_at", None)
+        )
+
+        if started is None:
+            return 2.0
+
+        if isinstance(started, str):
+            text = started.strip()
+            if text.endswith("Z"):
+                text = text[:-1] + "+00:00"
+            started_dt = datetime.fromisoformat(text)
+        else:
+            started_dt = started
+
+        if getattr(started_dt, "tzinfo", None) is None:
+            started_dt = started_dt.replace(tzinfo=timezone.utc)
+
+        elapsed = max(
+            0.0,
+            (datetime.now(timezone.utc) - started_dt.astimezone(timezone.utc)).total_seconds(),
+        )
+
+        # Ramp to 92% over about 2 minutes and hold there until the real job
+        # completes. This is intentionally labelled as a heartbeat, not exact
+        # replay-bar progress.
+        return max(2.0, min(92.0, (elapsed / 120.0) * 92.0))
+    except Exception:
+        return 2.0
+
+def _replay_job_progress_children(snapshot):
+    if snapshot is None:
+        return ""
+
+    try:
+        req = snapshot.request
+        symbol = str(getattr(req, "symbol", "") or "").upper()
+        timeframe = str(getattr(req, "timeframe", "") or "")
+        start_date = str(getattr(req, "start_date", "") or "")
+        end_date = str(getattr(req, "end_date", "") or "")
+        status = str(getattr(snapshot, "status", "") or "")
+        message = str(getattr(snapshot, "message", "") or "")
+        percent = _replay_job_display_percent(snapshot)
+        current = int(getattr(snapshot, "progress_current", 0) or 0)
+        total = int(getattr(snapshot, "progress_total", 1) or 1)
+        error = getattr(snapshot, "error", None)
+    except Exception:
+        return ""
+
+    percent = max(0.0, min(100.0, percent))
+    title = f"{symbol} {timeframe} replay range"
+    dates = f"{start_date} {end_date}" if start_date or end_date else ""
+
+    rows = None
+    try:
+        rows = (getattr(snapshot, "result_summary", {}) or {}).get("rows")
+    except Exception:
+        rows = None
+
+    detail_parts = []
+    if dates:
+        detail_parts.append(dates)
+    if status in {"queued", "running"} and current == 0 and total <= 1:
+        detail_parts.append("background loader active")
+    elif current or total:
+        detail_parts.append(f"{current}/{total}")
+    if rows is not None and status == "succeeded":
+        try:
+            detail_parts.append(f"{int(rows):,} bars")
+        except Exception:
+            detail_parts.append(f"{rows} bars")
+    if error and status in {"failed", "cancelled"}:
+        detail_parts.append(str(error))
+
+    return html.Div(
+        className=f"replay-range-progress-box replay-range-progress-{status}",
+        children=[
+            html.Div(
+                className="replay-range-progress-topline",
+                children=[
+                    html.Span(title, className="replay-range-progress-title"),
+                    html.Span(f"{status} · {percent:.0f}%", className="replay-range-progress-status"),
+                ],
+            ),
+            html.Div(
+                className="replay-range-progress-track",
+                children=html.Div(
+                    className="replay-range-progress-fill",
+                    style={"width": f"{percent:.0f}%"},
+                ),
+            ),
+            html.Div(message or "Working...", className="replay-range-progress-message"),
+            html.Div(" · ".join(detail_parts), className="replay-range-progress-detail"),
+        ],
+    )
+
 def _default_chart_state(range_key="1D"):
     return {
         "mode": "live",
@@ -327,6 +523,7 @@ def register_callbacks(
         timeframe_map,
         paper_trading_service=None,
         paper_state_cache=None,
+        market_data_provider=None,
 ):
     strategy_engine = StrategyEngine()
     strategy_overlay_service = StrategyOverlayService()
@@ -339,6 +536,12 @@ def register_callbacks(
         slow_log_ms=120,
     )
     backtest_engine = BackTestEngine()
+
+    # Keep this patch backward-compatible. During the transition, callbacks may
+    # still receive the raw RealTimeIB object as rt, while replay/live bar paths
+    # move through MarketDataProvider.
+    if market_data_provider is None:
+        market_data_provider = rt
 
     # Strategy overlays are cached by StrategyOverlayService.
 
@@ -632,12 +835,14 @@ def register_callbacks(
     # Replace your current load_watch_symbol_from_request callback with this
     # version. Its outputs match the 5-output callback you pasted.
 
+
     @app.callback(
         Output("watch-status", "children", allow_duplicate=True),
         Output("replay-slider", "max", allow_duplicate=True),
         Output("replay-slider", "value", allow_duplicate=True),
         Output("watch-loading-overlay", "className", allow_duplicate=True),
         Output("replay-render-trigger", "data", allow_duplicate=True),
+        Output("replay-range-job-store", "data", allow_duplicate=True),
         Input("watch-load-request", "data"),
         State("replay-speed", "value"),
         State("main-tabs", "value"),
@@ -646,16 +851,64 @@ def register_callbacks(
     )
     def load_watch_symbol_from_request(load_request, replay_speed, active_tab, render_trigger):
         if active_tab != "watch":
-            return no_update, no_update, no_update, no_update, no_update
+            return no_update, no_update, no_update, no_update, no_update, no_update
 
         if not load_request:
-            return no_update, no_update, no_update, no_update, no_update
+            return no_update, no_update, no_update, no_update, no_update, no_update
 
         symbol = (load_request.get("symbol") or DEFAULT_SYMBOL).upper().strip()
         replay_date = load_request.get("replay_date")
         replay_end_date = load_request.get("replay_end_date") or replay_date
-        display_timeframe = load_request.get("timeframe") or "1 min"
+
+        try:
+            from services.replay.timeframe_routing import normalize_replay_timeframe
+
+            display_timeframe = normalize_replay_timeframe(load_request.get("timeframe") or "1 min")
+        except Exception:
+            display_timeframe = str(load_request.get("timeframe") or "1 min").strip() or "1 min"
+
         load_mode = load_request.get("load_mode") or "single"
+
+        try:
+            print(
+                f"[WATCH LOAD REQUEST] symbol={symbol} timeframe={display_timeframe} "
+                f"load_mode={load_mode} start={replay_date} end={replay_end_date}",
+                flush=True,
+            )
+        except Exception:
+            pass
+
+        if str(load_mode or "").lower().strip() == "range":
+            replay_range_decision = None
+            try:
+                from services.replay.range_safety import (
+                    format_replay_range_decision,
+                    validate_interactive_replay_range,
+                )
+
+                replay_range_decision = validate_interactive_replay_range(
+                    symbol=symbol,
+                    timeframe=display_timeframe,
+                    start_date=replay_date,
+                    end_date=replay_end_date,
+                    load_mode=load_mode,
+                )
+            except Exception as guard_exc:
+                print(f"[REPLAY RANGE GUARD ERROR] {guard_exc}", flush=True)
+                replay_range_decision = None
+
+            if replay_range_decision is not None:
+                print(f"[REPLAY RANGE GUARD] {replay_range_decision.message}", flush=True)
+
+            if replay_range_decision is not None and not replay_range_decision.allowed:
+                return (
+                    format_replay_range_decision(replay_range_decision),
+                    no_update,
+                    no_update,
+                    "watch-loading-overlay hidden",
+                    render_trigger or 0,
+                    None,
+                )
 
         try:
             if load_mode == "range":
@@ -669,13 +922,62 @@ def register_callbacks(
                         1,
                         "watch-loading-overlay hidden",
                         render_trigger,
+                        None,
                     )
+
+                if _replay_background_range_jobs_enabled():
+                    try:
+                        from services.replay.range_job_manager import get_replay_range_job_manager
+
+                        manager = get_replay_range_job_manager()
+                        snapshot = manager.start_for_replay_service(
+                            replay_service=replay_service,
+                            symbol=symbol,
+                            timeframe=display_timeframe,
+                            start_date=replay_date,
+                            end_date=replay_end_date,
+                            speed=replay_speed or 1,
+                            force_refresh=False,
+                            metadata={
+                                "source": "watch",
+                                "trading_days": len(trading_days),
+                            },
+                        )
+                        store = _replay_job_snapshot_to_store(snapshot)
+                        print(
+                            f"[REPLAY RANGE JOB STARTED] job_id={snapshot.job_id} "
+                            f"symbol={symbol} timeframe={display_timeframe} "
+                            f"start={replay_date} end={replay_end_date}",
+                            flush=True,
+                        )
+                        return (
+                            (
+                                f"Started background replay range load for {symbol} "
+                                f"{replay_date} → {replay_end_date} · "
+                                f"{len(trading_days)} trading day(s) · {display_timeframe}."
+                            ),
+                            no_update,
+                            no_update,
+                            "watch-loading-overlay",
+                            render_trigger or 0,
+                            store,
+                        )
+                    except Exception as job_exc:
+                        print(f"[REPLAY RANGE JOB START ERROR] {job_exc}", flush=True)
+                        return (
+                            f"Could not start background replay range job: {job_exc}",
+                            no_update,
+                            no_update,
+                            "watch-loading-overlay hidden",
+                            render_trigger or 0,
+                            None,
+                        )
 
                 stitched = replay_service.load_date_range(
                     symbol=symbol,
                     start_date=replay_date,
                     end_date=replay_end_date,
-                    timeframe="1 min",
+                    timeframe=display_timeframe,
                     speed=replay_speed or 1,
                 )
 
@@ -687,20 +989,19 @@ def register_callbacks(
                 return (
                     (
                         f"Loaded {symbol} replay range {replay_date} → {replay_end_date} · "
-                        f"{len(trading_days)} trading days · {len(stitched):,} raw 1-min bars · "
+                        f"{len(trading_days)} trading day(s) · {len(stitched):,} bars · "
                         f"display {display_timeframe}."
                     ),
                     max_idx,
                     idx,
                     "watch-loading-overlay hidden",
                     render_trigger,
+                    None,
                 )
 
-            # Single-day replay loading also uses raw 1-minute bars.
-            # The Watch Interval dropdown only resamples display data.
             status, info = replay_service.load_replay(
                 symbol=symbol,
-                timeframe="1 min",
+                timeframe=display_timeframe,
                 replay_date=replay_date,
                 speed=replay_speed or 1,
             )
@@ -715,6 +1016,7 @@ def register_callbacks(
                 idx,
                 "watch-loading-overlay hidden",
                 render_trigger,
+                None,
             )
 
         except Exception as exc:
@@ -727,8 +1029,203 @@ def register_callbacks(
                 1,
                 "watch-loading-overlay hidden",
                 render_trigger,
+                None,
             )
 
+
+    @app.callback(
+        Output("watch-status", "children", allow_duplicate=True),
+        Output("watch-loading-overlay", "className", allow_duplicate=True),
+        Output("replay-slider", "max", allow_duplicate=True),
+        Output("replay-slider", "value", allow_duplicate=True),
+        Output("replay-render-trigger", "data", allow_duplicate=True),
+        Output("replay-range-job-store", "data", allow_duplicate=True),
+        Output("replay-range-progress", "children"),
+        Output("replay-range-cancel", "disabled"),
+        Input("ui-interval", "n_intervals"),
+        Input("replay-range-cancel", "n_clicks"),
+        State("replay-range-job-store", "data"),
+        State("main-tabs", "value"),
+        State("replay-render-trigger", "data"),
+        prevent_initial_call=True,
+    )
+    def poll_replay_range_job(_ui_n, _cancel_clicks, job_store, active_tab, render_trigger):
+        if active_tab != "watch":
+            return (
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+            )
+
+        if not job_store or not isinstance(job_store, dict):
+            return (
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                "",
+                True,
+            )
+
+        job_id = str(job_store.get("job_id") or "").strip()
+        if not job_id:
+            return (
+                no_update,
+                "watch-loading-overlay hidden",
+                no_update,
+                no_update,
+                no_update,
+                None,
+                "",
+                True,
+            )
+
+        try:
+            from services.replay.range_job_manager import get_replay_range_job_manager
+
+            manager = get_replay_range_job_manager()
+        except Exception as exc:
+            return (
+                f"Replay range job manager unavailable: {exc}",
+                "watch-loading-overlay hidden",
+                no_update,
+                no_update,
+                no_update,
+                None,
+                "",
+                True,
+            )
+
+        try:
+            if ctx.triggered_id == "replay-range-cancel":
+                snapshot = manager.cancel(job_id)
+            else:
+                snapshot = manager.get(job_id)
+        except Exception as exc:
+            return (
+                f"Replay range job error: {exc}",
+                "watch-loading-overlay hidden",
+                no_update,
+                no_update,
+                no_update,
+                None,
+                "",
+                True,
+            )
+
+        if snapshot is None:
+            return (
+                "Replay range job was not found.",
+                "watch-loading-overlay hidden",
+                no_update,
+                no_update,
+                no_update,
+                None,
+                "",
+                True,
+            )
+
+        progress_children = _replay_job_progress_children(snapshot)
+        store = _replay_job_snapshot_to_store(snapshot)
+
+        if snapshot.status in {"queued", "running"}:
+            return (
+                f"Replay range loading: {_replay_job_display_percent(snapshot):.0f}% · {snapshot.message}",
+                "watch-loading-overlay",
+                no_update,
+                no_update,
+                no_update,
+                store,
+                progress_children,
+                False,
+            )
+
+        if snapshot.status == "succeeded":
+            info = replay_service.info()
+            max_idx = max(1, int(info.get("max_index", 1) or 1))
+            idx = max(1, int(info.get("current_index", 1) or 1))
+            render_trigger = int(render_trigger or 0) + 1
+
+            summary = snapshot.result_summary or {}
+            rows = summary.get("rows")
+            try:
+                rows_text = f"{int(rows):,} bars"
+            except Exception:
+                rows_text = f"{rows} bars" if rows is not None else "bars loaded"
+
+            req = snapshot.request
+            message = (
+                f"Loaded {req.symbol} replay range {req.start_date} → {req.end_date} · "
+                f"{rows_text} · {req.timeframe}."
+            )
+
+            try:
+                manager.cleanup_finished(max_age_seconds=0)
+            except Exception:
+                pass
+
+            return (
+                message,
+                "watch-loading-overlay hidden",
+                max_idx,
+                idx,
+                render_trigger,
+                None,
+                progress_children,
+                True,
+            )
+
+        if snapshot.status == "cancelled":
+            try:
+                manager.cleanup_finished(max_age_seconds=0)
+            except Exception:
+                pass
+
+            return (
+                "Replay range load cancelled.",
+                "watch-loading-overlay hidden",
+                no_update,
+                no_update,
+                no_update,
+                None,
+                progress_children,
+                True,
+            )
+
+        if snapshot.status == "failed":
+            try:
+                manager.cleanup_finished(max_age_seconds=0)
+            except Exception:
+                pass
+
+            return (
+                f"Replay range load failed: {snapshot.error or snapshot.message}",
+                "watch-loading-overlay hidden",
+                no_update,
+                no_update,
+                no_update,
+                None,
+                progress_children,
+                True,
+            )
+
+        return (
+            f"Replay range job status: {snapshot.status}",
+            no_update,
+            no_update,
+            no_update,
+            no_update,
+            store,
+            progress_children,
+            False,
+        )
     @app.callback(
         Output("watch-status", "children", allow_duplicate=True),
         Input("replay-speed", "value"),
@@ -2065,7 +2562,7 @@ def register_callbacks(
 
 
             watch_view = bar_view_service.build_watch_view(
-                rt=rt,
+                market_data_provider=market_data_provider,
                 replay_service=replay_service,
                 symbol=symbol,
                 display_timeframe=display_timeframe,
@@ -2188,11 +2685,25 @@ def register_callbacks(
             except Exception as strategy_exc:
                 print(f"[STRATEGY OVERLAY ERROR] {strategy_exc}", flush=True)
 
+            watch_default_range = "1D"
+            if callable(normalize_watch_chart_state_for_render):
+                try:
+                    watch_chart_state, watch_default_range = normalize_watch_chart_state_for_render(
+                        watch_chart_state,
+                        chart_bars,
+                        display_timeframe=display_timeframe,
+                        price_source=price_source,
+                        trigger_id=trigger_id,
+                    )
+                except Exception as chart_state_exc:
+                    print(f"[WATCH CHART STATE NORMALIZE WARNING] {chart_state_exc}", flush=True)
+                    watch_default_range = "1D"
+
             fig = chart_viewport_service.apply_chart_view(
                 fig,
                 chart_bars,
                 watch_chart_state,
-                default_range="1D",
+                default_range=watch_default_range,
             )
 
             state = watch_chart_state or {}
@@ -2218,9 +2729,9 @@ def register_callbacks(
                     paper_key = ""
 
             fig.update_layout(
-                uirevision=f"watch-{symbol}-{source_label}-{mode}-{range_key}",
+                uirevision=f"watch-{symbol}-{source_label}-{display_timeframe}-{mode}-{range_key}",
                 datarevision=(
-                    f"watch-{symbol}-{source_label}-{mode}-{range_key}-"
+                    f"watch-{symbol}-{source_label}-{display_timeframe}-{mode}-{range_key}-"
                     f"{idx}-{strategy_key}-{paper_key}-{int(is_replay_playing_for_render)}"
                 ),
                 dragmode="pan",
@@ -2300,7 +2811,7 @@ def register_callbacks(
             )
 
             watch_view = bar_view_service.build_watch_view(
-                rt=rt,
+                market_data_provider=market_data_provider,
                 replay_service=replay_service,
                 symbol=symbol,
                 display_timeframe=display_timeframe,

@@ -1,9 +1,9 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Optional, Any
+from typing import Any, Optional
 
 import pandas as pd
 
@@ -11,37 +11,20 @@ import pandas as pd
 OHLCV_COLUMNS = ["time", "open", "high", "low", "close", "volume"]
 
 
-@dataclass
-class MarketDataSnapshot:
-    """
-    Provider-neutral latest market snapshot.
+def _to_tz_naive_timestamp(value) -> pd.Timestamp:
+    ts = pd.Timestamp(value)
 
-    Keep this small. Provider-specific raw payloads should not leak into
-    callbacks, replay, strategy, backtest, or paper trading services.
-    """
+    if ts.tzinfo is not None:
+        ts = ts.tz_localize(None)
 
-    symbol: str
-    timeframe: str = "1 min"
-    bars: pd.DataFrame | None = None
-    bid: float | None = None
-    ask: float | None = None
-    last: float | None = None
-    last_size: float = 0.0
-    updated_at: datetime | None = None
-    provider: str = "unknown"
-    raw: Any = None
-
-
-def normalize_symbol(symbol: str) -> str:
-    """Canonical app-level equity symbol cleanup."""
-    return str(symbol or "").upper().strip()
+    return ts
 
 
 def normalize_ohlcv(df: pd.DataFrame | None) -> pd.DataFrame:
     """
-    Convert provider output into Stock Visualizer Live's internal OHLCV schema.
+    Normalize provider-specific bar data into the app's standard OHLCV schema.
 
-    Required columns returned:
+    Required output columns:
         time, open, high, low, close, volume
     """
     if df is None or df.empty:
@@ -78,46 +61,66 @@ def normalize_ohlcv(df: pd.DataFrame | None) -> pd.DataFrame:
                 raise ValueError(f"Missing required OHLCV column: {col}")
 
     out = out[OHLCV_COLUMNS].copy()
-    out["time"] = pd.to_datetime(out["time"], errors="coerce", format="mixed")
 
-    try:
-        if getattr(out["time"].dt, "tz", None) is not None:
-            out["time"] = out["time"].dt.tz_localize(None)
-    except Exception:
-        pass
+    out["time"] = pd.to_datetime(out["time"], errors="coerce", format="mixed")
+    out["time"] = out["time"].apply(
+        lambda value: _to_tz_naive_timestamp(value) if pd.notna(value) else pd.NaT
+    )
 
     for col in ["open", "high", "low", "close"]:
         out[col] = pd.to_numeric(out[col], errors="coerce")
 
     out["volume"] = pd.to_numeric(out["volume"], errors="coerce").fillna(0)
 
-    out = out.dropna(subset=["time", "open", "high", "low", "close"]).copy()
-
-    if out.empty:
-        return pd.DataFrame(columns=OHLCV_COLUMNS)
-
-    out = (
-        out.sort_values("time")
-        .drop_duplicates(subset=["time"])
-        .reset_index(drop=True)
-    )
+    out = out.dropna(subset=["time", "open", "high", "low", "close"])
+    out = out.drop_duplicates(subset="time")
+    out = out.sort_values("time").reset_index(drop=True)
 
     return out[OHLCV_COLUMNS].copy()
+
+
+@dataclass
+class MarketDataSnapshot:
+    """
+    Normalized latest-market-data snapshot.
+
+    Providers can return this shape even when their native API payloads differ.
+    """
+
+    symbol: str = ""
+    timeframe: str = "1 min"
+    bars: pd.DataFrame = field(
+        default_factory=lambda: pd.DataFrame(columns=OHLCV_COLUMNS)
+    )
+    bid: Optional[float] = None
+    ask: Optional[float] = None
+    last: Optional[float] = None
+    last_size: float = 0.0
+    updated_at: Optional[datetime] = None
+    provider: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def is_empty(self) -> bool:
+        return self.bars is None or self.bars.empty
 
 
 class MarketDataProvider(ABC):
     """
     Base interface for all market data providers.
 
-    This interface is data-only. Do not place orders here.
-    Order routing belongs in a separate BrokerAdapter layer.
+    Implementations:
+        - IBKRMarketDataProvider
+        - CSVMarketDataProvider
+        - future TradierMarketDataProvider
+        - future AlpacaMarketDataProvider
     """
 
     name: str = "base"
 
     @abstractmethod
     def sanitize_symbol(self, symbol: str) -> str:
-        """Return provider-safe normalized symbol."""
+        """Return a normalized provider-safe symbol."""
 
     @abstractmethod
     def get_history(
@@ -127,20 +130,55 @@ class MarketDataProvider(ABC):
         start: Optional[date | datetime | str] = None,
         end: Optional[date | datetime | str] = None,
     ) -> pd.DataFrame:
-        """Return OHLCV bars with columns: time, open, high, low, close, volume."""
+        """Return normalized OHLCV bars."""
 
-    @abstractmethod
-    def get_snapshot(self, symbol: str, timeframe: str = "1 min") -> MarketDataSnapshot:
-        """Return latest quote/snapshot plus recent bars when available."""
+    def get_snapshot(
+        self,
+        symbol: str,
+        timeframe: str = "1 min",
+    ) -> MarketDataSnapshot:
+        """
+        Return a latest snapshot.
 
-    def request_symbol(self, symbol: str, timeframe: str = "1 min") -> None:
-        """Optional live subscription hook. Providers without streaming can no-op."""
+        Providers without live data may return a snapshot built from history.
+        """
+        symbol = self.sanitize_symbol(symbol)
+        bars = self.get_history(symbol=symbol, timeframe=timeframe)
+
+        last = None
+        updated_at = None
+
+        if bars is not None and not bars.empty:
+            last = float(bars.iloc[-1]["close"])
+            updated_at = pd.to_datetime(
+                bars.iloc[-1]["time"],
+                errors="coerce",
+                format="mixed",
+            )
+            if pd.isna(updated_at):
+                updated_at = datetime.now()
+            else:
+                updated_at = updated_at.to_pydatetime()
+
+        return MarketDataSnapshot(
+            symbol=symbol,
+            timeframe=timeframe,
+            bars=normalize_ohlcv(bars),
+            last=last,
+            updated_at=updated_at,
+            provider=self.name,
+        )
+
+    def request_symbol(self, symbol: str) -> None:
+        """
+        Optional live-subscription hook.
+
+        IBKR uses this. CSV/local providers can safely no-op.
+        """
         return None
 
-    def get_symbol_options(self) -> list[dict[str, object]]:
-        """Return Dash dropdown options."""
-        return []
-
     def get_company_name(self, symbol: str) -> str:
-        """Return display company name if known."""
         return self.sanitize_symbol(symbol)
+
+    def get_symbol_options(self) -> list[dict[str, Any]]:
+        return []

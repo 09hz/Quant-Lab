@@ -1292,3 +1292,11 @@ class StrategyEngine:
             return "__"
 
         return None
+
+# BEGIN v24.6 direct producer wiring
+try:
+    from services.quant_schema.producer_runtime import wire_current_module
+    wire_current_module(__name__, globals())
+except Exception as _v24_6_direct_wiring_exc:
+    print(f"[v24.6 direct producer wiring] disabled for {__name__}: {type(_v24_6_direct_wiring_exc).__name__}: {_v24_6_direct_wiring_exc}")
+# END v24.6 direct producer wiring
