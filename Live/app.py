@@ -552,6 +552,7 @@ try:
 
     from dash import Input as _v24_8_3_Input
     from dash import Output as _v24_8_3_Output
+    from dash import State as _v24_8_3_State
     from dash import dcc as _v24_8_3_dcc
     from dash import html as _v24_8_3_html
 
@@ -800,15 +801,16 @@ try:
             _v24_8_3_Output("quant-dashboard-native-sections", "children"),
             _v24_8_3_Input("quant-dashboard-native-refresh", "n_clicks"),
             _v24_8_3_Input("quant-dashboard-native-backend", "value"),
-            _v24_8_3_Input("quant-dashboard-native-limit", "value"),
             _v24_8_3_Input("quant-dashboard-native-repo-root", "data"),
+            _v24_8_3_Input("quant-dashboard-native-limit", "n_submit"),
+            _v24_8_3_State("quant-dashboard-native-limit", "value"),
             prevent_initial_call=False,
         )
-        def _v24_8_3_refresh_native_quant_dashboard(_n_clicks, selected_backend, selected_limit, selected_repo_root):
+        def _v24_8_3_refresh_native_quant_dashboard(_n_clicks, selected_backend, selected_repo_root, _limit_submit, limit_value):
             payload = _v24_8_3_load_quant_dashboard(
                 repo_root=selected_repo_root or str(_v24_8_3_find_repo_root()),
                 backend=selected_backend or "sqlite",
-                limit=selected_limit or 10,
+                limit=limit_value or 10,
             )
             data = _v24_8_3_payload_dict(payload)
             sections = data.get("sections") or {}

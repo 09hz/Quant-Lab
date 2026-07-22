@@ -3,8 +3,16 @@
   <component name="AutoImportSettings">
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
+  <component name="BackgroundAgentGlobalSettings">
+    <option name="selectedModelId" value="gpt-5" />
+    <option name="selectedProviderName" value="OpenAI" />
+  </component>
   <component name="ChangeListManager">
-    <list default="true" id="3017ddfe-57c4-4d36-881e-cb993ac2da2c" name="Changes" comment="" />
+    <list default="true" id="3017ddfe-57c4-4d36-881e-cb993ac2da2c" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/Live/app.py" beforeDir="false" afterPath="$PROJECT_DIR$/Live/app.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/quant_dashboard.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/quant_dashboard.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/quant_dashboard_standalone.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/quant_dashboard_standalone.md" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -83,6 +91,7 @@
   </component>
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
+    "Python.app.executor": "Run",
     "git-widget-placeholder": "rollback",
     "node.js.selected.package.tslint": "(autodetect)"
   }
