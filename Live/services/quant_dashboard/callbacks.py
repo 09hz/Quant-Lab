@@ -19,14 +19,6 @@ except Exception as exc:  # pragma: no cover
 else:
     _IMPORT_ERROR = None
 
-# Optional PostgreSQL callbacks reused from Data Library
-try:
-    from services.data_catalog.postgres_status_callbacks import (
-        register_postgres_status_callbacks as _pg_register,
-    )
-except Exception:
-    _pg_register = None  # type: ignore
-
 try:
     from .queries import load_quant_dashboard
 except Exception:  # pragma: no cover
@@ -71,10 +63,6 @@ def register_quant_dashboard_callbacks(app):
 
     _original_register(app)
 
-    # Also wire the shared PostgreSQL setup/status panel for credentials and migration
-    if _pg_register is not None:
-        _pg_register(app)
-
     if load_quant_dashboard is None:
         return
 
@@ -90,21 +78,6 @@ def register_quant_dashboard_callbacks(app):
         payload = load_quant_dashboard(backend=backend or "sqlite", limit=limit or 10)
         elapsed = int((perf_counter() - start) * 1000)
         return _status_panel_view(payload, elapsed)
-
-    # Auto-open PG setup when Postgres selected and connection not PASS
-    @app.callback(
-        Output("quant-pg-setup-details", "open"),
-        Input("quant-dashboard-refresh", "n_clicks"),
-        Input("quant-dashboard-backend", "value"),
-        Input("quant-dashboard-limit", "value"),
-        prevent_initial_call=False,
-    )
-    def _toggle_pg_setup(_n, backend, limit):
-        backend = backend or "sqlite"
-        if backend != "postgres":
-            return False
-        payload = load_quant_dashboard(backend=backend, limit=limit or 10)
-        return getattr(payload, "status", "FAIL") != "PASS"
 
     # Research modules (subset) from existing payload
     def _count_tile(label: str, value: Any):
