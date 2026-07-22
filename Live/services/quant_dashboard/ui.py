@@ -71,6 +71,7 @@ def build_quant_dashboard_layout():
         children=[
             header,
             _original_build_panel(),
+            html.Div(id="quant-dashboard-status-panel", className="quant-native-card"),
             modules,
         ],
     )
