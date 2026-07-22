@@ -13,6 +13,14 @@ except Exception as exc:  # pragma: no cover
 else:
     _IMPORT_ERROR = None
 
+# Optional PostgreSQL setup panel reused from Data Library
+try:
+    from services.data_catalog.postgres_status_ui import (
+        build_postgres_status_panel as _build_pg_panel,
+    )
+except Exception:
+    _build_pg_panel = None  # type: ignore
+
 
 _MODULE_TITLES = [
     "Market Overview",
@@ -166,10 +174,22 @@ def build_quant_dashboard_layout():
 
     results_table = html.Div(id="quant-dashboard-results-table", className="quant-dashboard-table-card")
 
+    # Collapsible PostgreSQL setup (optional)
+    pg_setup = html.Details(
+        id="quant-pg-setup-details",
+        open=False,
+        children=[
+            html.Summary("PostgreSQL Setup (optional)"),
+            (_build_pg_panel() if _build_pg_panel else html.Div("PostgreSQL setup panel unavailable.")),
+        ],
+        className="quant-native-card",
+    )
+
     return html.Div(
         className="quant-native-page",
         children=[
             header,
+            pg_setup,
             controls,
             _original_build_panel(),
             html.Div(id="quant-dashboard-status-panel", className="quant-native-card"),
