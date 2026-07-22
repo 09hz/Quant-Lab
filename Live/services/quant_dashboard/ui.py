@@ -166,15 +166,51 @@ def build_quant_dashboard_layout():
 
     results_table = html.Div(id="quant-dashboard-results-table", className="quant-dashboard-table-card")
 
+    counts_card = html.Div(id="quant-dashboard-counts", className="quant-native-card")
+
+    left_col = html.Div(
+        className="data-library-left",
+        children=[
+            results_controls,
+            results_table,
+            html.Div(
+                className="quant-native-card",
+                children=[
+                    html.H3("Research Tables"),
+                    html.Div(
+                        className="quant-native-controls",
+                        children=[
+                            html.Div(id="quant-dashboard-experiments", className="quant-dashboard-section"),
+                            html.Div(id="quant-dashboard-strategies", className="quant-dashboard-section"),
+                            html.Div(id="quant-dashboard-backtests", className="quant-dashboard-section"),
+                            html.Div(id="quant-dashboard-walk-forward", className="quant-dashboard-section"),
+                            html.Div(id="quant-dashboard-universe", className="quant-dashboard-section"),
+                            html.Div(id="quant-dashboard-data-quality", className="quant-dashboard-section"),
+                        ],
+                    ),
+                ],
+            ),
+        ],
+    )
+
+    right_col = html.Div(
+        className="data-library-right",
+        children=[
+            html.Div(id="quant-dashboard-status", className="quant-native-card"),
+            html.Div(id="quant-dashboard-status-panel", className="quant-native-card"),
+            html.Div(id="quant-module-notes", className="quant-native-card"),
+        ],
+    )
+
+    main_grid = html.Div(className="data-library-main", children=[left_col, right_col])
+
     return html.Div(
         className="quant-native-page",
         children=[
             header,
+            counts_card,
             controls,
-            _original_build_panel(),
-            html.Div(id="quant-dashboard-status-panel", className="quant-native-card"),
-            results_controls,
-            results_table,
+            main_grid,
             modules,
         ],
     )
