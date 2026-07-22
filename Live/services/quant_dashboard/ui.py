@@ -83,74 +83,84 @@ def build_quant_dashboard_layout():
     )
 
     controls = html.Div(
-        className="quant-native-controls",
+        className="quant-native-card",
         children=[
-            html.Div([
-                html.Label("Dataset"),
-                dcc.Dropdown(
-                    id="quant-dataset",
-                    options=[
-                        {"label": "Recent Experiments", "value": "recent_experiments"},
-                        {"label": "Recent Strategies", "value": "recent_strategies"},
-                        {"label": "Best Backtests", "value": "best_backtests"},
-                        {"label": "Walk-Forward Runs", "value": "walk_forward_runs"},
-                        {"label": "Universe Runs", "value": "universe_runs"},
-                        {"label": "Data Quality Events", "value": "data_quality_events"},
-                    ],
-                    value="recent_experiments",
-                    clearable=False,
-                ),
-            ]),
-            html.Div([
-                html.Label("Universe"),
-                dcc.Dropdown(id="quant-universe", options=[], value=None, placeholder="Select universe..."),
-            ]),
-            html.Div([
-                html.Label("Market"),
-                dcc.Dropdown(id="quant-market", options=[], value=None, placeholder="Select market...", disabled=True),
-            ]),
-            html.Div([
-                html.Label("Date Range"),
-                dcc.DatePickerRange(id="quant-date-range"),
-            ]),
-            html.Button("Reset", id="quant-dashboard-reset", n_clicks=0, className="data-library-button"),
-            html.Button("Export", id="quant-dashboard-export", n_clicks=0, className="data-library-button"),
-            dcc.Download(id="quant-dashboard-download"),
+            html.Div(
+                className="quant-native-controls",
+                children=[
+                    html.Div([
+                        html.Label("Dataset"),
+                        dcc.Dropdown(
+                            id="quant-dataset",
+                            options=[
+                                {"label": "Recent Experiments", "value": "recent_experiments"},
+                                {"label": "Recent Strategies", "value": "recent_strategies"},
+                                {"label": "Best Backtests", "value": "best_backtests"},
+                                {"label": "Walk-Forward Runs", "value": "walk_forward_runs"},
+                                {"label": "Universe Runs", "value": "universe_runs"},
+                                {"label": "Data Quality Events", "value": "data_quality_events"},
+                            ],
+                            value="recent_experiments",
+                            clearable=False,
+                        ),
+                    ]),
+                    html.Div([
+                        html.Label("Universe"),
+                        dcc.Dropdown(id="quant-universe", options=[], value=None, placeholder="Select universe..."),
+                    ]),
+                    html.Div([
+                        html.Label("Market"),
+                        dcc.Dropdown(id="quant-market", options=[], value=None, placeholder="Select market...", disabled=True),
+                    ]),
+                    html.Div([
+                        html.Label("Date Range"),
+                        dcc.DatePickerRange(id="quant-date-range"),
+                    ]),
+                    html.Button("Reset", id="quant-dashboard-reset", n_clicks=0, className="data-library-button"),
+                    html.Button("Export", id="quant-dashboard-export", n_clicks=0, className="data-library-button"),
+                    dcc.Download(id="quant-dashboard-download"),
+                ],
+            )
         ],
     )
 
     results_controls = html.Div(
-        className="quant-native-controls",
+        className="quant-native-card",
         children=[
-            html.Div([
-                html.Label("Results Section"),
-                dcc.Dropdown(
-                    id="quant-results-section",
-                    options=[
-                        {"label": "Recent Experiments", "value": "recent_experiments"},
-                        {"label": "Recent Strategies", "value": "recent_strategies"},
-                        {"label": "Best Backtests", "value": "best_backtests"},
-                        {"label": "Walk-Forward Runs", "value": "walk_forward_runs"},
-                        {"label": "Universe Runs", "value": "universe_runs"},
-                        {"label": "Data Quality Events", "value": "data_quality_events"},
-                    ],
-                    value="recent_experiments",
-                    clearable=False,
-                ),
-            ]),
-            html.Div([
-                html.Label("Sort By"),
-                dcc.Dropdown(id="quant-results-sort", options=[], value=None, clearable=False),
-            ]),
-            html.Div([
-                html.Label("Direction"),
-                dcc.Dropdown(
-                    id="quant-results-direction",
-                    options=[{"label": "Descending", "value": "desc"}, {"label": "Ascending", "value": "asc"}],
-                    value="desc",
-                    clearable=False,
-                ),
-            ]),
+            html.Div(
+                className="quant-native-controls",
+                children=[
+                    html.Div([
+                        html.Label("Results Section"),
+                        dcc.Dropdown(
+                            id="quant-results-section",
+                            options=[
+                                {"label": "Recent Experiments", "value": "recent_experiments"},
+                                {"label": "Recent Strategies", "value": "recent_strategies"},
+                                {"label": "Best Backtests", "value": "best_backtests"},
+                                {"label": "Walk-Forward Runs", "value": "walk_forward_runs"},
+                                {"label": "Universe Runs", "value": "universe_runs"},
+                                {"label": "Data Quality Events", "value": "data_quality_events"},
+                            ],
+                            value="recent_experiments",
+                            clearable=False,
+                        ),
+                    ]),
+                    html.Div([
+                        html.Label("Sort By"),
+                        dcc.Dropdown(id="quant-results-sort", options=[], value=None, clearable=False),
+                    ]),
+                    html.Div([
+                        html.Label("Direction"),
+                        dcc.Dropdown(
+                            id="quant-results-direction",
+                            options=[{"label": "Descending", "value": "desc"}, {"label": "Ascending", "value": "asc"}],
+                            value="desc",
+                            clearable=False,
+                        ),
+                    ]),
+                ],
+            )
         ],
     )
 

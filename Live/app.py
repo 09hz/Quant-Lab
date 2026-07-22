@@ -597,9 +597,10 @@ try:
                         if children is None:
                             v.children = [tab]
                         elif isinstance(children, (list, tuple)):
-                            v.children = [*list(children), tab]
+                            # Insert as first tab for visibility/alignment
+                            v.children = [tab, *list(children)]
                         else:
-                            v.children = [children, tab]
+                            v.children = [tab, children]
                         return layout
                     except Exception:
                         pass

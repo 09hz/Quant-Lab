@@ -176,6 +176,9 @@ def register_quant_dashboard_callbacks(app):
         Output("quant-dashboard-backend", "value"),
         Output("quant-dashboard-limit", "value"),
         Output("quant-dataset", "value"),
+        Output("quant-results-section", "value"),
+        Output("quant-results-direction", "value"),
+        Output("quant-results-sort", "value"),
         Output("quant-universe", "value"),
         Output("quant-market", "value"),
         Output("quant-date-range", "start_date"),
@@ -185,8 +188,8 @@ def register_quant_dashboard_callbacks(app):
     )
     def _reset_controls(n):
         if not n:
-            return no_update, no_update, no_update, no_update, no_update, no_update, no_update
-        return "sqlite", 10, None, None, None, None, None
+            return (no_update,)*10
+        return "sqlite", 10, "recent_experiments", "recent_experiments", "desc", None, None, None, None, None
 
     # Export current dashboard payload as JSON
     @app.callback(
