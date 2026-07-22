@@ -1,4 +1,4 @@
-# Standalone Quant Research Dashboard
+# DEPRECATED: Standalone Quant Research Dashboard
 
 v24.8.0 adds a separate local dashboard for typed quant research results.
 

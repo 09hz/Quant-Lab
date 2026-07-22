@@ -545,6 +545,7 @@ except Exception as _v24_5_quant_wiring_exc:
 
 
 # BEGIN v24.8.3 native quant dashboard tab
+# Rebuilt from docs/quant_dashboard_audit.md (portable spec)
 try:
     import os as _v24_8_3_os
     from pathlib import Path as _v24_8_3_Path
@@ -631,7 +632,11 @@ try:
 
     def _v24_8_3_status_view(payload_data):
         status = str(payload_data.get("status", "UNKNOWN"))
-        class_name = "quant-native-status-pass" if status == "PASS" else "quant-native-status-warn" if status == "WARN" else "quant-native-status-fail"
+        class_name = (
+            "quant-native-status-pass" if status == "PASS"
+            else "quant-native-status-warn" if status == "WARN"
+            else "quant-native-status-fail"
+        )
         children = [
             _v24_8_3_html.Div(f"Status: {status}", className=class_name),
             _v24_8_3_html.Div(f"Backend: {payload_data.get('backend', '')}"),
@@ -654,9 +659,9 @@ try:
         counts = counts or {}
         if not counts:
             return _v24_8_3_html.Div("No quant table counts available yet.", className="quant-native-muted")
-        return _v24_8_3_html.Div(
-            className="quant-native-count-grid",
-            children=[
+        tiles = []
+        for table, value in counts.items():
+            tiles.append(
                 _v24_8_3_html.Div(
                     className="quant-native-count-tile",
                     children=[
@@ -664,9 +669,8 @@ try:
                         _v24_8_3_html.Div(str(value), className="quant-native-count-value"),
                     ],
                 )
-                for table, value in counts.items()
-            ],
-        )
+            )
+        return _v24_8_3_html.Div(className="quant-native-count-grid", children=tiles)
 
     def _v24_8_3_section_table(section_key, rows):
         titles = {
@@ -695,7 +699,6 @@ try:
                     _v24_8_3_html.Div("No rows yet.", className="quant-native-muted"),
                 ],
             )
-
         preferred = [col for col in preferences.get(section_key, []) if any(col in row for row in rows)]
         extras = []
         for row in rows:
@@ -703,20 +706,17 @@ try:
                 if col not in preferred and col not in extras:
                     extras.append(col)
         columns = (preferred + extras)[:10]
-
         return _v24_8_3_html.Div(
             className="quant-native-card quant-native-table-card",
             children=[
                 _v24_8_3_html.H3(title),
-                _v24_8_3_html.Table(
-                    children=[
-                        _v24_8_3_html.Thead(_v24_8_3_html.Tr([_v24_8_3_html.Th(col) for col in columns])),
-                        _v24_8_3_html.Tbody([
-                            _v24_8_3_html.Tr([_v24_8_3_html.Td(_v24_8_3_fmt(row.get(col))) for col in columns])
-                            for row in rows
-                        ]),
-                    ]
-                ),
+                _v24_8_3_html.Table([
+                    _v24_8_3_html.Thead(_v24_8_3_html.Tr([_v24_8_3_html.Th(col) for col in columns])),
+                    _v24_8_3_html.Tbody([
+                        _v24_8_3_html.Tr([_v24_8_3_html.Td(_v24_8_3_fmt(row.get(col))) for col in columns])
+                        for row in rows
+                    ]),
+                ]),
             ],
         )
 
@@ -725,7 +725,6 @@ try:
         default_backend = _v24_8_3_os.environ.get("ALGOTRADER_DB_BACKEND", "sqlite").strip().lower()
         if default_backend not in {"sqlite", "postgres"}:
             default_backend = "sqlite"
-
         return _v24_8_3_dcc.Tab(
             label="Quant Dashboard",
             value="quant-dashboard",
@@ -738,19 +737,14 @@ try:
                         _v24_8_3_html.Div(
                             className="quant-native-header",
                             children=[
-                                _v24_8_3_html.Div(
-                                    children=[
-                                        _v24_8_3_html.H2("Quant Research Dashboard"),
-                                        _v24_8_3_html.Div(
-                                            "Native read-only dashboard. One main app, no second terminal. Research/simulation only.",
-                                            className="quant-native-muted",
-                                        ),
-                                    ]
-                                ),
-                                _v24_8_3_html.Div(
-                                    "No broker calls. No live orders.",
-                                    className="quant-native-safety-pill",
-                                ),
+                                _v24_8_3_html.Div([
+                                    _v24_8_3_html.H2("Quant Research Dashboard"),
+                                    _v24_8_3_html.Div(
+                                        "Native read-only dashboard. One main app, no second terminal. Research/simulation only.",
+                                        className="quant-native-muted",
+                                    ),
+                                ]),
+                                _v24_8_3_html.Div("No broker calls. No live orders.", className="quant-native-safety-pill"),
                             ],
                         ),
                         _v24_8_3_html.Div(
@@ -767,24 +761,9 @@ try:
                                     ],
                                 ),
                                 _v24_8_3_html.Label("Rows"),
-                                _v24_8_3_dcc.Input(
-                                    id="quant-dashboard-native-limit",
-                                    type="number",
-                                    min=1,
-                                    max=100,
-                                    step=1,
-                                    value=10,
-                                    debounce=True,
-                                ),
-                                _v24_8_3_html.Button(
-                                    "Refresh",
-                                    id="quant-dashboard-native-refresh",
-                                    n_clicks=0,
-                                ),
-                                _v24_8_3_dcc.Store(
-                                    id="quant-dashboard-native-repo-root",
-                                    data=repo_root,
-                                ),
+                                _v24_8_3_dcc.Input(id="quant-dashboard-native-limit", type="number", min=1, max=100, step=1, value=10, debounce=True),
+                                _v24_8_3_html.Button("Refresh", id="quant-dashboard-native-refresh", n_clicks=0),
+                                _v24_8_3_dcc.Store(id="quant-dashboard-native-repo-root", data=repo_root),
                             ],
                         ),
                         _v24_8_3_html.Div(id="quant-dashboard-native-status"),
@@ -800,18 +779,14 @@ try:
         if main_tabs is None:
             print("[v24.8.3 native quant dashboard tab] main-tabs not found; skipped", flush=True)
             return
-
         current_tabs = _v24_8_3_children_list(main_tabs)
-        filtered_tabs = []
-        settings_tabs = []
+        filtered_tabs, settings_tabs = [], []
         for tab in current_tabs:
             if _v24_8_3_is_quant_dashboard_tab(tab):
                 continue
             if _v24_8_3_is_settings_tab(tab):
-                settings_tabs.append(tab)
-                continue
+                settings_tabs.append(tab); continue
             filtered_tabs.append(tab)
-
         filtered_tabs.append(_v24_8_3_build_native_quant_dashboard_tab())
         filtered_tabs.extend(settings_tabs)
         main_tabs.children = filtered_tabs
@@ -819,7 +794,6 @@ try:
     def _v24_8_3_register_native_quant_dashboard_callbacks():
         if getattr(app, "_v24_8_3_native_quant_dashboard_callbacks_registered", False):
             return
-
         @app.callback(
             _v24_8_3_Output("quant-dashboard-native-status", "children"),
             _v24_8_3_Output("quant-dashboard-native-counts", "children"),
@@ -843,7 +817,6 @@ try:
                 _v24_8_3_counts_view(data.get("counts") or {}),
                 [_v24_8_3_section_table(key, rows) for key, rows in sections.items()],
             )
-
         app._v24_8_3_native_quant_dashboard_callbacks_registered = True
 
     _v24_8_3_install_native_quant_dashboard_tab()
