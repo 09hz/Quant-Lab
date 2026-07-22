@@ -544,6 +544,104 @@ except Exception as _v24_5_quant_wiring_exc:
     print(f"[v24.5 quant wiring] disabled: {type(_v24_5_quant_wiring_exc).__name__}: {_v24_5_quant_wiring_exc}")
 # END v24.5 quant output wiring
 
+# --- Quant Dashboard Integration (canonical) ---
+try:
+    from dash import dcc as _qd_dcc, html as _qd_html
+    from services.quant_dashboard.ui import build_quant_dashboard_layout as _qd_build_layout
+    from services.quant_dashboard.callbacks import register_quant_dashboard_callbacks as _qd_register_callbacks
+
+    def _qd_is_tabs(component):
+        name = component.__class__.__name__.lower()
+        return name == "tabs" or name.endswith(".tabs") or "tabs" in name
+
+    def _qd_has_panel(component):
+        stack = [component]
+        while stack:
+            item = stack.pop()
+            if item is None:
+                continue
+            if getattr(item, "id", None) == "quant-dashboard-root":
+                return True
+            children = getattr(item, "children", None)
+            if isinstance(children, (list, tuple)):
+                stack.extend(children)
+            elif children is not None and not isinstance(children, str):
+                stack.append(children)
+        return False
+
+    def _qd_make_tab():
+        try:
+            panel = _qd_build_layout()
+            return _qd_dcc.Tab(
+                label="Quant Dashboard",
+                value="quant-dashboard",
+                children=[_qd_html.Div(panel, id="quant-dashboard-root")],
+            )
+        except Exception:
+            # Fallback wrapper if dcc.Tab is unavailable in this context
+            return _qd_html.Div(id="quant-dashboard-root", children=[_qd_build_layout()])
+
+    def _qd_attach(layout):
+        if layout is None:
+            return _qd_make_tab()
+        if _qd_has_panel(layout):
+            return layout
+        try:
+            stack = [layout]
+            while stack:
+                v = stack.pop()
+                if _qd_is_tabs(v):
+                    children = getattr(v, "children", None)
+                    tab = _qd_make_tab()
+                    try:
+                        if children is None:
+                            v.children = [tab]
+                        elif isinstance(children, (list, tuple)):
+                            v.children = [*list(children), tab]
+                        else:
+                            v.children = [children, tab]
+                        return layout
+                    except Exception:
+                        pass
+                ch = getattr(v, "children", None)
+                if isinstance(ch, (list, tuple)):
+                    stack.extend(ch)
+                elif ch is not None and not isinstance(ch, str):
+                    stack.append(ch)
+        except Exception:
+            pass
+
+        # If no Tabs found, append a standalone section
+        section = _qd_make_tab()
+        try:
+            children = getattr(layout, "children", None)
+            if children is None:
+                layout.children = [section]
+            elif isinstance(children, (list, tuple)):
+                layout.children = [*list(children), section]
+            else:
+                layout.children = [children, section]
+            return layout
+        except Exception:
+            return _qd_html.Div([layout, section])
+
+    if "app" in globals():
+        try:
+            if callable(getattr(app, "layout", None)):
+                _orig = app.layout
+                def _qd_wrapped_layout(*args, **kwargs):
+                    return _qd_attach(_orig(*args, **kwargs))
+                app.layout = _qd_wrapped_layout
+            elif getattr(app, "layout", None) is not None:
+                app.layout = _qd_attach(app.layout)
+            _qd_register_callbacks(app)
+            print("Quant Dashboard integrated.")
+        except Exception as _qd_err:
+            print(f"Quant Dashboard integration failed: {_qd_err}")
+except Exception as _qd_import_err:
+    print(f"Quant Dashboard integration unavailable: {_qd_import_err}")
+# --- End Quant Dashboard Integration ---
+
 if __name__ == "__main__":
     app.run(debug=False)
 
