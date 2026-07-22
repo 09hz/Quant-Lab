@@ -7,12 +7,14 @@ import json
 from dash import Input, Output, State, html, dcc, no_update
 
 try:
-    # Reuse existing callback registration
+    # Reuse existing callback registration and column preferences
     from services.data_catalog.quant_dashboard_callbacks import (
         register_quant_dashboard_callbacks as _original_register,
+        COLUMN_PREFERENCES as _COLUMN_PREFS,
     )
 except Exception as exc:  # pragma: no cover
     _original_register = None  # type: ignore
+    _COLUMN_PREFS = {}
     _IMPORT_ERROR = exc
 else:
     _IMPORT_ERROR = None
@@ -21,6 +23,15 @@ try:
     from .queries import load_quant_dashboard
 except Exception:  # pragma: no cover
     load_quant_dashboard = None  # type: ignore
+
+
+def _fmt(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float):
+        return f"{value:.4f}"
+    text = str(value)
+    return text if len(text) <= 120 else text[:117] + "..."
 
 
 def _status_panel_view(payload: Any, elapsed_ms: int) -> Any:
@@ -102,5 +113,51 @@ def register_quant_dashboard_callbacks(app):
         except Exception:
             data = json.dumps(payload.__dict__, indent=2)
         return dcc.send_string(data, "quant_dashboard.json")
+
+    # Results table: sort and render using payload sections (no new SQL)
+    @app.callback(
+        Output("quant-results-sort", "options"),
+        Output("quant-results-sort", "value"),
+        Output("quant-dashboard-results-table", "children"),
+        Input("quant-results-section", "value"),
+        Input("quant-results-direction", "value"),
+        Input("quant-dashboard-refresh", "n_clicks"),
+        Input("quant-dashboard-backend", "value"),
+        Input("quant-dashboard-limit", "value"),
+        State("quant-results-sort", "value"),
+        prevent_initial_call=False,
+    )
+    def _render_results(section, direction, _n, backend, limit, sort_col):
+        payload = load_quant_dashboard(backend=backend or "sqlite", limit=limit or 10)
+        rows = list((payload.sections or {}).get(section or "recent_experiments", []))
+        # Columns preference reuse
+        preferred = [c for c in _COLUMN_PREFS.get(section or "", []) if any(c in r for r in rows)]
+        extras: list[str] = []
+        for r in rows:
+            for c in r.keys():
+                if c not in preferred and c not in extras:
+                    extras.append(c)
+        columns = (preferred + extras)[:12]
+        options = [{"label": c, "value": c} for c in columns]
+        if not columns:
+            return options, sort_col, html.Div("No rows yet.", className="data-library-muted")
+        if sort_col not in columns or sort_col is None:
+            sort_col = columns[0]
+        def key_fn(v):
+            val = v.get(sort_col)
+            try:
+                return float(val)
+            except Exception:
+                return ("" if val is None else str(val))
+        rows_sorted = sorted(rows, key=key_fn, reverse=(str(direction or "desc") == "desc"))
+        table = html.Table(
+            className="quant-dashboard-table",
+            children=[
+                html.Thead(html.Tr([html.Th(c) for c in columns])),
+                html.Tbody([html.Tr([html.Td(_fmt(r.get(c))) for c in columns]) for r in rows_sorted]),
+            ],
+        )
+        card = html.Div(className="quant-dashboard-table-card", children=[html.H4("Results"), table])
+        return options, sort_col, card
 
     return None

@@ -91,6 +91,43 @@ def build_quant_dashboard_layout():
         ],
     )
 
+    results_controls = html.Div(
+        className="quant-native-controls",
+        children=[
+            html.Div([
+                html.Label("Results Section"),
+                dcc.Dropdown(
+                    id="quant-results-section",
+                    options=[
+                        {"label": "Recent Experiments", "value": "recent_experiments"},
+                        {"label": "Recent Strategies", "value": "recent_strategies"},
+                        {"label": "Best Backtests", "value": "best_backtests"},
+                        {"label": "Walk-Forward Runs", "value": "walk_forward_runs"},
+                        {"label": "Universe Runs", "value": "universe_runs"},
+                        {"label": "Data Quality Events", "value": "data_quality_events"},
+                    ],
+                    value="recent_experiments",
+                    clearable=False,
+                ),
+            ]),
+            html.Div([
+                html.Label("Sort By"),
+                dcc.Dropdown(id="quant-results-sort", options=[], value=None, clearable=False),
+            ]),
+            html.Div([
+                html.Label("Direction"),
+                dcc.Dropdown(
+                    id="quant-results-direction",
+                    options=[{"label": "Descending", "value": "desc"}, {"label": "Ascending", "value": "asc"}],
+                    value="desc",
+                    clearable=False,
+                ),
+            ]),
+        ],
+    )
+
+    results_table = html.Div(id="quant-dashboard-results-table", className="quant-dashboard-table-card")
+
     return html.Div(
         className="quant-native-page",
         children=[
@@ -98,6 +135,8 @@ def build_quant_dashboard_layout():
             controls,
             _original_build_panel(),
             html.Div(id="quant-dashboard-status-panel", className="quant-native-card"),
+            results_controls,
+            results_table,
             modules,
         ],
     )
