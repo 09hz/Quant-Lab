@@ -173,6 +173,15 @@ body {
     text-rendering: optimizeLegibility;
 }
 
+.textColor{
+    color:black;
+}
+
+.labelColor{
+    color:white;
+}
+
+
 ::selection {
     background: var(--sv-accent-glow);
     color: var(--sv-text-primary);
@@ -3846,35 +3855,6 @@ control-box:hover {
 .DayPicker_transitionContainer {
     color: #e8edf5 !important;
 }
-
-.CalendarDay {
-    border: 1px solid rgba(255, 255, 255, 0.04) !important;
-    border-radius: 10px !important;
-    background: transparent !important;
-    color: #e8edf5 !important;
-}
-
-.CalendarDay:hover {
-    background: rgba(44, 111, 173, 0.08) !important;
-    color: #e8edf5 !important;
-}
-
-.CalendarDay__selected,
-.CalendarDay__selected:hover {
-    border: 1px solid #4a8fc4 !important;
-    background: #111318;
-    color: #e8edf5 !important;
-}
-
-.DayPickerNavigation_button {
-    border: 1px solid rgba(255, 255, 255, 0.06) !important;
-    background: transparent !important;
-    color: #e8edf5 !important;
-}
-
-/* =========================
-   SLIDER
-========================= */
 
 
 

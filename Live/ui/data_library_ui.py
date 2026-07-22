@@ -75,7 +75,7 @@ def build_data_library_layout():
                     html.Div(
                         className="data-library-field",
                         children=[
-                            html.Label("Artifact type", htmlFor="data-library-artifact-type-filter"),
+                            html.Label("Artifact type", className="labelColor"),
                             dcc.Dropdown(
                                 id="data-library-artifact-type-filter",
                                 options=ARTIFACT_TYPE_OPTIONS,
@@ -88,7 +88,7 @@ def build_data_library_layout():
                     html.Div(
                         className="data-library-field data-library-small-field",
                         children=[
-                            html.Label("Extension", htmlFor="data-library-extension-filter"),
+                            html.Label("Extension", className="labelColor"),
                             dcc.Dropdown(
                                 id="data-library-extension-filter",
                                 options=EXTENSION_OPTIONS,
@@ -101,7 +101,7 @@ def build_data_library_layout():
                     html.Div(
                         className="data-library-field",
                         children=[
-                            html.Label("Search", htmlFor="data-library-search-input"),
+                            html.Label("Search", className="labelColor"),
                             dcc.Input(
                                 id="data-library-search-input",
                                 type="text",
@@ -114,7 +114,7 @@ def build_data_library_layout():
                     html.Div(
                         className="data-library-field data-library-small-field",
                         children=[
-                            html.Label("Limit", htmlFor="data-library-limit-input"),
+                            html.Label("Limit", className="labelColor"),
                             dcc.Input(
                                 id="data-library-limit-input",
                                 type="number",

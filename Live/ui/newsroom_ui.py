@@ -168,6 +168,7 @@ def build_newsroom_tab(*args: Any, **kwargs: Any) -> Any:
                                                 ],
                                                 value="concise",
                                                 clearable=False,
+                                                className = "textColor"
                                             ),
                                         ],
                                     ),
