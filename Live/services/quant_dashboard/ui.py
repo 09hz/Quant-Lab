@@ -63,7 +63,23 @@ def build_quant_dashboard_layout():
 
     modules = html.Div(
         className="quant-native-controls",
-        children=[_placeholder_card(title) for title in _MODULE_TITLES],
+        children=[
+            html.Div(id="quant-module-market-overview", className="quant-native-card"),
+            html.Div(id="quant-module-screening", className="quant-native-card"),
+            html.Div(id="quant-module-factor", className="quant-native-card"),
+            html.Div(id="quant-module-momentum", className="quant-native-card"),
+            html.Div(id="quant-module-value", className="quant-native-card"),
+            html.Div(id="quant-module-growth", className="quant-native-card"),
+            html.Div(id="quant-module-quality", className="quant-native-card"),
+            html.Div(id="quant-module-volatility", className="quant-native-card"),
+            html.Div(id="quant-module-liquidity", className="quant-native-card"),
+            html.Div(id="quant-module-risk", className="quant-native-card"),
+            html.Div(id="quant-module-correlation", className="quant-native-card"),
+            html.Div(id="quant-module-sector", className="quant-native-card"),
+            html.Div(id="quant-module-breadth", className="quant-native-card"),
+            html.Div(id="quant-module-data-quality", className="quant-native-card"),
+            html.Div(id="quant-module-notes", className="quant-native-card"),
+        ],
     )
 
     controls = html.Div(
