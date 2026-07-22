@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dash import html
+from dash import html, dcc
 
 try:
     # Reuse existing, proven UI builder
@@ -66,10 +66,36 @@ def build_quant_dashboard_layout():
         children=[_placeholder_card(title) for title in _MODULE_TITLES],
     )
 
+    controls = html.Div(
+        className="quant-native-controls",
+        children=[
+            html.Div([
+                html.Label("Dataset"),
+                dcc.Dropdown(id="quant-dataset", options=[], value=None, placeholder="Select dataset...", disabled=True),
+            ]),
+            html.Div([
+                html.Label("Universe"),
+                dcc.Dropdown(id="quant-universe", options=[], value=None, placeholder="Select universe...", disabled=True),
+            ]),
+            html.Div([
+                html.Label("Market"),
+                dcc.Dropdown(id="quant-market", options=[], value=None, placeholder="Select market...", disabled=True),
+            ]),
+            html.Div([
+                html.Label("Date Range"),
+                dcc.DatePickerRange(id="quant-date-range", disabled=True),
+            ]),
+            html.Button("Reset", id="quant-dashboard-reset", n_clicks=0, className="data-library-button"),
+            html.Button("Export", id="quant-dashboard-export", n_clicks=0, className="data-library-button"),
+            dcc.Download(id="quant-dashboard-download"),
+        ],
+    )
+
     return html.Div(
         className="quant-native-page",
         children=[
             header,
+            controls,
             _original_build_panel(),
             html.Div(id="quant-dashboard-status-panel", className="quant-native-card"),
             modules,

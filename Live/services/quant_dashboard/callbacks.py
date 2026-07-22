@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from time import perf_counter
 from typing import Any
+import json
 
-from dash import Input, Output, html
+from dash import Input, Output, State, html, dcc, no_update
 
 try:
     # Reuse existing callback registration
@@ -66,5 +67,40 @@ def register_quant_dashboard_callbacks(app):
         payload = load_quant_dashboard(backend=backend or "sqlite", limit=limit or 10)
         elapsed = int((perf_counter() - start) * 1000)
         return _status_panel_view(payload, elapsed)
+
+    # Reset control values to defaults without duplicating logic
+    @app.callback(
+        Output("quant-dashboard-backend", "value"),
+        Output("quant-dashboard-limit", "value"),
+        Output("quant-dataset", "value"),
+        Output("quant-universe", "value"),
+        Output("quant-market", "value"),
+        Output("quant-date-range", "start_date"),
+        Output("quant-date-range", "end_date"),
+        Input("quant-dashboard-reset", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def _reset_controls(n):
+        if not n:
+            return no_update, no_update, no_update, no_update, no_update, no_update, no_update
+        return "sqlite", 10, None, None, None, None, None
+
+    # Export current dashboard payload as JSON
+    @app.callback(
+        Output("quant-dashboard-download", "data"),
+        Input("quant-dashboard-export", "n_clicks"),
+        State("quant-dashboard-backend", "value"),
+        State("quant-dashboard-limit", "value"),
+        prevent_initial_call=True,
+    )
+    def _export_payload(n, backend, limit):
+        if not n:
+            return no_update
+        payload = load_quant_dashboard(backend=backend or "sqlite", limit=limit or 10)
+        try:
+            data = json.dumps(getattr(payload, "to_dict", lambda: payload)(), indent=2)
+        except Exception:
+            data = json.dumps(payload.__dict__, indent=2)
+        return dcc.send_string(data, "quant_dashboard.json")
 
     return None
