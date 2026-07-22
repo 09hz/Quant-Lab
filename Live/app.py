@@ -762,7 +762,15 @@ try:
                                     ],
                                 ),
                                 _v24_8_3_html.Label("Rows"),
-                                _v24_8_3_dcc.Input(id="quant-dashboard-native-limit", type="number", min=1, max=100, step=1, value=10, debounce=False),
+                                _v24_8_3_dcc.Input(
+                                id="quant-dashboard-native-limit",
+                                type="number",
+                                min=1,
+                                max=100,
+                                step=1,
+                                value=10,
+                                debounce=False
+                            ),
                                 _v24_8_3_html.Button("Refresh", id="quant-dashboard-native-refresh", n_clicks=0),
                                 _v24_8_3_dcc.Store(id="quant-dashboard-native-repo-root", data=repo_root),
                             ],
