@@ -137,15 +137,17 @@ def register_quant_dashboard_callbacks(app):
         Output("quant-module-market-overview", "children"),
         Output("quant-module-data-quality", "children"),
         Output("quant-module-screening", "children"),
+        Output("quant-module-dataset-info", "children"),
         Input("quant-dashboard-refresh", "n_clicks"),
         Input("quant-dashboard-backend", "value"),
         Input("quant-dashboard-limit", "value"),
+        State("quant-dataset", "value"),
         State("quant-universe", "value"),
         State("quant-date-range", "start_date"),
         State("quant-date-range", "end_date"),
         prevent_initial_call=False,
     )
-    def _render_modules(_n, backend, limit, universe, start_date, end_date):
+    def _render_modules(_n, backend, limit, dataset, universe, start_date, end_date):
         payload = load_quant_dashboard(backend=backend or "sqlite", limit=limit or 10)
         s = payload.sections or {}
         # Filters applied to section copies
@@ -192,7 +194,25 @@ def register_quant_dashboard_callbacks(app):
         screening_cols = _COLUMN_PREFS.get("recent_strategies", ["created_at", "strategy_name", "symbol", "timeframe", "status"])[:6]
         screening = _mini_table("Screening Results", strategies, screening_cols)
 
-        return market_overview, dq_view, screening
+        dataset_info_rows = [
+            ("Dataset", (dataset or "recent_experiments")),
+            ("Universe", (universe or "All")),
+            ("Date Range", f"{start_date or '—'} → {end_date or '—'}"),
+            ("Limit", str(limit or 10)),
+            ("Backend", getattr(payload, "backend", "")),
+            ("Status", getattr(payload, "status", "")),
+        ]
+        dataset_info = html.Div(
+            children=[
+                html.H4("Dataset Information"),
+                html.Table(
+                    className="quant-native-table",
+                    children=[html.Tbody([html.Tr([html.Th(k), html.Td(v)]) for k, v in dataset_info_rows])],
+                ),
+            ],
+        )
+
+        return market_overview, dq_view, screening, dataset_info
 
     # Reset control values to defaults without duplicating logic
     @app.callback(
