@@ -110,7 +110,7 @@ def build_quant_dashboard_layout():
                     ]),
                     html.Div([
                         html.Label("Market"),
-                        dcc.Dropdown(id="quant-market", options=[], value=None, placeholder="Select market...", disabled=True),
+                        dcc.Dropdown(id="quant-market", options=[], value=None, placeholder="Select market..."),
                     ]),
                     html.Div([
                         html.Label("Date Range"),

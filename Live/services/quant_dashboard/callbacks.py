@@ -52,28 +52,6 @@ def _status_panel_view(payload: Any, elapsed_ms: int) -> Any:
     )
 
 
-def _summary_metrics_view(payload: Any) -> Any:
-    counts = getattr(payload, "counts", {}) or {}
-    errors = getattr(payload, "errors", []) or []
-    tiles = [
-        ("Symbols", counts.get("symbols", 0)),
-        ("Experiments", counts.get("experiment_runs", 0)),
-        ("Strategies", counts.get("strategy_runs", 0)),
-        ("Backtests", counts.get("backtest_runs", 0)),
-        ("Warnings", len(errors)),
-        ("Backend", getattr(payload, "backend", "")),
-    ]
-    return html.Div(
-        className="quant-native-count-grid",
-        children=[
-            html.Div(className="quant-native-count-tile", children=[
-                html.Div(k, className="quant-native-count-label"),
-                html.Div(str(v), className="quant-native-count-value"),
-            ]) for k, v in tiles
-        ],
-    )
-
-
 def register_quant_dashboard_callbacks(app):
     """Canonical callback registration for the Quant Dashboard.
 
@@ -90,17 +68,16 @@ def register_quant_dashboard_callbacks(app):
 
     @app.callback(
         Output("quant-dashboard-status-panel", "children"),
-        Output("quant-dashboard-summary", "children"),
         Input("quant-dashboard-refresh", "n_clicks"),
         Input("quant-dashboard-backend", "value"),
         Input("quant-dashboard-limit", "value"),
         prevent_initial_call=False,
     )
-    def _render_status_and_summary(_n, backend, limit):
+    def _render_status_panel(_n, backend, limit):
         start = perf_counter()
         payload = load_quant_dashboard(backend=backend or "sqlite", limit=limit or 10)
         elapsed = int((perf_counter() - start) * 1000)
-        return _status_panel_view(payload, elapsed), _summary_metrics_view(payload)
+        return _status_panel_view(payload, elapsed)
 
     # Research modules (subset) from existing payload
     def _count_tile(label: str, value: Any):
@@ -137,17 +114,15 @@ def register_quant_dashboard_callbacks(app):
         Output("quant-module-market-overview", "children"),
         Output("quant-module-data-quality", "children"),
         Output("quant-module-screening", "children"),
-        Output("quant-module-dataset-info", "children"),
         Input("quant-dashboard-refresh", "n_clicks"),
         Input("quant-dashboard-backend", "value"),
         Input("quant-dashboard-limit", "value"),
-        State("quant-dataset", "value"),
         State("quant-universe", "value"),
         State("quant-date-range", "start_date"),
         State("quant-date-range", "end_date"),
         prevent_initial_call=False,
     )
-    def _render_modules(_n, backend, limit, dataset, universe, start_date, end_date):
+    def _render_modules(_n, backend, limit, universe, start_date, end_date):
         payload = load_quant_dashboard(backend=backend or "sqlite", limit=limit or 10)
         s = payload.sections or {}
         # Filters applied to section copies
@@ -174,6 +149,16 @@ def register_quant_dashboard_callbacks(app):
         dq = filter_rows(list(s.get("data_quality_events", [])))
         if universe:
             universes = [r for r in universes if r.get("universe_name") == universe]
+        if market:
+            def has_market(r):
+                for k in ("market", "exchange", "asset_class"):
+                    if r.get(k) == market:
+                        return True
+                return False
+            experiments = [r for r in experiments if has_market(r)]
+            strategies = [r for r in strategies if has_market(r)]
+            backtests = [r for r in backtests if has_market(r)]
+            dq = [r for r in dq if has_market(r)]
 
         market_overview = html.Div(
             children=[
@@ -194,25 +179,7 @@ def register_quant_dashboard_callbacks(app):
         screening_cols = _COLUMN_PREFS.get("recent_strategies", ["created_at", "strategy_name", "symbol", "timeframe", "status"])[:6]
         screening = _mini_table("Screening Results", strategies, screening_cols)
 
-        dataset_info_rows = [
-            ("Dataset", (dataset or "recent_experiments")),
-            ("Universe", (universe or "All")),
-            ("Date Range", f"{start_date or '—'} → {end_date or '—'}"),
-            ("Limit", str(limit or 10)),
-            ("Backend", getattr(payload, "backend", "")),
-            ("Status", getattr(payload, "status", "")),
-        ]
-        dataset_info = html.Div(
-            children=[
-                html.H4("Dataset Information"),
-                html.Table(
-                    className="quant-native-table",
-                    children=[html.Tbody([html.Tr([html.Th(k), html.Td(v)]) for k, v in dataset_info_rows])],
-                ),
-            ],
-        )
-
-        return market_overview, dq_view, screening, dataset_info
+        return market_overview, dq_view, screening
 
     # Reset control values to defaults without duplicating logic
     @app.callback(
@@ -264,17 +231,25 @@ def register_quant_dashboard_callbacks(app):
         Input("quant-dashboard-limit", "value"),
         State("quant-results-sort", "value"),
         State("quant-universe", "value"),
+        State("quant-market", "value"),
         State("quant-date-range", "start_date"),
         State("quant-date-range", "end_date"),
         prevent_initial_call=False,
     )
-    def _render_results(section, direction, _n, backend, limit, sort_col, universe, start_date, end_date):
+    def _render_results(section, direction, _n, backend, limit, sort_col, universe, market, start_date, end_date):
         payload = load_quant_dashboard(backend=backend or "sqlite", limit=limit or 10)
         rows = list((payload.sections or {}).get(section or "recent_experiments", []))
 
         # Optional filters
         if universe and section == "universe_runs":
             rows = [r for r in rows if r.get("universe_name") == universe]
+        if market:
+            def has_market(r):
+                for k in ("market", "exchange", "asset_class"):
+                    if r.get(k) == market:
+                        return True
+                return False
+            rows = [r for r in rows if has_market(r)]
         if start_date or end_date:
             def in_range(r):
                 ts = r.get("created_at")
