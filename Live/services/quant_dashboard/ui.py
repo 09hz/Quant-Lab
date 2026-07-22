@@ -71,11 +71,23 @@ def build_quant_dashboard_layout():
         children=[
             html.Div([
                 html.Label("Dataset"),
-                dcc.Dropdown(id="quant-dataset", options=[], value=None, placeholder="Select dataset...", disabled=True),
+                dcc.Dropdown(
+                    id="quant-dataset",
+                    options=[
+                        {"label": "Recent Experiments", "value": "recent_experiments"},
+                        {"label": "Recent Strategies", "value": "recent_strategies"},
+                        {"label": "Best Backtests", "value": "best_backtests"},
+                        {"label": "Walk-Forward Runs", "value": "walk_forward_runs"},
+                        {"label": "Universe Runs", "value": "universe_runs"},
+                        {"label": "Data Quality Events", "value": "data_quality_events"},
+                    ],
+                    value="recent_experiments",
+                    clearable=False,
+                ),
             ]),
             html.Div([
                 html.Label("Universe"),
-                dcc.Dropdown(id="quant-universe", options=[], value=None, placeholder="Select universe...", disabled=True),
+                dcc.Dropdown(id="quant-universe", options=[], value=None, placeholder="Select universe..."),
             ]),
             html.Div([
                 html.Label("Market"),
@@ -83,7 +95,7 @@ def build_quant_dashboard_layout():
             ]),
             html.Div([
                 html.Label("Date Range"),
-                dcc.DatePickerRange(id="quant-date-range", disabled=True),
+                dcc.DatePickerRange(id="quant-date-range"),
             ]),
             html.Button("Reset", id="quant-dashboard-reset", n_clicks=0, className="data-library-button"),
             html.Button("Export", id="quant-dashboard-export", n_clicks=0, className="data-library-button"),

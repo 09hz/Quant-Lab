@@ -114,7 +114,7 @@ def register_quant_dashboard_callbacks(app):
             data = json.dumps(payload.__dict__, indent=2)
         return dcc.send_string(data, "quant_dashboard.json")
 
-    # Results table: sort and render using payload sections (no new SQL)
+    # Results table: sort and render using payload sections (no new SQL), with optional universe/date filters
     @app.callback(
         Output("quant-results-sort", "options"),
         Output("quant-results-sort", "value"),
@@ -125,11 +125,31 @@ def register_quant_dashboard_callbacks(app):
         Input("quant-dashboard-backend", "value"),
         Input("quant-dashboard-limit", "value"),
         State("quant-results-sort", "value"),
+        State("quant-universe", "value"),
+        State("quant-date-range", "start_date"),
+        State("quant-date-range", "end_date"),
         prevent_initial_call=False,
     )
-    def _render_results(section, direction, _n, backend, limit, sort_col):
+    def _render_results(section, direction, _n, backend, limit, sort_col, universe, start_date, end_date):
         payload = load_quant_dashboard(backend=backend or "sqlite", limit=limit or 10)
         rows = list((payload.sections or {}).get(section or "recent_experiments", []))
+
+        # Optional filters
+        if universe and section == "universe_runs":
+            rows = [r for r in rows if r.get("universe_name") == universe]
+        if start_date or end_date:
+            def in_range(r):
+                ts = r.get("created_at")
+                if not ts:
+                    return False
+                s = str(ts)[:10]
+                if start_date and s < str(start_date):
+                    return False
+                if end_date and s > str(end_date):
+                    return False
+                return True
+            rows = [r for r in rows if in_range(r)]
+
         # Columns preference reuse
         preferred = [c for c in _COLUMN_PREFS.get(section or "", []) if any(c in r for r in rows)]
         extras: list[str] = []
