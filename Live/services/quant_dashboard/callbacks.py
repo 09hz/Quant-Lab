@@ -52,6 +52,28 @@ def _status_panel_view(payload: Any, elapsed_ms: int) -> Any:
     )
 
 
+def _summary_metrics_view(payload: Any) -> Any:
+    counts = getattr(payload, "counts", {}) or {}
+    errors = getattr(payload, "errors", []) or []
+    tiles = [
+        ("Symbols", counts.get("symbols", 0)),
+        ("Experiments", counts.get("experiment_runs", 0)),
+        ("Strategies", counts.get("strategy_runs", 0)),
+        ("Backtests", counts.get("backtest_runs", 0)),
+        ("Warnings", len(errors)),
+        ("Backend", getattr(payload, "backend", "")),
+    ]
+    return html.Div(
+        className="quant-native-count-grid",
+        children=[
+            html.Div(className="quant-native-count-tile", children=[
+                html.Div(k, className="quant-native-count-label"),
+                html.Div(str(v), className="quant-native-count-value"),
+            ]) for k, v in tiles
+        ],
+    )
+
+
 def register_quant_dashboard_callbacks(app):
     """Canonical callback registration for the Quant Dashboard.
 
@@ -68,16 +90,17 @@ def register_quant_dashboard_callbacks(app):
 
     @app.callback(
         Output("quant-dashboard-status-panel", "children"),
+        Output("quant-dashboard-summary", "children"),
         Input("quant-dashboard-refresh", "n_clicks"),
         Input("quant-dashboard-backend", "value"),
         Input("quant-dashboard-limit", "value"),
         prevent_initial_call=False,
     )
-    def _render_status_panel(_n, backend, limit):
+    def _render_status_and_summary(_n, backend, limit):
         start = perf_counter()
         payload = load_quant_dashboard(backend=backend or "sqlite", limit=limit or 10)
         elapsed = int((perf_counter() - start) * 1000)
-        return _status_panel_view(payload, elapsed)
+        return _status_panel_view(payload, elapsed), _summary_metrics_view(payload)
 
     # Research modules (subset) from existing payload
     def _count_tile(label: str, value: Any):
