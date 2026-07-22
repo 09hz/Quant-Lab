@@ -89,38 +89,6 @@ def build_quant_dashboard_layout():
                 className="quant-native-controls",
                 children=[
                     html.Div([
-                        html.Label("Backend", className="data-library-label"),
-                        dcc.Dropdown(
-                            id="quant-dashboard-backend",
-                            options=[
-                                {"label": "SQLite fallback", "value": "sqlite"},
-                                {"label": "PostgreSQL", "value": "postgres"},
-                            ],
-                            value="sqlite",
-                            clearable=False,
-                            className="quant-dashboard-dropdown",
-                        ),
-                    ]),
-                    html.Div([
-                        html.Label("Rows per section", className="data-library-label"),
-                        dcc.Input(
-                            id="quant-dashboard-limit",
-                            type="number",
-                            value=10,
-                            min=1,
-                            max=100,
-                            step=1,
-                            debounce=True,
-                            className="quant-dashboard-limit",
-                        ),
-                    ]),
-                    html.Button(
-                        "Refresh Quant Dashboard",
-                        id="quant-dashboard-refresh",
-                        n_clicks=0,
-                        className="data-library-button quant-dashboard-refresh",
-                    ),
-                    html.Div([
                         html.Label("Dataset"),
                         dcc.Dropdown(
                             id="quant-dataset",
@@ -203,8 +171,8 @@ def build_quant_dashboard_layout():
         children=[
             header,
             controls,
-            html.Div(id="quant-dashboard-status", className="quant-native-card"),
-            html.Div(id="quant-dashboard-counts", className="quant-native-card"),
+            _original_build_panel(),
+            html.Div(id="quant-dashboard-status-panel", className="quant-native-card"),
             results_controls,
             results_table,
             modules,
