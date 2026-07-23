@@ -1917,7 +1917,13 @@ select:disabled {
 
 .quant-native-controls {
   display: grid;
-  grid-template-columns: 90px minmax(220px, 340px) 60px 90px 110px 1fr;
+  grid-template-columns:
+max-content
+minmax(220px,340px)
+max-content
+minmax(110px,140px)
+max-content
+1fr;
   gap: 10px;
   align-items: center;
 }
@@ -2362,7 +2368,6 @@ select:disabled {
 
 .newsroom-input:focus {
   border-color: var(--sv-accent-border);
-  box-shadow: var(--sv-focus-ring), var(--sv-shadow-sm);
 }
 
 .newsroom-checklist,
@@ -2708,7 +2713,6 @@ select:disabled {
 .strategy-ai-advisor-input:focus,
 .strategy-ai-advisor-textarea:focus {
   border-color: var(--sv-accent-border);
-  box-shadow: var(--sv-focus-ring), var(--sv-shadow-sm);
 }
 
 .strategy-ai-advisor-context {
@@ -3547,7 +3551,6 @@ select:disabled {
 .research-analyst-question:focus,
 .research-analyst-number:focus {
   border-color: var(--sv-accent-border);
-  box-shadow: var(--sv-focus-ring), var(--sv-shadow-sm);
 }
 
 .research-analyst-controls {
@@ -4320,3 +4323,25 @@ Intent:
   backdrop-filter: none !important; /* remove stacking context from blur */
 }
 /* === END: Watch Tab Overflow Fixes | Source: zz_watch_tab_overflow_fixes.css === */
+/* TEMP DEBUG */
+
+.dash-input-container {
+    display: flex !important;
+    align-items: center !important;
+}
+
+.dash-input-element {
+    display: block !important;
+    width: 100% !important;
+    min-width: 96px !important;
+    flex: 1 1 auto !important;
+
+    color: white !important;
+    background: #111318 !important;
+
+    opacity: 1 !important;
+    visibility: visible !important;
+
+    position: relative !important;
+    z-index: 100 !important;
+}

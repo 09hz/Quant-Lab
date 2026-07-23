@@ -552,7 +552,6 @@ try:
 
     from dash import Input as _v24_8_3_Input
     from dash import Output as _v24_8_3_Output
-    from dash import State as _v24_8_3_State
     from dash import dcc as _v24_8_3_dcc
     from dash import html as _v24_8_3_html
 
@@ -749,8 +748,25 @@ try:
                             ],
                         ),
                         _v24_8_3_html.Div(
-                            className="quant-native-controls quant-native-card",
+                            className="quant-native-card quant-native-controls",
                             children=[
+
+                                _v24_8_3_html.Label("Rows"),
+                                _v24_8_3_dcc.Dropdown(
+                                    id="quant-dashboard-row-limit",
+                                    options=[
+                                        {"label": "5 rows", "value": 5},
+                                        {"label": "10 rows", "value": 10},
+                                        {"label": "25 rows", "value": 25},
+                                        {"label": "50 rows", "value": 50},
+                                        {"label": "100 rows", "value": 100},
+                                        {"label": "150 rows", "value": 150},
+                                        {"label": "200 rows", "value": 200},
+                                        {"label": "Max", "value": 9999},
+                                    ],
+                                    value=10,
+                                    clearable=False,
+                                ),
                                 _v24_8_3_html.Label("Backend"),
                                 _v24_8_3_dcc.Dropdown(
                                     id="quant-dashboard-native-backend",
@@ -761,16 +777,8 @@ try:
                                         {"label": "PostgreSQL", "value": "postgres"},
                                     ],
                                 ),
-                                _v24_8_3_html.Label("Rows"),
-                                _v24_8_3_dcc.Input(
-                                id="quant-dashboard-native-limit",
-                                type="number",
-                                min=1,
-                                max=100,
-                                step=1,
-                                value=10,
-                                debounce=False
-                            ),
+
+
                                 _v24_8_3_html.Button("Refresh", id="quant-dashboard-native-refresh", n_clicks=0),
                                 _v24_8_3_dcc.Store(id="quant-dashboard-native-repo-root", data=repo_root),
                             ],
@@ -782,6 +790,8 @@ try:
                 )
             ],
         )
+
+
 
     def _v24_8_3_install_native_quant_dashboard_tab():
         main_tabs = _v24_8_3_find_component_by_id(app.layout, "main-tabs")
@@ -809,16 +819,15 @@ try:
             _v24_8_3_Output("quant-dashboard-native-sections", "children"),
             _v24_8_3_Input("quant-dashboard-native-refresh", "n_clicks"),
             _v24_8_3_Input("quant-dashboard-native-backend", "value"),
+            _v24_8_3_Input("quant-dashboard-row-limit", "value"),
             _v24_8_3_Input("quant-dashboard-native-repo-root", "data"),
-            _v24_8_3_Input("quant-dashboard-native-limit", "n_submit"),
-            _v24_8_3_State("quant-dashboard-native-limit", "value"),
             prevent_initial_call=False,
         )
-        def _v24_8_3_refresh_native_quant_dashboard(_n_clicks, selected_backend, selected_repo_root, _limit_submit, limit_value):
+        def _v24_8_3_refresh_native_quant_dashboard(_n_clicks, selected_backend, selected_limit, selected_repo_root):
             payload = _v24_8_3_load_quant_dashboard(
                 repo_root=selected_repo_root or str(_v24_8_3_find_repo_root()),
                 backend=selected_backend or "sqlite",
-                limit=limit_value or 10,
+                limit=selected_limit or 10,
             )
             data = _v24_8_3_payload_dict(payload)
             sections = data.get("sections") or {}
