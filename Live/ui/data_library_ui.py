@@ -150,7 +150,7 @@ def build_data_library_layout():
                     html.Div(
                         className="data-library-right",
                         children=[
-                            html.H3("Preview"),
+                            html.H3("Preview", className="labelColor"),
                             dcc.Markdown(
                                 id="data-library-preview",
                                 className="data-library-preview",
@@ -166,7 +166,6 @@ def build_data_library_layout():
         ],
     )
 
-# --- v24.1 PostgreSQL Status Panel integration ---
 try:
     from services.data_catalog.postgres_status_ui import build_postgres_status_panel as _v24_1_build_postgres_status_panel
 

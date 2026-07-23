@@ -16,21 +16,21 @@ def build_postgres_status_panel():
             html.Details(
                 open=False,
                 children=[
-                    html.Summary("Connection settings"),
+                    html.Summary("Connection settings", className="labelColor"),
                     html.Div(
                         className="data-library-pg-grid",
                         children=[
-                            html.Label("Host"),
+                            html.Label("Host", className=""),
                             dcc.Input(id="data-library-pg-host", type="text", value="localhost"),
-                            html.Label("Port"),
+                            html.Label("Port", className="labelColor"),
                             dcc.Input(id="data-library-pg-port", type="number", value=5432),
-                            html.Label("Database"),
+                            html.Label("Database", className="labelColor"),
                             dcc.Input(id="data-library-pg-database", type="text", value="algotrader"),
-                            html.Label("Schema"),
+                            html.Label("Schema", className="labelColor"),
                             dcc.Input(id="data-library-pg-schema", type="text", value="algotrader"),
-                            html.Label("App user"),
+                            html.Label("App user", className="labelColor"),
                             dcc.Input(id="data-library-pg-app-user", type="text", value="algotrader_app"),
-                            html.Label("App password"),
+                            html.Label("App password", className="labelColor"),
                             dcc.Input(
                                 id="data-library-pg-app-password",
                                 type="password",

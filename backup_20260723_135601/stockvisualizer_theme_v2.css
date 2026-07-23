@@ -1,0 +1,250 @@
+/* StockVisualizer Theme v2 - Production Stylesheet
+   Source of truth: current Dash codebase (classes/ids)
+   Visual reference only from prior CSS; obsolete selectors removed
+
+   Sections:
+   1) Design Tokens (Root Variables)
+   2) Base & Typography
+   3) Layout & Spacing
+   4) Buttons
+   5) Inputs & Dropdowns
+   6) Dash Components (Tabs, Graphs, Markdown, Loading, DatePicker, Slider, DataTable wrappers)
+   7) Cards & Containers
+   8) Grids (Dashboard/Controls/Responsive)
+   9) Tables (System)
+   10) Charts
+   11) Watch Workspace
+   12) Paper Trading
+   13) Strategy Lab & Advisor
+   14) Quant Dashboard
+   15) Research Loop
+   16) Data Library
+   17) Newsroom
+   18) Research Analyst
+   19) Responsive Breakpoints
+   20) Utilities
+*/
+
+/* 1) Design Tokens (Root Variables) */
+:root {
+  /* Surfaces */
+  --sv-bg-primary: #06090f;
+  --sv-bg-secondary: #0f141d;
+  --sv-card: #141a24;
+  --sv-overlay: rgba(6,9,15,0.92);
+
+  /* Borders */
+  --sv-border: #1f2836;
+  --sv-border-soft: rgba(255,255,255,0.06);
+  --sv-border-strong: rgba(255,255,255,0.14);
+  --sv-border-focus: rgba(255,255,255,0.18);
+
+  /* Text */
+  --sv-text-primary: #edf3fb;
+  --sv-text-secondary: #93a4b7;
+  --sv-text-muted: #66778e;
+
+  /* Accent & Semantic */
+  --sv-accent: #5a8fd1;
+  --sv-accent-light: #80ade8;
+  --sv-accent-glow: rgba(90,143,209,0.16);
+  --sv-positive: #2db67c;
+  --sv-negative: #d15a5a;
+  --sv-warning: #c58b3c;
+
+  /* Typography */
+  --sv-font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --sv-font-mono: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+
+  /* Spacing */
+  --sv-spacing-xs: 4px;  --sv-spacing-sm: 8px;  --sv-spacing-md: 12px;
+  --sv-spacing-lg: 16px; --sv-spacing-xl: 24px; --sv-spacing-2xl: 32px;
+
+  /* Radius */
+  --sv-radius-sm: 8px; --sv-radius-md: 10px; --sv-radius-lg: 14px; --sv-radius-xl: 18px; --sv-radius-pill: 999px;
+
+  /* Shadows */
+  --sv-shadow-sm: 0 4px 12px rgba(0,0,0,0.22);
+  --sv-shadow-md: 0 12px 30px rgba(0,0,0,0.34);
+  --sv-shadow-lg: 0 24px 60px rgba(0,0,0,0.50);
+  --sv-shadow-focus: 0 0 0 3px var(--sv-accent-glow);
+
+  /* Controls */
+  --sv-control-height: 40px; --sv-control-height-sm: 34px;
+  --sv-content-width: 1920px;
+}
+
+/* 2) Base & Typography */
+html, body { margin:0; background: var(--sv-bg-primary); color: var(--sv-text-primary); font-family: var(--sv-font-sans); font-size: 13px; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+
+/* 3) Layout & Spacing */
+.app-shell { min-height:100vh; max-width: var(--sv-content-width); margin:0 auto; padding: var(--sv-spacing-xl); }
+.topbar { position:relative; margin-bottom: var(--sv-spacing-lg); padding: var(--sv-spacing-xl) var(--sv-spacing-2xl); border:1px solid var(--sv-border); border-radius: var(--sv-radius-xl); background: linear-gradient(180deg, rgba(17,23,33,.98), rgba(10,14,21,.98)); box-shadow: var(--sv-shadow-md); }
+.pair-title { margin:0 0 var(--sv-spacing-sm) 0; font-size: clamp(30px, 3vw, 42px); font-weight: 800; letter-spacing: -0.02em; }
+.quote-strip { color: var(--sv-text-secondary); font-family: var(--sv-font-mono); font-size: 12px; }
+
+/* 4) Buttons */
+button, .primary-button, .secondary-button, .strategy-run-btn, .paper-btn, .paper-reset-btn, .newsroom-btn, .research-loop-run-button, .replay-range-cancel {
+  position:relative; display:inline-flex; align-items:center; justify-content:center; min-width:92px; height: var(--sv-control-height);
+  padding: 0 var(--sv-spacing-lg); border:1px solid var(--sv-border); border-radius: var(--sv-radius-md);
+  background: linear-gradient(180deg, rgba(23,26,34,.9), rgba(17,19,24,.9)); color: var(--sv-text-primary); cursor:pointer; transition: all 160ms ease;
+}
+button:hover:not(:disabled), .primary-button:hover:not(:disabled), .secondary-button:hover:not(:disabled) { border-color: var(--sv-accent); color: var(--sv-accent-light); transform: translateY(-1px); }
+button:disabled, .newsroom-btn.disabled { opacity:.56; cursor:not-allowed; box-shadow:none; }
+.range-btn { min-width:72px; height: var(--sv-control-height-sm); }
+.range-btn.active { border-color: var(--sv-accent); background: var(--sv-accent-glow); color: var(--sv-accent-light); }
+.paper-buy-btn { border-color: var(--sv-positive); }
+.paper-sell-btn, .paper-short-btn { border-color: var(--sv-negative); }
+
+
+/* Tabs */
+.main-tabs { position:relative; display:flex; flex-wrap:wrap; gap: var(--sv-spacing-sm); margin: var(--sv-spacing-md) 0 var(--sv-spacing-xl); }
+.main-tab { position:relative; min-width:140px; min-height: var(--sv-control-height); padding: var(--sv-spacing-md) var(--sv-spacing-xl); border:1px solid transparent; border-radius: var(--sv-radius-lg); color: var(--sv-text-secondary); transition: all 160ms ease; }
+.main-tab:hover { border-color: var(--sv-accent); color: var(--sv-text-primary); }
+.main-tab-selected { border-color: var(--sv-accent); color: var(--sv-accent-light); box-shadow: 0 0 0 1px var(--sv-accent-glow), var(--sv-shadow-sm); }
+/* Graph containers */
+.chart-graph, .plot-container, .svg-container { position:relative; min-height: 560px; overflow:hidden; border-radius: var(--sv-radius-lg); }
+/* Markdown */
+.dash-markdown { line-height:1.6; }
+/* Loading overlays */
+.watch-loading-overlay { position:absolute; inset: var(--sv-spacing-lg); z-index:20; display:flex; align-items:center; justify-content:center; background: rgba(0,0,0,0.35); border:1px dashed var(--sv-border); border-radius: var(--sv-radius-lg); }
+.watch-loading-text { color: var(--sv-text-secondary); }
+/* DatePicker */
+.date-picker-dark .DateInput { width:100% !important; min-width:0 !important; box-sizing:border-box !important; }
+/* Slider */
+.rc-slider { margin: var(--sv-spacing-lg) 0; }
+/* DataTable wrappers (use container classes) */
+.paper-table-card, .quant-dashboard-table-card, .data-library-results { border:1px solid var(--sv-border); border-radius: var(--sv-radius-md); padding: var(--sv-spacing-md); background: var(--sv-card); }
+
+/* 7) Cards & Containers */
+.quant-native-card, .strategy-section-panel, .research-loop-controls-panel, .data-library-postgres-panel, .research-autolab-safety, .newsroom-panel, .paper-trading-panel, .trade-analytics-panel {
+  border:1px solid var(--sv-border); border-radius:12px; padding:12px; margin:12px 0; background: rgba(15,23,42,0.50);
+}
+
+/* 8) Grids (Dashboard/Controls/Responsive) */
+.controls-row { position:relative; display:flex; flex-wrap:wrap; align-items:flex-end; gap: var(--sv-spacing-lg); margin-bottom: var(--sv-spacing-lg); overflow:visible; }
+.control-box { position:relative; overflow:visible; padding: var(--sv-spacing-md) var(--sv-spacing-lg); border:1px solid var(--sv-border); border-radius: var(--sv-radius-md); background: var(--sv-card); }
+.control-symbol { min-width:300px; }
+.control-timeframe { min-width:140px; }
+.chart-control-row, .range-row { display:flex; flex-wrap:wrap; align-items:center; gap: var(--sv-spacing-sm); }
+.slider-box { min-width:320px; flex:1 1 320px; }
+.stats-grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: var(--sv-spacing-md); }
+
+/* 9) Tables (System) */
+/* Generic table styling inside known wrappers */
+.paper-table-card table, .quant-dashboard-table-card table, .research-loop-top-table, .data-library-results table { width:100%; border-collapse: collapse; font-size: 0.92rem; }
+.paper-table-card thead th, .quant-dashboard-table-card thead th, .research-loop-top-table th, .data-library-results thead th {
+  position:sticky; top:0; z-index:1; background: rgba(13,18,26,0.98); color: var(--sv-text-secondary); border-bottom:1px solid var(--sv-border);
+}
+.paper-table-card th, .paper-table-card td,
+.quant-dashboard-table-card th, .quant-dashboard-table-card td,
+.research-loop-top-table th, .research-loop-top-table td,
+.data-library-results th, .data-library-results td { padding: 8px 10px; border-bottom:1px solid var(--sv-border-soft); vertical-align: top; }
+/* Alternating rows */
+.paper-table-card tbody tr:nth-child(odd), .quant-dashboard-table-card tbody tr:nth-child(odd), .data-library-results tbody tr:nth-child(odd) { background: rgba(255,255,255,0.02); }
+/* Empty state */
+.paper-empty { color: var(--sv-text-muted); }
+
+/* 10) Charts */
+.chart-card, .watch-chart-wrap { position:relative; overflow:visible; padding: var(--sv-spacing-lg); border:1px solid var(--sv-border); border-radius: var(--sv-radius-lg); background: var(--sv-bg-secondary); }
+
+/* 11) Watch Workspace */
+.watch-workspace-tabs { position:relative; margin-top: var(--sv-spacing-xl); overflow:visible; }
+.watch-workspace-tab { min-width:170px; min-height: var(--sv-control-height); }
+.watch-workspace-tab-selected { border-bottom:2px solid var(--sv-accent); }
+.watch-tab-panel { padding-top: var(--sv-spacing-sm); }
+.metrics-strip, .status-text { color: var(--sv-text-secondary); }
+.replay-range-job-panel, .replay-range-progress { color: var(--sv-text-secondary); }
+
+/* 12) Paper Trading */
+.paper-panel-header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; }
+.paper-button-group { display:flex; gap: var(--sv-spacing-sm); flex-wrap:wrap; }
+.paper-control-row { display:grid; gap: var(--sv-spacing-sm); }
+.paper-summary-grid, .paper-table-grid { display:grid; gap: var(--sv-spacing-md); }
+.paper-panel-title, .paper-panel-subtitle { margin:0; }
+
+/* 13) Strategy Lab & Advisor */
+.strategy-editor-panel, .strategy-backtest-panel, .strategy-help-panel, .strategy-ai-advisor-panel, .strategy-lab-panel { background: var(--sv-bg-secondary); }
+.strategy-lab-header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; }
+.strategy-inner-tabs { display:flex; gap: var(--sv-spacing-sm); flex-wrap:wrap; }
+.strategy-inner-tab { padding: 8px 12px; border:1px solid var(--sv-border); border-radius: var(--sv-radius-md); background: var(--sv-card); }
+.strategy-inner-tab-selected { border-color: var(--sv-accent); color: var(--sv-accent-light); }
+.strategy-ai-label { color: var(--sv-text-muted); font-size: 12px; }
+.strategy-ai-textarea, .strategy-ai-contextarea { width:100%; min-height:120px; }
+.strategy-ai-status, .strategy-status { color: var(--sv-text-secondary); }
+
+/* 14) Quant Dashboard */
+.quant-native-page { box-sizing:border-box; padding:16px; min-height:70vh; }
+.quant-native-header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; }
+.quant-native-safety-pill { border:1px solid rgba(34,197,94,0.35); border-radius: var(--sv-radius-pill); padding:6px 10px; background: rgba(34,197,94,0.10); color:#bbf7d0; font-weight:700; white-space:nowrap; }
+.quant-native-controls { display:grid; grid-template-columns: 90px minmax(220px,340px) 60px 90px 110px 1fr; gap:10px; align-items:center; }
+.quant-native-muted { color: var(--sv-text-muted); }
+.quant-native-count-grid { display:grid; grid-template-columns: repeat(auto-fit,minmax(140px,1fr)); gap: var(--sv-spacing-md); }
+.quant-native-count-tile { border:1px solid var(--sv-border); border-radius: var(--sv-radius-md); padding: var(--sv-spacing-md); background: var(--sv-card); }
+.quant-native-count-label { color: var(--sv-text-muted); font-size: 12px; }
+.quant-native-count-value { font-weight:700; }
+.quant-native-table-card { background: var(--sv-bg-secondary); }
+.quant-native-sections { display:grid; gap: var(--sv-spacing-md); }
+
+/* 15) Research Loop */
+.research-loop-controls-header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; }
+.research-loop-safety-pill { border:1px solid rgba(34,197,94,0.35); border-radius: var(--sv-radius-pill); padding:7px 12px; background: rgba(34,197,94,0.10); color:#bbf7d0; font-weight:800; }
+.research-loop-controls-grid { display:grid; grid-template-columns: 90px minmax(220px,1fr) 80px minmax(150px,180px) 90px minmax(100px,120px) 80px minmax(180px,220px) 1fr minmax(170px,210px); gap:10px; align-items:center; }
+.research-loop-run-status { margin-top:12px; color: var(--sv-text-secondary); }
+.research-loop-last-report { margin-top:12px; }
+.research-loop-summary { display:grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap:8px; margin-bottom:10px; }
+.research-loop-report-paths { display:grid; gap:8px; margin-bottom:10px; }
+
+/* 16) Data Library */
+.data-library-root { padding:16px; }
+.data-library-header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; }
+.data-library-title { margin:0; }
+.data-library-muted { color: var(--sv-text-muted); }
+.data-library-badge { border:1px solid var(--sv-border); border-radius: var(--sv-radius-pill); padding:4px 10px; color: var(--sv-text-secondary); }
+.data-library-toolbar { display:flex; gap: var(--sv-spacing-sm); flex-wrap:wrap; }
+.data-library-button { min-height:38px; }
+.data-library-button-primary { border-color: var(--sv-accent); }
+.data-library-field { min-width:220px; flex:1 1 220px; }
+.data-library-small-field { min-width:120px; max-width:150px; }
+.data-library-main { display:grid; gap: var(--sv-spacing-lg); grid-template-columns: 1.2fr .8fr; }
+.data-library-left, .data-library-right { min-width:0; }
+.data-library-preview { border:1px solid var(--sv-border); border-radius: var(--sv-radius-md); padding: var(--sv-spacing-md); background: var(--sv-card); }
+.data-library-postgres-controls, .data-library-pg-grid { display:grid; gap: var(--sv-spacing-sm); }
+
+/* 17) Newsroom */
+.newsroom-page { padding:16px; }
+.newsroom-hero { margin-bottom:12px; }
+.newsroom-title { font-size: 24px; font-weight:800; }
+.newsroom-subtitle, .newsroom-help-text, .newsroom-status { color: var(--sv-text-secondary); }
+.newsroom-pill { border:1px solid var(--sv-border); border-radius: var(--sv-radius-pill); padding:4px 10px; }
+.newsroom-pill-safe { border-color: var(--sv-positive); color: #bbf7d0; }
+.newsroom-grid { display:grid; gap: var(--sv-spacing-md); grid-template-columns: 1fr 1fr 1fr; }
+.newsroom-panel { background: var(--sv-bg-secondary); }
+.newsroom-button-row { display:flex; gap: var(--sv-spacing-sm); flex-wrap:wrap; }
+.newsroom-result-checklist, .newsroom-results-list, .newsroom-brief-preview { border:1px solid var(--sv-border); border-radius: var(--sv-radius-md); padding: var(--sv-spacing-md); background: var(--sv-card); }
+.newsroom-source-card, .newsroom-source-grid, .newsroom-panel-title, .newsroom-source-name, .newsroom-source-desc, .newsroom-source-link, .newsroom-badge, .newsroom-badge-muted, .newsroom-pill-row { /* reserved hooks styled via parents */ }
+
+/* 18) Research Analyst */
+.research-analyst-panel { background: var(--sv-bg-secondary); }
+.research-analyst-title { font-weight:800; }
+.research-analyst-subtitle, .research-analyst-status { color: var(--sv-text-secondary); }
+.research-analyst-control { min-width:180px; }
+.research-analyst-control-max-output { min-width:170px; }
+
+/* 19) Responsive Breakpoints */
+@media (min-width: 1920px) { .app-shell { padding: var(--sv-spacing-2xl); } }
+@media (max-width: 1600px) { .data-library-main { grid-template-columns: 1fr; } }
+@media (max-width: 1400px) {
+  .quant-native-controls { grid-template-columns: 1fr; }
+  .research-loop-controls-grid { grid-template-columns: 100px 1fr; }
+  .newsroom-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 1200px) { .control-symbol { min-width: 240px; } }
+@media (max-width: 992px)  { .stats-grid { grid-template-columns: repeat(2, minmax(140px,1fr)); } }
+@media (max-width: 768px)  { .controls-row { gap: var(--sv-spacing-sm); } .main-tab { min-width: auto; } }
+@media (max-width: 576px)  { .slider-box { min-width: 0; flex:1 1 auto; } .pair-title { font-size: 28px; } }
+
+/* 20) Utilities */
+.labelColor { color: var(--sv-text-muted); }
+.valueColor, .textColor { color: var(--sv-text-primary); }
+.hidden { display:none !important; }
