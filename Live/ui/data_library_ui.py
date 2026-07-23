@@ -129,14 +129,14 @@ def build_data_library_layout():
                     ),
                 ],
             ),
-            html.Div(id="data-library-status", className="data-library-status"),
+            html.Div(id="data-library-status", className="data-library-muted"),
             html.Div(
                 className="data-library-main",
                 children=[
                     html.Div(
                         className="data-library-left",
                         children=[
-                            html.H3("Cataloged artifacts"),
+                            html.H3("Cataloged artifacts", className="labelColor"),
                             dcc.Dropdown(
                                 id="data-library-artifact-select",
                                 options=[],
