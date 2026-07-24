@@ -17,7 +17,7 @@ def build_research_autolab_panel(*args, **kwargs):
             html.Div(
                 className="research-autolab-hero",
                 children=[
-                    html.Div("Research Autolab", className="research-autolab-title"),
+                    html.Div("Research Autolab", className="labelColor"),
                     html.Div(
                         "Simulation-only macro hypothesis testing from approved research evidence. "
                         "No broker access. No order placement.",

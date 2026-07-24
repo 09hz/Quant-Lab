@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pydoc import classname
+
 from dash import dcc, html
 
 
@@ -18,7 +20,7 @@ def build_market_memory_packet_panel():
                 children=[
                     html.Div(
                         children=[
-                            html.H3("Market Memory Research Packet", className="autolab-section-title"),
+                            html.H3("Market Memory Research Packet", className="labelColor"),
                             html.P(
                                 "Load the latest persistent Market Memory packet, review quality, then apply its symbols to Auto Lab.",
                                 className="autolab-muted",
@@ -37,7 +39,7 @@ def build_market_memory_packet_panel():
                     html.Div(
                         className="autolab-field",
                         children=[
-                            html.Label("Research theme", htmlFor="main-autolab-memory-theme"),
+                            html.Label("Research theme", className="labelColor"),
                             dcc.Input(
                                 id="main-autolab-memory-theme",
                                 type="text",
@@ -50,7 +52,7 @@ def build_market_memory_packet_panel():
                     html.Div(
                         className="autolab-field autolab-small-field",
                         children=[
-                            html.Label("Max symbols", htmlFor="main-autolab-memory-max-symbols"),
+                            html.Label("Max symbols", className="labelColor"),
                             dcc.Input(
                                 id="main-autolab-memory-max-symbols",
                                 type="number",
@@ -81,7 +83,7 @@ def build_market_memory_packet_panel():
             html.Div(id="main-autolab-memory-apply-status", className="autolab-status autolab-status-subtle"),
             dcc.Markdown(
                 id="main-autolab-memory-packet-preview",
-                className="autolab-memory-preview",
+                className="autolab-muted",
                 children=(
                     "No Market Memory packet loaded yet.\n\n"
                     "Click **Load Market Memory Packet** to build and preview the latest research packet."

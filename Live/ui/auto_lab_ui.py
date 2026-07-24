@@ -50,7 +50,7 @@ def build_auto_lab_tab() -> html.Div:
                             ),
                         ]
                     ),
-                    html.Div("Research / simulation only", className="autolab-pill autolab-pill-warning"),
+                    html.Div("Research / simulation only", className="autolab-pill"),
                 ],
             ),
             html.Div(
@@ -67,7 +67,7 @@ def build_auto_lab_tab() -> html.Div:
                     html.Div(
                         className="autolab-card",
                         children=[
-                            html.H3("Universe settings"),
+                            html.H3("Universe settings", className="autolab-title"),
                             html.Label("Symbols", className="autolab-label"),
                             dcc.Input(
                                 id="main-autolab-symbols",
@@ -91,7 +91,7 @@ def build_auto_lab_tab() -> html.Div:
                     html.Div(
                         className="autolab-card",
                         children=[
-                            html.H3("AI Symbol Discovery"),
+                            html.H3("AI Symbol Discovery", className="labelColor"),
                             html.Label("Theme / focus", className="autolab-label"),
                             dcc.Input(
                                 id="main-autolab-discovery-theme",
@@ -125,7 +125,7 @@ def build_auto_lab_tab() -> html.Div:
                     html.Div(
                         className="autolab-card",
                         children=[
-                            html.H3("Walk-forward settings"),
+                            html.H3("Walk-forward settings", className="labelColor"),
                             html.Div(
                                 className="autolab-two-col",
                                 children=[
@@ -140,7 +140,7 @@ def build_auto_lab_tab() -> html.Div:
                     html.Div(
                         className="autolab-card",
                         children=[
-                            html.H3("Capital assumptions"),
+                            html.H3("Capital assumptions", className="labelColor"),
                             html.Div(
                                 className="autolab-two-col",
                                 children=[
@@ -176,7 +176,7 @@ def build_auto_lab_tab() -> html.Div:
                     html.Div(
                         className="autolab-card",
                         children=[
-                            html.H3("Run limits"),
+                            html.H3("Run limits", className="autolab-label"),
                             html.Div(
                                 className="autolab-two-col",
                                 children=[
@@ -218,7 +218,7 @@ def build_auto_lab_tab() -> html.Div:
             html.Div(
                 className="autolab-card autolab-capital-card",
                 children=[
-                    html.H3("Current capital assumptions"),
+                    html.H3("Current capital assumptions", className="labelColor"),
                     html.Div(
                         id="main-autolab-capital-summary",
                         className="autolab-capital-summary-html",
@@ -241,7 +241,7 @@ def build_auto_lab_tab() -> html.Div:
             html.Div(
                 className="autolab-card",
                 children=[
-                    html.H3("AI Symbol Discovery Report"),
+                    html.H3("AI Symbol Discovery Report", className="labelColor"),
                     dcc.Markdown(
                         id="main-autolab-discovery-report",
                         children="No symbol discovery run yet. Enter seed symbols/theme and click **Suggest Symbols**.",
@@ -257,7 +257,7 @@ def build_auto_lab_tab() -> html.Div:
             html.Div(
                 className="autolab-card",
                 children=[
-                    html.H3("Command output"),
+                    html.H3("Command output", className="labelColor"),
                     dcc.Textarea(
                         id="main-autolab-command-output",
                         value="Ready. Refresh reports or start a research run.",
@@ -271,7 +271,7 @@ def build_auto_lab_tab() -> html.Div:
                     html.Div(
                         className="autolab-card autolab-report-card",
                         children=[
-                            html.H3("Latest Universe Report"),
+                            html.H3("Latest Universe Report", className="labelColor"),
                             dcc.Markdown(
                                 id="main-autolab-universe-report",
                                 children="No universe report loaded yet.",
@@ -282,7 +282,7 @@ def build_auto_lab_tab() -> html.Div:
                     html.Div(
                         className="autolab-card autolab-report-card",
                         children=[
-                            html.H3("Latest Walk-Forward Report"),
+                            html.H3("Latest Walk-Forward Report", className="labelColor"),
                             dcc.Markdown(
                                 id="main-autolab-walk-forward-report",
                                 children="No walk-forward report loaded yet.",
@@ -298,7 +298,7 @@ def build_auto_lab_tab() -> html.Div:
                     html.Div(
                         className="autolab-card autolab-report-card",
                         children=[
-                            html.H3("Universe Strategy Script / Algorithm"),
+                            html.H3("Universe Strategy Script / Algorithm", className="labelColor"),
                             dcc.Markdown(
                                 id="main-autolab-universe-script",
                                 children="No universe strategy script loaded yet.",
@@ -309,7 +309,7 @@ def build_auto_lab_tab() -> html.Div:
                     html.Div(
                         className="autolab-card autolab-report-card",
                         children=[
-                            html.H3("Walk-Forward Strategy Script / Algorithm"),
+                            html.H3("Walk-Forward Strategy Script / Algorithm", className="labelColor"),
                             dcc.Markdown(
                                 id="main-autolab-walk-forward-script",
                                 children="No walk-forward strategy script loaded yet.",
@@ -322,7 +322,7 @@ def build_auto_lab_tab() -> html.Div:
             html.Div(
                 className="autolab-card",
                 children=[
-                    html.H3("Report and script paths"),
+                    html.H3("Report and script paths", className="labelColor"),
                     html.Pre(
                         id="main-autolab-report-paths",
                         children="No report paths loaded yet.",

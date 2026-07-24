@@ -8,10 +8,10 @@ def build_postgres_status_panel():
         id="data-library-postgres-status-panel",
         className="data-library-postgres-panel",
         children=[
-            html.H3("PostgreSQL Research Database"),
+            html.H3("PostgreSQL Research Database", className="labelColor"),
             html.P(
                 "Check, set up, migrate, and ingest the optional PostgreSQL backend. "
-                "Passwords typed here are used for the current request only and are not saved."
+                "Passwords typed here are used for the current request only and are not saved.", className="data-library-muted"
             ),
             html.Details(
                 open=False,
@@ -20,7 +20,7 @@ def build_postgres_status_panel():
                     html.Div(
                         className="data-library-pg-grid",
                         children=[
-                            html.Label("Host", className=""),
+                            html.Label("Host", className="labelColor"),
                             dcc.Input(id="data-library-pg-host", type="text", value="localhost"),
                             html.Label("Port", className="labelColor"),
                             dcc.Input(id="data-library-pg-port", type="number", value=5432),
@@ -45,22 +45,23 @@ def build_postgres_status_panel():
             html.Details(
                 open=False,
                 children=[
-                    html.Summary("Local setup / repair database"),
+                    html.Summary("Local setup / repair database", className="labelColor"),
                     html.P(
-                        "Use this only for a local PostgreSQL server. The admin password is not saved."
+                        "Use this only for a local PostgreSQL server. The admin password is not saved.", className="data-library-muted"
                     ),
                     html.Div(
                         className="data-library-pg-grid",
                         children=[
-                            html.Label("Admin user"),
+                            html.Label("Admin user",className="labelColor"),
                             dcc.Input(id="data-library-pg-admin-user", type="text", value="postgres"),
-                            html.Label("Admin password"),
+                            html.Label("Admin password", className="labelColor"),
                             dcc.Input(
                                 id="data-library-pg-admin-password",
                                 type="password",
                                 value="",
                                 placeholder="Type postgres admin password",
                                 debounce=True,
+                                className="data-library-badge"
                             ),
                         ],
                     ),
@@ -91,10 +92,10 @@ def build_postgres_status_panel():
                     ),
                 ],
             ),
-            html.Div(id="data-library-pg-setup-output", className="data-library-pg-setup-output"),
-            html.Div(id="data-library-pg-status-output", className="data-library-pg-status-output"),
-            html.Div(id="data-library-pg-table-counts", className="data-library-pg-table-counts"),
-            html.Div(id="data-library-pg-last-run", className="data-library-pg-last-run"),
-            html.Div(id="data-library-pg-skipped-summary", className="data-library-pg-skipped-summary"),
+            html.Div(id="data-library-pg-setup-output", className="data-library-title"),
+            html.Div(id="data-library-pg-status-output", className="data-library-muted"),
+            html.Div(id="data-library-pg-table-counts", className="data-library-title"),
+            html.Div(id="data-library-pg-last-run", className="data-library-muted"),
+            html.Div(id="data-library-pg-skipped-summary", className="data-library-muted"),
         ],
     )
