@@ -150,8 +150,7 @@ html, body {
 .newsroom-page { padding:16px; }
 .newsroom-hero { margin-bottom:12px; }
 .newsroom-title { font-size: 24px; font-weight:800; }
-.newsroom-subtitle, .newsroom-help-text, .newsroom-status { color: var(--sv-text-secondary); }
-.newsroom-pill { border:1px solid var(--sv-border); border-radius: var(--sv-radius-pill); padding:4px 10px; }
+
 .newsroom-pill-safe { border-color: var(--sv-positive); color: #bbf7d0; }
 .newsroom-grid { display:grid; gap: var(--sv-space-3); grid-template-columns: 1fr 1fr 1fr; }
 .newsroom-panel { background: var(--sv-surface-1); }
@@ -159,11 +158,7 @@ html, body {
 .newsroom-result-checklist, .newsroom-results-list, .newsroom-brief-preview { border:1px solid var(--sv-border); border-radius: var(--sv-radius-md); padding: var(--sv-space-3); background: var(--sv-surface-2); }
 
 /* 18) Research Analyst */
-.research-analyst-panel { background: var(--sv-surface-1); }
-.research-analyst-title { font-weight:800; }
-.research-analyst-subtitle, .research-analyst-status { color: var(--sv-text-secondary); }
-.research-analyst-control { min-width:180px; }
-.research-analyst-control-max-output { min-width:170px; }
+
 
 /* 19) Responsive */
 @media (max-width: 1400px) {
@@ -1923,7 +1918,47 @@ color:white;
 .newsroom-title{
     color:white;
 }
-.newroom-p
+.newsroom-subtitle{
+    color:#a0aec0;
+}
+.newsroom-pill{
+    color:white;
+}
+.newsroom-panel-title{
+    color:white;
+}
+.newsroom-input {
+    color:black;
+}
+.newsroom-panel-subtitle{
+    color:#a0aec0;
+}
+
+.newsroom-grid{
+ color:white;
+}
+.newsroom-label{
+    color:#a0aec0;
+}
+.newsroom-source-card{
+    color:white;
+}
+.research-analyst-title{
+    color:white;
+}
+.research-analyst-subtitle{
+    color:#a0aec0;
+}
+.research-analyst-label{
+    color:white;
+}
+.research-analyst-help{
+    color:#a0aec0;
+}
+.research-analyst-help-text{
+    color:#a0aec0;
+}
+
 
 
 /* Newsroom End */
