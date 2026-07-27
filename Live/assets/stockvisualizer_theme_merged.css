@@ -106,10 +106,9 @@ html, body {
 .strategy-lab-header { display:flex; justify-content:space-between; align-items:center; gap:12px; margin-bottom:12px; }
 .strategy-inner-tabs { display:flex; gap: var(--sv-space-2); }
 .strategy-inner-tab { padding: 8px 12px; border:1px solid var(--sv-border); border-radius: var(--sv-radius-md); }
-.strategy-inner-tab-selected { border-color: var(--sv-accent); color: var(--sv-accent-light); }
 .strategy-ai-label { color: var(--sv-text-muted); font-size: var(--sv-text-sm); }
 .strategy-ai-textarea, .strategy-ai-contextarea { width:100%; min-height:120px; }
-.strategy-ai-status, .strategy-status { color: var(--sv-text-secondary); }
+
 
 /* 14) Quant Dashboard */
 .quant-native-page { box-sizing:border-box; padding:16px; min-height:70vh; }
@@ -221,6 +220,12 @@ body {
     color:white;
 }
 
+.watch-live-guard-title{
+    color:white;
+}
+.watch-live-guard-detail{
+    color:white;
+}
 /* =========================
    TOP BAR
 ========================= */
@@ -898,6 +903,34 @@ control-box:hover {
 .watch-workspace-panel.paper-trading-panel {
     margin-top: 0 !important;
 }
+
+.strategy-inner-tab{
+color:white;
+}
+
+.strategy-inner-tab-selected{
+    color:black;
+}
+.strategy-ai-title{
+    color:white;
+}
+.strategy-ai-subtitle{
+    color:#4a5568;
+}
+.strategy-ai-label{
+    color:white;
+}
+.strategy-ai-context-status{
+    color:#4a5568;
+}
+.strategy-ai-advisor-status{
+    color:#4a5568;
+}
+.strategy-ai-status{
+    color:#4a5568;}
+
+
+
 
 /* =========================
    STRATEGY LAB
@@ -1784,6 +1817,7 @@ control-box:hover {
         min-width: 0;
     }
 }
+
 /* Settings Tab Start */
 .settings-title{
     color:white;
@@ -1883,8 +1917,20 @@ color:white;
 .autolab-path-box-secondary{
      color:#a0aec0;
 }
-
 /* Auto Lab End */
+
+/* Newsroom Start */
+.newsroom-title{
+    color:white;
+}
+.newroom-p
+
+
+/* Newsroom End */
+
+
+
+
 
 
 /* Force white styling for the replay slider with maximum precedence */

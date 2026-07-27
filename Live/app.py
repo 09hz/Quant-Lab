@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-# Load local .env values before app services read configuration.
 try:
     from services.config.env_loader import load_app_env
 

@@ -926,7 +926,6 @@ def _build_strategy_help_panel():
                     html.Div(
                         className="strategy-help-example-control",
                         children=[
-                            html.Label("Load Example"),
                             dcc.Dropdown(
                                 id="strategy-example-dropdown",
                                 options=[
