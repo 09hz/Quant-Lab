@@ -412,6 +412,7 @@ try:
             return _v23_4_1_dcc.Tab(
                 label="Data Library",
                 value="data-library",
+                className="main-tab",
                 children=[_v23_4_1_build_data_library_layout()],
             )
         except Exception:

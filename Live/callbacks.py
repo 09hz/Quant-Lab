@@ -1382,10 +1382,6 @@ def register_callbacks(
             after_idx = max(1, int(info_after.get("current_index", 1) or 1))
             after_max_idx = max(1, int(info_after.get("max_index", before_max_idx) or before_max_idx))
 
-            # End-of-replay guard:
-            # Some replay engines leave `playing=True` at the final cursor.
-            # Force a pause and one final render so full overlays/backgrounds
-            # and paper markers are restored at the end of playback.
             if after_idx >= after_max_idx:
                 try:
                     replay_service.pause()

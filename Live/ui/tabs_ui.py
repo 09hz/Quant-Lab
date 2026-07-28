@@ -854,10 +854,7 @@ def build_charts_tab():
     # The old Charts slot has been repurposed as Settings.
     return build_settings_tab()
 
-# >>> PATCH_21_NEWSROOM_SETTINGS_COMPAT
 
-# Compatibility wrappers after the Quotes/Charts room repurpose.
-# These wrappers accept legacy app.py arguments like symbol_options/default_symbol/default_timeframe.
 def build_charts_tab(*args, **kwargs):
     try:
         from ui.settings_ui import build_settings_tab as _build_settings_tab
