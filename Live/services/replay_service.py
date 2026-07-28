@@ -51,6 +51,11 @@ class ReplayService:
         self.current_replay_date: Optional[str] = None
         self.current_replay_end_date: Optional[str] = None
 
+    def _range_cache_date_key(self, start_date: Optional[str], end_date: Optional[str]) -> str:
+        start_key = str(start_date or "").strip() or "unknown_start"
+        end_key = str(end_date or start_key).strip() or start_key
+        return f"__range__{start_key}__{end_key}"
+
     # ------------------------------------------------------------------
     # Cache keys / cache controls
     # ------------------------------------------------------------------
@@ -544,6 +549,53 @@ class ReplayService:
             flush=True,
         )
 
+        range_cache_key = self._make_cache_key(
+            symbol,
+            load_timeframe,
+            self._range_cache_date_key(start.date().isoformat(), end.date().isoformat()),
+        )
+
+        if not force_refresh:
+            cached_range = self.memory_cache.get(range_cache_key)
+            if cached_range is None or cached_range.empty:
+                cached_range = self.bar_store.read(
+                    symbol,
+                    load_timeframe,
+                    self._range_cache_date_key(start.date().isoformat(), end.date().isoformat()),
+                )
+                if cached_range is not None and not cached_range.empty:
+                    self.memory_cache[range_cache_key] = cached_range.copy()
+                    print(
+                        f"[REPLAY RANGE CACHE] disk hit {range_cache_key} rows={len(cached_range):,}",
+                        flush=True,
+                    )
+            else:
+                print(
+                    f"[REPLAY RANGE CACHE] memory hit {range_cache_key} rows={len(cached_range):,}",
+                    flush=True,
+                )
+
+            if cached_range is not None and not cached_range.empty:
+                stitched = self._normalize_replay_bars(cached_range)
+
+                if stitched.empty:
+                    self.memory_cache.pop(range_cache_key, None)
+                else:
+                    self.current_symbol = symbol
+                    self.current_timeframe = load_timeframe
+                    self.current_replay_date = start.date().isoformat()
+                    self.current_replay_end_date = end.date().isoformat()
+                    self.engine.reset()
+                    self.engine.load_from_df(stitched)
+                    if speed is not None:
+                        self.engine.set_speed(speed)
+                    print(
+                        f"[REPLAY RANGE CACHE LOAD] {symbol} {start.date().isoformat()} -> "
+                        f"{end.date().isoformat()} rows={len(stitched):,}",
+                        flush=True,
+                    )
+                    return stitched
+
         chunks: list[pd.DataFrame] = []
 
         for day in days:
@@ -606,6 +658,14 @@ class ReplayService:
 
         if speed is not None:
             self.engine.set_speed(speed)
+
+        self.memory_cache[range_cache_key] = stitched.copy()
+        self.bar_store.write(
+            symbol,
+            load_timeframe,
+            self._range_cache_date_key(start.date().isoformat(), end.date().isoformat()),
+            stitched,
+        )
 
         print(
             f"[REPLAY RANGE] installed stitched dataset: "
@@ -725,8 +785,8 @@ class ReplayService:
     def loaded_bars(self) -> pd.DataFrame:
         return self.all_bars()
 
-    def visible_bars(self) -> pd.DataFrame:
-        return self.engine.visible_bars()
+    def visible_bars(self, limit: Optional[int] = None) -> pd.DataFrame:
+        return self.engine.visible_bars(limit=limit)
 
     def current_bar(self):
         return self.engine.current_bar()
@@ -736,3 +796,27 @@ class ReplayService:
 
     def reset(self) -> None:
         self.engine.reset()
+
+
+# ------------------------------------------------------------------
+# Historical snippets kept for reference during the performance refactor.
+# ------------------------------------------------------------------
+# def visible_bars(self) -> pd.DataFrame:
+#     return self.engine.visible_bars()
+#
+# def load_date_range(
+#     self,
+#     symbol: str,
+#     start_date,
+#     end_date,
+#     timeframe: str = "1 min",
+#     speed: Optional[float] = 1,
+#     force_refresh: bool = False,
+# ) -> pd.DataFrame:
+#     days: list[str] = []
+#     current = start.normalize()
+#     while current <= end.normalize():
+#         if int(current.weekday()) < 5:
+#             days.append(current.date().isoformat())
+#         current = current + pd.Timedelta(days=1)
+#     chunks: list[pd.DataFrame] = []

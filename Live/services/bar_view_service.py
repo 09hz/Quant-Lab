@@ -53,6 +53,9 @@ class BarViewService:
         "1 day": "1D",
     }
 
+    def __init__(self) -> None:
+        self._resample_cache: dict[tuple[str, int, str, str, str], pd.DataFrame] = {}
+
     def normalize_timeframe(self, timeframe: str | None) -> str:
         raw = str(timeframe or "1 min").strip().lower()
         return self.TIMEFRAME_ALIASES.get(raw, str(timeframe or "1 min").strip())
@@ -128,6 +131,21 @@ class BarViewService:
         if rule is None:
             return df
 
+        first_time = ""
+        last_time = ""
+        if "time" in df.columns and not df.empty:
+            try:
+                first_time = str(df["time"].iloc[0])
+                last_time = str(df["time"].iloc[-1])
+            except Exception:
+                first_time = ""
+                last_time = ""
+
+        cache_key = (timeframe, len(df), first_time, last_time, rule)
+        cached = self._resample_cache.get(cache_key)
+        if cached is not None and not cached.empty:
+            return cached.copy()
+
         work = df.copy().set_index("time")
 
         out = work.resample(rule).agg(
@@ -141,7 +159,10 @@ class BarViewService:
         )
 
         out = out.dropna(subset=["open", "high", "low", "close"]).reset_index()
-        return self.clean_bars(out)
+        cleaned = self.clean_bars(out)
+        if not cleaned.empty:
+            self._resample_cache[cache_key] = cleaned.copy()
+        return cleaned
 
     def get_replay_full_bars(self, replay_service: Any) -> pd.DataFrame:
         """
@@ -176,6 +197,7 @@ class BarViewService:
         symbol: str,
         display_timeframe: str,
         use_live_watch_data: bool,
+        replay_visible_limit: int | None = None,
     ) -> WatchBarsView:
         symbol = str(symbol or "").upper().strip()
         display_timeframe = self.normalize_timeframe(display_timeframe)
@@ -268,7 +290,9 @@ class BarViewService:
                 )
 
         try:
-            visible = self.clean_bars(replay_service.visible_bars())
+            visible = self.clean_bars(
+                replay_service.visible_bars(limit=replay_visible_limit)
+            )
         except Exception as exc:
             return self.empty_view(
                 symbol=symbol,
@@ -303,3 +327,32 @@ class BarViewService:
             chart_label="Replay Cursor",
             error=None,
         )
+
+
+# ------------------------------------------------------------------
+# Historical snippets kept for reference during the performance refactor.
+# ------------------------------------------------------------------
+# def resample_bars(
+#     self,
+#     bars: pd.DataFrame | None,
+#     display_timeframe: str | None,
+# ) -> pd.DataFrame:
+#     df = self.clean_bars(bars)
+#     timeframe = self.normalize_timeframe(display_timeframe)
+#     if df.empty:
+#         return df
+#     rule = self.RESAMPLE_RULES.get(timeframe)
+#     if rule is None:
+#         return df
+#     work = df.copy().set_index("time")
+#
+# def build_watch_view(
+#     self,
+#     *,
+#     market_data_provider: Any,
+#     replay_service: Any,
+#     symbol: str,
+#     display_timeframe: str,
+#     use_live_watch_data: bool,
+# ) -> WatchBarsView:
+#     visible = self.clean_bars(replay_service.visible_bars())

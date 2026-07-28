@@ -93,6 +93,7 @@ def build_dashboard_tab(symbol_options, timeframe_map, default_symbol, default_t
                                 placeholder="Search ticker, symbol, or company...",
                                 searchable=True,
                                 clearable=False,
+                                className="dropColor"
                             ),
                         ],
                     ),
@@ -106,6 +107,7 @@ def build_dashboard_tab(symbol_options, timeframe_map, default_symbol, default_t
                                 value=default_timeframe,
                                 clearable=False,
                                 searchable=False,
+                                className="dropColor"
 
                             ),
                         ],
@@ -644,6 +646,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                                 placeholder="Search ticker, symbol, or company...",
                                 searchable=True,
                                 clearable=False,
+                                className="black-dropdown"
                             ),
                         ],
                     ),
@@ -678,6 +681,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                                 value=default_speed,
                                 clearable=False,
                                 searchable=False,
+                                className="black-dropdown"
                             ),
                         ],
                     ),
@@ -751,6 +755,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                                 max=100,
                                 step=1,
                                 value=default_index,
+                                className="black"
                             ),
                         ],
                     ),
@@ -936,6 +941,7 @@ def _build_strategy_help_panel():
                                 value="ema_crossover.txt",
                                 clearable=False,
                                 searchable=False,
+                                className="strategy-help-dropdown"
                             ),
                         ],
                     ),

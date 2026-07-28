@@ -177,10 +177,21 @@ class ReplayEngine:
             self.progress = 0.0
             self.last_tick_time = None
 
-    def visible_bars(self) -> pd.DataFrame:
+    def visible_bars(self, limit: Optional[int] = None) -> pd.DataFrame:
         if self.bars.empty:
             return self.bars.copy()
-        return self.bars.iloc[:self.current_index].copy()
+        end_index = max(1, min(int(self.current_index or 1), len(self.bars)))
+
+        if limit is not None:
+            try:
+                safe_limit = max(1, int(limit))
+            except Exception:
+                safe_limit = None
+            if safe_limit is not None:
+                start_index = max(0, end_index - safe_limit)
+                return self.bars.iloc[start_index:end_index].copy()
+
+        return self.bars.iloc[:end_index].copy()
 
     def current_bar(self) -> Optional[pd.Series]:
         visible = self.visible_bars()
@@ -195,3 +206,12 @@ class ReplayEngine:
             "current_index": self.current_index,
             "max_index": len(self.bars),
         }
+
+
+# ------------------------------------------------------------------
+# Historical snippet kept for reference during the performance refactor.
+# ------------------------------------------------------------------
+# def visible_bars(self) -> pd.DataFrame:
+#     if self.bars.empty:
+#         return self.bars.copy()
+#     return self.bars.iloc[:self.current_index].copy()

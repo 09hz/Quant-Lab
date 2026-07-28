@@ -9,7 +9,7 @@
   --surface-2: #151515;
   --surface-3: #1b1b1b;
   --ink: #f5f5f5;
-  --ink-2: #c7c7c7;
+  --ink-2: #fcffff;
   --muted: #898989;
   --line: #343434;
   --line-strong: #666666;
@@ -31,6 +31,10 @@
   --sans: Arial, Helvetica, sans-serif;
   --mono: "Courier New", Courier, monospace;
 }
+.dropColor{
+  color:black;
+}
+
 
 *, *::before, *::after { box-sizing: border-box; }
 html { min-height: 100%; background: var(--bg); }
@@ -92,23 +96,22 @@ input::placeholder, textarea::placeholder { color: #666; opacity: 1; }
 label, .control-label, .input-label, .analytics-label, .paper-control-label, .autolab-label, .newsroom-label, .strategy-ai-label, .research-analyst-label { display: block; margin: 0 0 6px; color: var(--ink-2); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 
 /* Dash dropdowns — intentionally black text on white */
-.Select-control, .Select-menu-outer, .VirtualizedSelectOption, .VirtualizedSelectFocusedOption, .dash-dropdown .Select-control, .autolab-dropdown .Select-control, .data-library-dropdown .Select-control, .strategy-ai-dropdown .Select-control { border-radius: 0 !important; background: var(--white) !important; color: var(--black) !important; border-color: var(--black) !important; }
+.Select-control, .Select-menu-outer, .VirtualizedSelectOption, .VirtualizedSelectFocusedOption, .dash-dropdown .Select-control, .autolab-dropdown .Select-control, .data-library-dropdown .Select-control,  .Select-control { border-radius: 0 !important; background: white !important; color: black !important; border-color:black!important; }
 .Select-placeholder, .Select-value-label, .Select-input > input { color: var(--black) !important; }
 .Select-menu-outer { z-index: 10000 !important; border: 1px solid var(--black) !important; }
 .VirtualizedSelectOption { padding: 9px 11px; }
 .VirtualizedSelectFocusedOption { background: #e8e8e8 !important; }
-/*
-.black-dropdown {
-  background: #000 !important;
-  color: #fff !important;
-  border-color: #fff !important;
+/* Dropdown */
+.strategy-ai-dropdown{color:black;}
+.strategy-help-dropdown{color:black;}
+.black-dropdown{color:black;}
+.black{
+  color:black;
 }
-*/
 
 /* Date picker */
-.date-picker-dark .DateInput, .date-picker-dark .DateInput_input, .date-picker-dark .SingleDatePickerInput { width: 100%; border-radius: 0 !important; background: var(--white) !important; color: var(--black) !important; border-color: var(--black) !important; }
-.DateRangePicker_picker, .SingleDatePicker_picker, .DayPicker, .CalendarMonth, .CalendarMonthGrid { background: var(--white) !important; color: var(--black) !important; }
-.CalendarDay { border-radius: 0 !important; background: var(--white) !important; color: var(--black) !important; border-color: #ccc !important; }
+.date-picker-dark{color:black;}
+
 .CalendarDay__selected, .CalendarDay__selected:hover { background: var(--black) !important; color: var(--white) !important; border-color: var(--black) !important; }
 
 /* Shared panels/cards */

@@ -507,6 +507,10 @@ def _replay_job_progress_children(snapshot):
         ],
     )
 
+REPLAY_ACTIVE_RENDER_BAR_LIMIT = 1800
+REPLAY_ACTIVE_METRICS_UPDATE_EVERY = 8
+
+
 def _default_chart_state(range_key="1D"):
     return {
         "mode": "live",
@@ -2556,6 +2560,12 @@ def register_callbacks(
                 replay_idx_for_render = 1
                 replay_max_idx_for_render = 1
 
+            replay_visible_limit = (
+                REPLAY_ACTIVE_RENDER_BAR_LIMIT
+                if is_replay_playing_for_render
+                else None
+            )
+
 
             watch_view = bar_view_service.build_watch_view(
                 market_data_provider=market_data_provider,
@@ -2563,6 +2573,7 @@ def register_callbacks(
                 symbol=symbol,
                 display_timeframe=display_timeframe,
                 use_live_watch_data=use_live_watch_data,
+                replay_visible_limit=replay_visible_limit,
             )
 
             visible = watch_view.visible_bars
@@ -2643,6 +2654,27 @@ def register_callbacks(
 
                         if snapshot is not None:
                             strategy_result = snapshot.result
+                            render_strategy_result = strategy_result
+
+                            try:
+                                if (
+                                        source_label == "replay"
+                                        and chart_bars is not None
+                                        and not chart_bars.empty
+                                ):
+                                    render_strategy_result = (
+                                        strategy_overlay_service.engine.filter_result_to_bars(
+                                            result=strategy_result,
+                                            source_bars=strategy_source_bars,
+                                            target_bars=chart_bars,
+                                        )
+                                    )
+                            except Exception as strategy_filter_exc:
+                                print(
+                                    f"[STRATEGY FILTER WARNING] {strategy_filter_exc}",
+                                    flush=True,
+                                )
+                                render_strategy_result = strategy_result
 
                             warning_key = (
                                 symbol,
@@ -2672,7 +2704,7 @@ def register_callbacks(
                                 fig=fig,
                                 engine=strategy_overlay_service.engine,
                                 chart_bars=chart_bars,
-                                strategy_result=strategy_result,
+                                strategy_result=render_strategy_result,
                                 is_replay_playing=is_replay_playing,
                                 context="WATCH",
                             )
@@ -2796,6 +2828,7 @@ def register_callbacks(
             return no_update, no_update
 
         symbol = (symbol or DEFAULT_SYMBOL).upper().strip()
+        trigger_id = ctx.triggered_id
 
         try:
             price_source = str(price_source or "replay").lower().strip()
@@ -2806,12 +2839,31 @@ def register_callbacks(
                     and _is_today_or_latest_replay_date(replay_date)
             )
 
+            if not use_live_watch_data and trigger_id == "replay-render-trigger":
+                try:
+                    replay_info = replay_service.info()
+                    replay_idx = int(replay_info.get("current_index", 1) or 1)
+                    replay_playing = bool(replay_info.get("playing"))
+                    if (
+                            replay_playing
+                            and replay_idx > 1
+                            and (replay_idx % REPLAY_ACTIVE_METRICS_UPDATE_EVERY) != 0
+                    ):
+                        return no_update, no_update
+                except Exception:
+                    pass
+
             watch_view = bar_view_service.build_watch_view(
                 market_data_provider=market_data_provider,
                 replay_service=replay_service,
                 symbol=symbol,
                 display_timeframe=display_timeframe,
                 use_live_watch_data=use_live_watch_data,
+                replay_visible_limit=(
+                    REPLAY_ACTIVE_RENDER_BAR_LIMIT
+                    if not use_live_watch_data
+                    else None
+                ),
             )
 
             if watch_view.is_empty:
@@ -3628,3 +3680,18 @@ def register_callbacks(
                 template="plotly_dark",
             )
             return f"Charts error: {exc}", fig
+
+
+# ------------------------------------------------------------------
+# Historical snippets kept for reference during the performance refactor.
+# ------------------------------------------------------------------
+# REPLAY_ACTIVE_RENDER_BAR_LIMIT = None
+# REPLAY_ACTIVE_METRICS_UPDATE_EVERY = 1
+#
+# watch_view = bar_view_service.build_watch_view(
+#     market_data_provider=market_data_provider,
+#     replay_service=replay_service,
+#     symbol=symbol,
+#     display_timeframe=display_timeframe,
+#     use_live_watch_data=use_live_watch_data,
+# )
