@@ -51,6 +51,83 @@ class ReplayService:
         self.current_replay_date: Optional[str] = None
         self.current_replay_end_date: Optional[str] = None
 
+    def _range_cache_date_key(self, start_date: Optional[str], end_date: Optional[str]) -> str:
+        start_key = str(start_date or "").strip() or "unknown_start"
+        end_key = str(end_date or start_key).strip() or start_key
+        return f"__range__{start_key}__{end_key}"
+
+    def _expected_trading_days_in_range(
+        self,
+        start_date,
+        end_date,
+    ) -> list[pd.Timestamp]:
+        start = pd.to_datetime(start_date, errors="coerce")
+        end = pd.to_datetime(end_date, errors="coerce")
+
+        if pd.isna(start) or pd.isna(end):
+            return []
+
+        if end < start:
+            start, end = end, start
+
+        days: list[pd.Timestamp] = []
+        current = start.normalize()
+
+        while current <= end.normalize():
+            if int(current.weekday()) < 5:
+                days.append(current)
+            current = current + pd.Timedelta(days=1)
+
+        return days
+
+    def _validate_range_span(
+        self,
+        bars: pd.DataFrame | None,
+        start_date,
+        end_date,
+    ) -> tuple[bool, str]:
+        df = self._normalize_replay_bars(bars)
+        if df.empty:
+            return False, "empty range"
+
+        expected_days = self._expected_trading_days_in_range(start_date, end_date)
+        if not expected_days:
+            return True, "no weekday expectation"
+
+        try:
+            actual_times = pd.to_datetime(df["time"], errors="coerce", format="mixed").dropna()
+        except Exception:
+            actual_times = pd.Series(dtype="datetime64[ns]")
+
+        if actual_times.empty:
+            return False, "no valid timestamps"
+
+        actual_first = actual_times.min().normalize()
+        actual_last = actual_times.max().normalize()
+        expected_first = expected_days[0]
+        expected_last = expected_days[-1]
+
+        start_gap_days = int((actual_first - expected_first).days)
+        end_gap_days = int((expected_last - actual_last).days)
+
+        # Allow short weekend/holiday gaps, but reject large truncation.
+        if start_gap_days > 3:
+            return False, (
+                f"range starts too late: expected about {expected_first.date().isoformat()} "
+                f"got {actual_first.date().isoformat()}"
+            )
+
+        if end_gap_days > 3:
+            return False, (
+                f"range ends too early: expected about {expected_last.date().isoformat()} "
+                f"got {actual_last.date().isoformat()}"
+            )
+
+        return True, (
+            f"range span ok: {actual_first.date().isoformat()} -> "
+            f"{actual_last.date().isoformat()}"
+        )
+
     # ------------------------------------------------------------------
     # Cache keys / cache controls
     # ------------------------------------------------------------------
@@ -516,13 +593,7 @@ class ReplayService:
         if start.date() > today or end.date() > today:
             raise ValueError("Replay date range cannot include future dates.")
 
-        days: list[str] = []
-        current = start.normalize()
-
-        while current <= end.normalize():
-            if int(current.weekday()) < 5:
-                days.append(current.date().isoformat())
-            current = current + pd.Timedelta(days=1)
+        days = [day.date().isoformat() for day in self._expected_trading_days_in_range(start, end)]
 
         if not days:
             raise ValueError("No weekday trading days found in selected range.")
@@ -543,6 +614,67 @@ class ReplayService:
             f"load_timeframe={load_timeframe}",
             flush=True,
         )
+
+        range_cache_key = self._make_cache_key(
+            symbol,
+            load_timeframe,
+            self._range_cache_date_key(start.date().isoformat(), end.date().isoformat()),
+        )
+
+        if not force_refresh:
+            cached_range = self.memory_cache.get(range_cache_key)
+            if cached_range is None or cached_range.empty:
+                cached_range = self.bar_store.read(
+                    symbol,
+                    load_timeframe,
+                    self._range_cache_date_key(start.date().isoformat(), end.date().isoformat()),
+                )
+                if cached_range is not None and not cached_range.empty:
+                    self.memory_cache[range_cache_key] = cached_range.copy()
+                    print(
+                        f"[REPLAY RANGE CACHE] disk hit {range_cache_key} rows={len(cached_range):,}",
+                        flush=True,
+                    )
+            else:
+                print(
+                    f"[REPLAY RANGE CACHE] memory hit {range_cache_key} rows={len(cached_range):,}",
+                    flush=True,
+                )
+
+            if cached_range is not None and not cached_range.empty:
+                stitched = self._normalize_replay_bars(cached_range)
+                range_ok, range_reason = self._validate_range_span(
+                    stitched,
+                    start,
+                    end,
+                )
+
+                if stitched.empty or not range_ok:
+                    self.memory_cache.pop(range_cache_key, None)
+                    self.bar_store.delete(
+                        symbol,
+                        load_timeframe,
+                        self._range_cache_date_key(start.date().isoformat(), end.date().isoformat()),
+                    )
+                    print(
+                        f"[REPLAY RANGE CACHE INVALID] {range_cache_key} reason={range_reason}",
+                        flush=True,
+                    )
+                else:
+                    self.current_symbol = symbol
+                    self.current_timeframe = load_timeframe
+                    self.current_replay_date = start.date().isoformat()
+                    self.current_replay_end_date = end.date().isoformat()
+                    self.engine.reset()
+                    self.engine.load_from_df(stitched)
+                    if speed is not None:
+                        self.engine.set_speed(speed)
+                    print(
+                        f"[REPLAY RANGE CACHE LOAD] {symbol} {start.date().isoformat()} -> "
+                        f"{end.date().isoformat()} rows={len(stitched):,} {range_reason}",
+                        flush=True,
+                    )
+                    return stitched
 
         chunks: list[pd.DataFrame] = []
 
@@ -596,6 +728,16 @@ class ReplayService:
         if stitched.empty:
             raise ValueError("Replay date range became empty after cleaning.")
 
+        range_ok, range_reason = self._validate_range_span(
+            stitched,
+            start,
+            end,
+        )
+        if not range_ok:
+            raise ValueError(
+                f"Replay date range loaded incompletely for {symbol}: {range_reason}"
+            )
+
         self.current_symbol = symbol
         self.current_timeframe = load_timeframe
         self.current_replay_date = start.date().isoformat()
@@ -607,10 +749,18 @@ class ReplayService:
         if speed is not None:
             self.engine.set_speed(speed)
 
+        self.memory_cache[range_cache_key] = stitched.copy()
+        self.bar_store.write(
+            symbol,
+            load_timeframe,
+            self._range_cache_date_key(start.date().isoformat(), end.date().isoformat()),
+            stitched,
+        )
+
         print(
             f"[REPLAY RANGE] installed stitched dataset: "
             f"{symbol} {start.date().isoformat()} -> {end.date().isoformat()} "
-            f"{len(stitched):,} bars.",
+            f"{len(stitched):,} bars. {range_reason}",
             flush=True,
         )
 
@@ -725,8 +875,8 @@ class ReplayService:
     def loaded_bars(self) -> pd.DataFrame:
         return self.all_bars()
 
-    def visible_bars(self) -> pd.DataFrame:
-        return self.engine.visible_bars()
+    def visible_bars(self, limit: Optional[int] = None) -> pd.DataFrame:
+        return self.engine.visible_bars(limit=limit)
 
     def current_bar(self):
         return self.engine.current_bar()
@@ -736,3 +886,27 @@ class ReplayService:
 
     def reset(self) -> None:
         self.engine.reset()
+
+
+# ------------------------------------------------------------------
+# Historical snippets kept for reference during the performance refactor.
+# ------------------------------------------------------------------
+# def visible_bars(self) -> pd.DataFrame:
+#     return self.engine.visible_bars()
+#
+# def load_date_range(
+#     self,
+#     symbol: str,
+#     start_date,
+#     end_date,
+#     timeframe: str = "1 min",
+#     speed: Optional[float] = 1,
+#     force_refresh: bool = False,
+# ) -> pd.DataFrame:
+#     days: list[str] = []
+#     current = start.normalize()
+#     while current <= end.normalize():
+#         if int(current.weekday()) < 5:
+#             days.append(current.date().isoformat())
+#         current = current + pd.Timedelta(days=1)
+#     chunks: list[pd.DataFrame] = []

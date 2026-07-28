@@ -5,4 +5,7 @@ DEFAULT_TIMEFRAME = "1 min"
 DEFAULT_REPLAY_SPEED = 1.0
 DEFAULT_REPLAY_INDEX = 100
 APP_TITLE = "Stock Visualizer"
-UI_INTERVAL_MS = 150
+UI_INTERVAL_MS = 500
+
+# Historical snippet kept for reference during the replay buffering refactor.
+# UI_INTERVAL_MS = 150

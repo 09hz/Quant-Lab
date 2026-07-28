@@ -93,7 +93,7 @@ def build_dashboard_tab(symbol_options, timeframe_map, default_symbol, default_t
                                 placeholder="Search ticker, symbol, or company...",
                                 searchable=True,
                                 clearable=False,
-                                className="black-dropdown",
+                                className="dropColor"
                             ),
                         ],
                     ),
@@ -106,15 +106,16 @@ def build_dashboard_tab(symbol_options, timeframe_map, default_symbol, default_t
                                 options=make_timeframe_options(timeframe_map),
                                 value=default_timeframe,
                                 clearable=False,
-                                searchable=True,
-                                className="black-dropdown",
+                                searchable=False,
+                                className="dropColor"
+
                             ),
                         ],
                     ),
                 ],
             ),
-            html.Div(id="load-status-text", className="status-text"),
             html.Div(id="dashboard-metrics-strip", className="metrics-strip"),
+            html.Div(id="load-status-text", className="status-text"),
             html.Div(
                 className="range-row chart-control-row",
                 children=make_chart_control_buttons("dashboard"),
@@ -645,7 +646,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                                 placeholder="Search ticker, symbol, or company...",
                                 searchable=True,
                                 clearable=False,
-                                className="black-dropdown",
+                                className="black-dropdown"
                             ),
                         ],
                     ),
@@ -679,8 +680,8 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                                 options=make_replay_speed_options(),
                                 value=default_speed,
                                 clearable=False,
-                                searchable=True,
-                                className="black-dropdown",
+                                searchable=False,
+                                className="black-dropdown"
                             ),
                         ],
                     ),
@@ -694,7 +695,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                                 display_format="MM/DD/YYYY",
                                 max_date_allowed=date.today(),
                                 disabled_days=make_disabled_weekend_days(),
-                                className="date-picker-dark",
+                                className="DatePickerSingle black-dropdown",
                             ),
                         ],
                     ),
@@ -708,7 +709,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                                 display_format="MM/DD/YYYY",
                                 max_date_allowed=date.today(),
                                 disabled_days=make_disabled_weekend_days(),
-                                className="date-picker-dark",
+                                className="DatePickerSingle black-dropdown",
                             ),
                         ],
                     ),
@@ -735,10 +736,10 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                             html.Label("Playback"),
                             html.Div(
                                 [
-                                    html.Button("▶ Play", id="replay-play", n_clicks=0),
-                                    html.Button("⏸ Pause", id="replay-pause", n_clicks=0),
-                                    html.Button("→ Step", id="replay-step", n_clicks=0),
-                                    html.Button("← Rewind", id="replay-rewind", n_clicks=0),
+                                    html.Button("Play", id="replay-play", n_clicks=0),
+                                    html.Button("Pause", id="replay-pause", n_clicks=0),
+                                    html.Button("Step", id="replay-step", n_clicks=0),
+                                    html.Button("Rewind", id="replay-rewind", n_clicks=0),
                                 ],
                                 style={"display": "flex", "gap": "8px", "flexWrap": "wrap"},
                             ),
@@ -754,13 +755,13 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                                 max=100,
                                 step=1,
                                 value=default_index,
+                                className="black"
                             ),
                         ],
                     ),
                 ],
             ),
             html.Div( id="watch-live-guard-banner", className="watch-live-guard-banner",children=[],),
-            html.Div(id="watch-status", className="status-text"),
             html.Div(
                 id="replay-range-job-panel",
                 className="replay-range-job-panel",
@@ -776,6 +777,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                 ],
             ),
             html.Div(id="watch-metrics-strip", className="metrics-strip"),
+            html.Div(id="watch-status", className="status-text"),
             html.Div(
                 className="range-row chart-control-row",
                 children=make_chart_control_buttons("watch"),
@@ -803,64 +805,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
     )
 
 
-def build_quotes_tab(symbol_options, default_symbol):
-    return build_newsroom_tab()
 
-
-# --- Patch 20b compatibility aliases ---
-# Keep old app.py imports working while visible rooms are repurposed.
-def build_quotes_tab(*args, **kwargs):
-    # Compatibility: the old Quotes room now renders Newsroom.
-    return build_newsroom_tab(*args, **kwargs)
-
-
-def build_charts_tab(*args, **kwargs):
-    # Compatibility: app.py may still import build_charts_tab after Charts became Settings.
-    try:
-        return build_settings_tab(*args, **kwargs)  # type: ignore[name-defined]
-    except Exception:
-        from dash import html
-        return html.Div(
-            [
-                html.H3("Settings"),
-                html.Div("Settings tab builder is not available."),
-            ],
-            className="settings-tab-placeholder",
-        )
-# --- End Patch 20b compatibility aliases ---
-# --- Patch 20c compatibility restore: Settings/Charts tab builders ---
-# Keep this at the bottom so it overrides temporary fallback builders created by
-# tab-repurposing patches.
-try:
-    from ui.settings_ui import build_settings_tab as _restored_build_settings_tab
-except Exception:
-    try:
-        from .settings_ui import build_settings_tab as _restored_build_settings_tab
-    except Exception:
-        _restored_build_settings_tab = None
-
-
-def build_settings_tab():
-    if _restored_build_settings_tab is not None:
-        return _restored_build_settings_tab()
-    from dash import html
-    return html.Div(
-        [
-            html.H2("Settings"),
-            html.Div("Settings tab builder failed to import ui.settings_ui."),
-        ],
-        className="settings-tab settings-tab-error",
-    )
-
-
-def build_charts_tab():
-    # The old Charts slot has been repurposed as Settings.
-    return build_settings_tab()
-
-# >>> PATCH_21_NEWSROOM_SETTINGS_COMPAT
-
-# Compatibility wrappers after the Quotes/Charts room repurpose.
-# These wrappers accept legacy app.py arguments like symbol_options/default_symbol/default_timeframe.
 def build_charts_tab(*args, **kwargs):
     try:
         from ui.settings_ui import build_settings_tab as _build_settings_tab
@@ -904,7 +849,6 @@ def build_newsroom_tab(*args, **kwargs):
     except TypeError:
         from ui.newsroom_ui import build_newsroom_tab as _build_newsroom_tab
         return _build_newsroom_tab()
-# <<< PATCH_21_NEWSROOM_SETTINGS_COMPAT
 
 # =============================================================================
 # Strategy Lab Help Panel Restore
@@ -929,7 +873,6 @@ def _build_strategy_help_panel():
                     html.Div(
                         className="strategy-help-example-control",
                         children=[
-                            html.Label("Load Example"),
                             dcc.Dropdown(
                                 id="strategy-example-dropdown",
                                 options=[
@@ -943,7 +886,7 @@ def _build_strategy_help_panel():
                                 value="ema_crossover.txt",
                                 clearable=False,
                                 searchable=False,
-                                className="black-dropdown",
+                                className="strategy-help-dropdown"
                             ),
                         ],
                     ),

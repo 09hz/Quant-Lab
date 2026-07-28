@@ -75,7 +75,7 @@ def build_data_library_layout():
                     html.Div(
                         className="data-library-field",
                         children=[
-                            html.Label("Artifact type", htmlFor="data-library-artifact-type-filter"),
+                            html.Label("Artifact type", className="labelColor"),
                             dcc.Dropdown(
                                 id="data-library-artifact-type-filter",
                                 options=ARTIFACT_TYPE_OPTIONS,
@@ -88,7 +88,7 @@ def build_data_library_layout():
                     html.Div(
                         className="data-library-field data-library-small-field",
                         children=[
-                            html.Label("Extension", htmlFor="data-library-extension-filter"),
+                            html.Label("Extension", className="labelColor"),
                             dcc.Dropdown(
                                 id="data-library-extension-filter",
                                 options=EXTENSION_OPTIONS,
@@ -101,7 +101,7 @@ def build_data_library_layout():
                     html.Div(
                         className="data-library-field",
                         children=[
-                            html.Label("Search", htmlFor="data-library-search-input"),
+                            html.Label("Search", className="labelColor"),
                             dcc.Input(
                                 id="data-library-search-input",
                                 type="text",
@@ -114,7 +114,7 @@ def build_data_library_layout():
                     html.Div(
                         className="data-library-field data-library-small-field",
                         children=[
-                            html.Label("Limit", htmlFor="data-library-limit-input"),
+                            html.Label("Limit", className="labelColor"),
                             dcc.Input(
                                 id="data-library-limit-input",
                                 type="number",
@@ -129,14 +129,14 @@ def build_data_library_layout():
                     ),
                 ],
             ),
-            html.Div(id="data-library-status", className="data-library-status"),
+            html.Div(id="data-library-status", className="data-library-muted"),
             html.Div(
                 className="data-library-main",
                 children=[
                     html.Div(
                         className="data-library-left",
                         children=[
-                            html.H3("Cataloged artifacts"),
+                            html.H3("Cataloged artifacts", className="labelColor"),
                             dcc.Dropdown(
                                 id="data-library-artifact-select",
                                 options=[],
@@ -150,7 +150,7 @@ def build_data_library_layout():
                     html.Div(
                         className="data-library-right",
                         children=[
-                            html.H3("Preview"),
+                            html.H3("Preview", className="labelColor"),
                             dcc.Markdown(
                                 id="data-library-preview",
                                 className="data-library-preview",
@@ -166,7 +166,6 @@ def build_data_library_layout():
         ],
     )
 
-# --- v24.1 PostgreSQL Status Panel integration ---
 try:
     from services.data_catalog.postgres_status_ui import build_postgres_status_panel as _v24_1_build_postgres_status_panel
 

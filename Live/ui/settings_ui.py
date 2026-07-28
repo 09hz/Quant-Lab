@@ -46,7 +46,7 @@ def _status_badge(label: str, ok: bool, safe_when_false: bool = False) -> html.S
 def _setting_row(label: str, value: Any, note: str = "") -> html.Div:
     return html.Div(
         [
-            html.Div(label, className="settings-row-label"),
+            html.Div(label, className="settings-title"),
             html.Div(str(value), className="settings-row-value"),
             html.Div(note, className="settings-row-note") if note else html.Div("", className="settings-row-note"),
         ],
@@ -57,8 +57,8 @@ def _setting_row(label: str, value: Any, note: str = "") -> html.Div:
 def _lock_row(label: str, enabled: bool, note: str, safe_when_false: bool = True) -> html.Div:
     return html.Div(
         [
-            html.Div(label, className="settings-row-label"),
-            html.Div(_status_badge(label, enabled, safe_when_false=safe_when_false), className="settings-row-value"),
+            html.Div(label, className="settings-title"),
+            html.Div(_status_badge(label, enabled, safe_when_false=safe_when_false), className="settings-muted"),
             html.Div(note, className="settings-row-note"),
         ],
         className="settings-row",
@@ -70,8 +70,8 @@ def _section(title: str, children: list[Any], subtitle: str = "") -> html.Div:
         [
             html.Div(
                 [
-                    html.H3(title, className="settings-section-title"),
-                    html.Div(subtitle, className="settings-section-subtitle") if subtitle else None,
+                    html.H3(title, className="settings-title"),
+                    html.Div(subtitle, className="settings-muted") if subtitle else None,
                 ],
                 className="settings-section-header",
             ),

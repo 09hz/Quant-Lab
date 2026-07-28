@@ -1,4 +1,4 @@
-# Data Library Quant Dashboard
+# DEPRECATED: Data Library Quant Dashboard
 
 v24.7 adds a read-only dashboard to the Data Library tab.
 
