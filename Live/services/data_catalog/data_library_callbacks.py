@@ -28,6 +28,7 @@ def register_data_library_callbacks(app) -> None:
         Input("data-library-extension-filter", "value"),
         Input("data-library-search-input", "value"),
         Input("data-library-limit-input", "value"),
+        State("main-tabs", "value"),
         prevent_initial_call=False,
     )
     def _refresh_data_library(refresh_clicks, scan_clicks, artifact_type, extension, search, limit):
@@ -94,6 +95,7 @@ def register_data_library_callbacks(app) -> None:
         Output("data-library-preview", "children"),
         Input("data-library-artifact-select", "value"),
         State("data-library-artifacts-store", "data"),
+        State("main-tabs", "value"),
         prevent_initial_call=False,
     )
     def _preview_artifact(artifact_id, artifacts):

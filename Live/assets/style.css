@@ -112,7 +112,11 @@ label, .control-label, .input-label, .analytics-label, .paper-control-label, .au
 /* Date picker */
 .date-picker-dark{color:black;}
 
-
+.DateRangePickerInput {
+    background-color: #f0f0f0; /* Change to desired color */
+    border-color: #cccccc;
+color:black;
+}
 
 /* Shared panels/cards */
 .chart-card, .control-box, .stat-card, .analytics-card, .paper-trading-panel, .paper-summary-panel, .paper-summary-card, .paper-table-card, .strategy-lab-panel, .strategy-section-panel, .strategy-editor-panel, .strategy-backtest-panel, .strategy-help-panel, .strategy-ai-advisor-panel, .trade-analytics-panel, .quant-native-card, .quant-native-count-tile, .quant-native-table-card, .quant-dashboard-table-card, .research-loop-controls-panel, .research-analyst-panel, .research-analyst-response, .research-analyst-sources, .research-autolab-safety, .research-autolab-series-box, .research-autolab-summary, .autolab-card, .autolab-capital-card, .autolab-memory-card, .autolab-report-card, .data-library-postgres-panel, .data-library-results, .data-library-preview, .newsroom-panel, .newsroom-source-card, .newsroom-brief-panel, .newsroom-recommendation-panel, .settings-section, .replay-range-job-panel {

@@ -331,7 +331,6 @@ except Exception as exc:
 # =============================================================================
 # End Watch live/replay mode guard callback registration
 # =============================================================================
-# Patch 36c: Newsroom Research Analyst callbacks.
 try:
     from services.ai.research_analyst_callbacks import register_research_analyst_callbacks
 
@@ -371,16 +370,6 @@ except Exception as exc:
 # End AI Auto Lab callback registration
 # =============================================================================
 
-# =============================================================================
-# Structured official evidence preview callback registration
-# =============================================================================
-# Structured Evidence Reviewer callbacks kept for developer diagnostics only.
-# Normal SEC workflow now uses Newsroom source checkboxes and Research Brief cards.
-# =============================================================================
-# End structured official evidence preview callback registration
-# =============================================================================
-
-# --- v23.4.1 Data Library Runtime Wiring Fix ---
 try:
     from dash import dcc as _v23_4_1_dcc, html as _v23_4_1_html
     from ui.data_library_ui import build_data_library_layout as _v23_4_1_build_data_library_layout
@@ -414,6 +403,7 @@ try:
                 label="Data Library",
                 value="data-library",
                 className="main-tab",
+                selected_className="main-tab-selected",
                 children=[_v23_4_1_build_data_library_layout()],
             )
         except Exception:

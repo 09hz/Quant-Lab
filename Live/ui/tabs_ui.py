@@ -695,7 +695,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                                 display_format="MM/DD/YYYY",
                                 max_date_allowed=date.today(),
                                 disabled_days=make_disabled_weekend_days(),
-                                className="date-picker-dark",
+                                className="DatePickerSingle black-dropdown",
                             ),
                         ],
                     ),
@@ -709,7 +709,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                                 display_format="MM/DD/YYYY",
                                 max_date_allowed=date.today(),
                                 disabled_days=make_disabled_weekend_days(),
-                                className="date-picker-dark",
+                                className="DatePickerSingle black-dropdown",
                             ),
                         ],
                     ),
@@ -805,60 +805,6 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
     )
 
 
-def build_quotes_tab(symbol_options, default_symbol):
-    return build_newsroom_tab()
-
-
-# --- Patch 20b compatibility aliases ---
-# Keep old app.py imports working while visible rooms are repurposed.
-def build_quotes_tab(*args, **kwargs):
-    # Compatibility: the old Quotes room now renders Newsroom.
-    return build_newsroom_tab(*args, **kwargs)
-
-
-def build_charts_tab(*args, **kwargs):
-    # Compatibility: app.py may still import build_charts_tab after Charts became Settings.
-    try:
-        return build_settings_tab(*args, **kwargs)  # type: ignore[name-defined]
-    except Exception:
-        from dash import html
-        return html.Div(
-            [
-                html.H3("Settings"),
-                html.Div("Settings tab builder is not available."),
-            ],
-            className="settings-tab-placeholder",
-        )
-# --- End Patch 20b compatibility aliases ---
-# --- Patch 20c compatibility restore: Settings/Charts tab builders ---
-# Keep this at the bottom so it overrides temporary fallback builders created by
-# tab-repurposing patches.
-try:
-    from ui.settings_ui import build_settings_tab as _restored_build_settings_tab
-except Exception:
-    try:
-        from .settings_ui import build_settings_tab as _restored_build_settings_tab
-    except Exception:
-        _restored_build_settings_tab = None
-
-
-def build_settings_tab():
-    if _restored_build_settings_tab is not None:
-        return _restored_build_settings_tab()
-    from dash import html
-    return html.Div(
-        [
-            html.H2("Settings"),
-            html.Div("Settings tab builder failed to import ui.settings_ui."),
-        ],
-        className="settings-tab settings-tab-error",
-    )
-
-
-def build_charts_tab():
-    # The old Charts slot has been repurposed as Settings.
-    return build_settings_tab()
-
 
 def build_charts_tab(*args, **kwargs):
     try:
@@ -903,7 +849,6 @@ def build_newsroom_tab(*args, **kwargs):
     except TypeError:
         from ui.newsroom_ui import build_newsroom_tab as _build_newsroom_tab
         return _build_newsroom_tab()
-# <<< PATCH_21_NEWSROOM_SETTINGS_COMPAT
 
 # =============================================================================
 # Strategy Lab Help Panel Restore
