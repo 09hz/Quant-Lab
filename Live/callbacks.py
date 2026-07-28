@@ -81,6 +81,24 @@ def _build_metrics_strip(symbol: str, company: str, last, open_, updated_at, pre
     ]
 
 
+def _build_watch_metrics_strip(
+        symbol: str,
+        company: str,
+        last,
+        open_,
+        updated_at,
+        prefix: str = "USD",
+):
+    return _build_metrics_strip(
+        symbol,
+        company,
+        last,
+        open_,
+        updated_at,
+        prefix=prefix,
+    )
+
+
 def _build_stats_grid_from_bars(df):
     if df is None or df.empty:
         return [
@@ -509,6 +527,7 @@ def _replay_job_progress_children(snapshot):
 
 REPLAY_ACTIVE_RENDER_BAR_LIMIT = 1800
 REPLAY_ACTIVE_METRICS_UPDATE_EVERY = 8
+WATCH_UI_REFRESH_MIN_SECONDS = 0.75
 
 
 def _default_chart_state(range_key="1D"):
@@ -1406,10 +1425,52 @@ def register_callbacks(
             return no_update
 
     @app.callback(
+        Output("watch-ui-refresh-trigger", "data"),
+        Input("replay-render-trigger", "data"),
+        Input("watch-load-request", "data"),
+        State("watch-ui-refresh-trigger", "data"),
+        State("main-tabs", "value"),
+        prevent_initial_call=True,
+    )
+    def buffer_watch_ui_refresh(_replay_trigger, _load_request, current_value, active_tab):
+        if active_tab != "watch":
+            return no_update
+
+        trigger_id = ctx.triggered_id
+        next_value = int(current_value or 0) + 1
+
+        if trigger_id == "watch-load-request":
+            buffer_watch_ui_refresh._last_emit_at = time.perf_counter()
+            return next_value
+
+        try:
+            replay_info = replay_service.info()
+            replay_playing = bool(replay_info.get("playing"))
+            replay_idx = max(1, int(replay_info.get("current_index", 1) or 1))
+            replay_max_idx = max(1, int(replay_info.get("max_index", 1) or 1))
+        except Exception:
+            replay_playing = False
+            replay_idx = 1
+            replay_max_idx = 1
+
+        if not replay_playing or replay_idx >= replay_max_idx:
+            buffer_watch_ui_refresh._last_emit_at = time.perf_counter()
+            return next_value
+
+        now = time.perf_counter()
+        last_emit_at = float(getattr(buffer_watch_ui_refresh, "_last_emit_at", 0.0) or 0.0)
+
+        if last_emit_at <= 0.0 or (now - last_emit_at) >= WATCH_UI_REFRESH_MIN_SECONDS:
+            buffer_watch_ui_refresh._last_emit_at = now
+            return next_value
+
+        return no_update
+
+    @app.callback(
         Output("trade-analytics-content", "children"),
         Input("watch-workspace-tabs", "value"),
         Input("paper-trade-trigger", "data"),
-        Input("replay-render-trigger", "data"),
+        Input("watch-ui-refresh-trigger", "data"),
         State("watch-symbol-dropdown", "value"),
         State("paper-price-source", "value"),
         State("main-tabs", "value"),
@@ -2779,7 +2840,7 @@ def register_callbacks(
     @app.callback(
         Output("replay-slider", "max", allow_duplicate=True),
         Output("replay-slider", "value", allow_duplicate=True),
-        Input("replay-render-trigger", "data"),
+        Input("watch-ui-refresh-trigger", "data"),
         Input("watch-load-request", "data"),
         State("main-tabs", "value"),
         prevent_initial_call=True,
@@ -2799,11 +2860,10 @@ def register_callbacks(
             return no_update, no_update
 
     # ------------------------------------------------------------
-    # Watch metrics/stats render
+    # Watch metrics render
     # ------------------------------------------------------------
     @app.callback(
         Output("watch-metrics-strip", "children"),
-        Output("watch-stats-grid", "children"),
         Input("replay-render-trigger", "data"),
         Input("watch-load-request", "data"),
         Input("watch-timeframe-dropdown", "value"),
@@ -2814,7 +2874,7 @@ def register_callbacks(
         State("replay-date", "date"),
         prevent_initial_call=True,
     )
-    def render_watch_metrics_and_stats(
+    def render_watch_metrics_strip(
             _render_trigger,
             _load_request,
             watch_timeframe,
@@ -2825,7 +2885,7 @@ def register_callbacks(
             replay_date,
     ):
         if active_tab != "watch":
-            return no_update, no_update
+            return no_update
 
         symbol = (symbol or DEFAULT_SYMBOL).upper().strip()
         trigger_id = ctx.triggered_id
@@ -2839,49 +2899,22 @@ def register_callbacks(
                     and _is_today_or_latest_replay_date(replay_date)
             )
 
-            if not use_live_watch_data and trigger_id == "replay-render-trigger":
-                try:
-                    replay_info = replay_service.info()
-                    replay_idx = int(replay_info.get("current_index", 1) or 1)
-                    replay_playing = bool(replay_info.get("playing"))
-                    if (
-                            replay_playing
-                            and replay_idx > 1
-                            and (replay_idx % REPLAY_ACTIVE_METRICS_UPDATE_EVERY) != 0
-                    ):
-                        return no_update, no_update
-                except Exception:
-                    pass
+            if trigger_id == "ui-interval" and not use_live_watch_data:
+                return no_update
 
-            watch_view = bar_view_service.build_watch_view(
-                market_data_provider=market_data_provider,
-                replay_service=replay_service,
+            current_price, open_val, updated_at = _watch_metrics_snapshot(
                 symbol=symbol,
-                display_timeframe=display_timeframe,
-                use_live_watch_data=use_live_watch_data,
+                price_source=price_source,
+                replay_date=replay_date,
                 replay_visible_limit=(
                     REPLAY_ACTIVE_RENDER_BAR_LIMIT
                     if not use_live_watch_data
                     else None
                 ),
             )
-
-            if watch_view.is_empty:
-                return [], []
-
-            visible = watch_view.visible_bars
-            chart_bars = watch_view.chart_bars
-            current_price = watch_view.current_price
-            updated_at = watch_view.updated_at or datetime.now()
-
             company = rt.get_company_name(symbol)
-            open_val = (
-                float(visible.iloc[0]["open"])
-                if visible is not None and not visible.empty
-                else None
-            )
 
-            metrics = _build_metrics_strip(
+            return _build_watch_metrics_strip(
                 symbol,
                 company,
                 current_price,
@@ -2889,13 +2922,73 @@ def register_callbacks(
                 updated_at,
             )
 
-            stats = _build_stats_grid_from_bars(chart_bars)
+        except Exception as exc:
+            print(f"[WATCH METRICS STRIP ERROR] {exc}", flush=True)
+            return []
 
-            return metrics, stats
+    # ------------------------------------------------------------
+    # Watch stats render
+    # ------------------------------------------------------------
+    @app.callback(
+        Output("watch-stats-grid", "children"),
+        Input("replay-render-trigger", "data"),
+        Input("watch-load-request", "data"),
+        Input("watch-timeframe-dropdown", "value"),
+        Input("ui-interval", "n_intervals"),
+        State("main-tabs", "value"),
+        State("watch-symbol-dropdown", "value"),
+        State("paper-price-source", "value"),
+        State("replay-date", "date"),
+        prevent_initial_call=True,
+    )
+    def render_watch_stats_grid(
+            _render_trigger,
+            _load_request,
+            watch_timeframe,
+            _ui_n,
+            active_tab,
+            symbol,
+            price_source,
+            replay_date,
+    ):
+        if active_tab != "watch":
+            return no_update
+
+        symbol = (symbol or DEFAULT_SYMBOL).upper().strip()
+        trigger_id = ctx.triggered_id
+
+        try:
+            price_source = str(price_source or "replay").lower().strip()
+            display_timeframe = str(watch_timeframe or "1 min")
+
+            use_live_watch_data = (
+                    price_source == "live"
+                    and _is_today_or_latest_replay_date(replay_date)
+            )
+
+            if trigger_id == "ui-interval" and not use_live_watch_data:
+                return no_update
+
+            stats_bars = _watch_stats_bars(
+                symbol=symbol,
+                price_source=price_source,
+                replay_date=replay_date,
+                display_timeframe=display_timeframe,
+                replay_visible_limit=(
+                    REPLAY_ACTIVE_RENDER_BAR_LIMIT
+                    if not use_live_watch_data
+                    else None
+                ),
+            )
+
+            if stats_bars is None or stats_bars.empty:
+                return []
+
+            return _build_stats_grid_from_bars(stats_bars)
 
         except Exception as exc:
-            print(f"[WATCH METRICS RENDER ERROR] {exc}", flush=True)
-            return [], []
+            print(f"[WATCH STATS GRID ERROR] {exc}", flush=True)
+            return []
 
     @app.callback(
         Output("strategy-script-store", "data"),
@@ -3003,6 +3096,95 @@ def register_callbacks(
             return float(snap.last), snap.updated_at or datetime.now(), "Live Market"
 
         return None, datetime.now(), source
+
+    def _watch_metrics_snapshot(
+            symbol: str,
+            price_source: str,
+            replay_date,
+            replay_visible_limit: int | None = None,
+    ) -> tuple[float | None, float | None, datetime]:
+        symbol = (symbol or DEFAULT_SYMBOL).upper().strip()
+        source = str(price_source or "replay").lower().strip()
+
+        use_live_watch_data = (
+                source == "live"
+                and _is_today_or_latest_replay_date(replay_date)
+        )
+
+        if use_live_watch_data:
+            try:
+                market_data_provider.request_symbol(symbol)
+            except Exception:
+                pass
+
+            snap = market_data_provider.get_snapshot(symbol, "1 min")
+            bars = bar_view_service.clean_bars(getattr(snap, "bars", None))
+
+            current_price = getattr(snap, "last", None)
+            if current_price is None and not bars.empty:
+                current_price = float(bars.iloc[-1]["close"])
+
+            open_val = float(bars.iloc[0]["open"]) if not bars.empty else None
+            updated_at = getattr(snap, "updated_at", None) or datetime.now()
+
+            return (
+                float(current_price) if current_price is not None else None,
+                open_val,
+                updated_at,
+            )
+
+        visible = bar_view_service.clean_bars(
+            replay_service.visible_bars(limit=replay_visible_limit)
+        )
+
+        if visible.empty:
+            return None, None, datetime.now()
+
+        current_bar = visible.iloc[-1]
+        current_price = float(current_bar["close"])
+        open_val = float(visible.iloc[0]["open"])
+        updated_at = pd.to_datetime(
+            current_bar.get("time", datetime.now()),
+            errors="coerce",
+            format="mixed",
+        )
+
+        if pd.isna(updated_at):
+            updated_at = datetime.now()
+        else:
+            updated_at = updated_at.to_pydatetime()
+
+        return current_price, open_val, updated_at
+
+    def _watch_stats_bars(
+            symbol: str,
+            price_source: str,
+            replay_date,
+            display_timeframe: str,
+            replay_visible_limit: int | None = None,
+    ) -> pd.DataFrame:
+        symbol = (symbol or DEFAULT_SYMBOL).upper().strip()
+        source = str(price_source or "replay").lower().strip()
+
+        use_live_watch_data = (
+                source == "live"
+                and _is_today_or_latest_replay_date(replay_date)
+        )
+
+        if use_live_watch_data:
+            try:
+                market_data_provider.request_symbol(symbol)
+            except Exception:
+                pass
+
+            snap = market_data_provider.get_snapshot(symbol, "1 min")
+            live_bars = bar_view_service.clean_bars(getattr(snap, "bars", None))
+            return bar_view_service.resample_bars(live_bars, display_timeframe)
+
+        visible = bar_view_service.clean_bars(
+            replay_service.visible_bars(limit=replay_visible_limit)
+        )
+        return bar_view_service.resample_bars(visible, display_timeframe)
 
     @app.callback(
         Output("paper-short-buy", "className"),
@@ -3258,7 +3440,7 @@ def register_callbacks(
         Output("paper-orders-panel", "children"),
         Output("paper-fills-panel", "children"),
         Input("paper-trade-trigger", "data"),
-        Input("replay-render-trigger", "data"),
+        Input("watch-ui-refresh-trigger", "data"),
         Input("ui-interval", "n_intervals"),
         State("watch-symbol-dropdown", "value"),
         State("paper-price-source", "value"),
@@ -3277,6 +3459,12 @@ def register_callbacks(
     ):
 
         if active_tab != "watch":
+            return no_update, no_update, no_update, no_update
+
+        trigger_id = ctx.triggered_id
+        replay_source = str(price_source or "replay").lower().strip()
+
+        if trigger_id == "ui-interval" and replay_source != "live":
             return no_update, no_update, no_update, no_update
 
         if paper_trading_service is None:
@@ -3695,3 +3883,15 @@ def register_callbacks(
 #     display_timeframe=display_timeframe,
 #     use_live_watch_data=use_live_watch_data,
 # )
+#
+# return _build_watch_metrics_strip(
+#     symbol,
+#     company,
+#     current_price,
+#     open_val,
+#     updated_at,
+#     details=details,
+# )
+#
+# stats = _build_stats_grid_from_bars(watch_view.chart_bars)
+# return metrics, stats

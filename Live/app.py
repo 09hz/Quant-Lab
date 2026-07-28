@@ -194,6 +194,7 @@ app.layout = html.Div(
         # Replay render trigger. Buttons/clock bump this store so the Watch chart
         # redraws without the slider callback fighting the clock.
         dcc.Store(id="replay-render-trigger", data=0),
+        dcc.Store(id="watch-ui-refresh-trigger", data=0),
 
         dcc.Store(
             id="watch-load-request",
