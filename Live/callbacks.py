@@ -117,31 +117,21 @@ def _build_stats_grid_from_bars(df):
     close_v = float(last["close"])
     volume_v = float(df["volume"].sum())
 
+    def _stat_tile(label: str, value: str):
+        return html.Div(
+            className="stat-card stat-tile",
+            children=[
+                html.Div(label, className="stat-label stat-tile-label"),
+                html.Div(value, className="stat-value stat-tile-value"),
+            ],
+        )
+
     return [
-        html.Div(
-            className="stat-card",
-            children=[
-                html.Div(className="stat-row", children=[html.Div("Open", className="stat-label"), html.Div(f"{open_v:,.2f}", className="stat-value")]),
-                html.Div(className="stat-row", children=[html.Div("High", className="stat-label"), html.Div(f"{high_v:,.2f}", className="stat-value")]),
-                html.Div(className="stat-row", children=[html.Div("Low", className="stat-label"), html.Div(f"{low_v:,.2f}", className="stat-value")]),
-            ],
-        ),
-        html.Div(
-            className="stat-card",
-            children=[
-                html.Div(className="stat-row", children=[html.Div("Close", className="stat-label"), html.Div(f"{close_v:,.2f}", className="stat-value")]),
-                html.Div(className="stat-row", children=[html.Div("Bars", className="stat-label"), html.Div(f"{len(df):,}", className="stat-value")]),
-                html.Div(className="stat-row", children=[html.Div("Volume", className="stat-label"), html.Div(f"{volume_v:,.0f}", className="stat-value")]),
-            ],
-        ),
-        html.Div(
-            className="stat-card",
-            children=[
-                html.Div(className="stat-row", children=[html.Div("Range", className="stat-label"), html.Div(f"{high_v - low_v:,.2f}", className="stat-value")]),
-                html.Div(className="stat-row", children=[html.Div("First Bar", className="stat-label"), html.Div(str(first["time"])[:16], className="stat-value")]),
-                html.Div(className="stat-row", children=[html.Div("Last Bar", className="stat-label"), html.Div(str(last["time"])[:16], className="stat-value")]),
-            ],
-        ),
+        _stat_tile("Open", f"{open_v:,.2f}"),
+        _stat_tile("High", f"{high_v:,.2f}"),
+        _stat_tile("Low", f"{low_v:,.2f}"),
+        _stat_tile("Close", f"{close_v:,.2f}"),
+        _stat_tile("Volume", f"{volume_v:,.0f}"),
     ]
 
 
@@ -3136,6 +3126,7 @@ def register_callbacks(
         visible = bar_view_service.clean_bars(
             replay_service.visible_bars(limit=replay_visible_limit)
         )
+        visible = _slice_replay_bars_to_active_session(visible)
 
         if visible.empty:
             return None, None, datetime.now()
@@ -3155,6 +3146,31 @@ def register_callbacks(
             updated_at = updated_at.to_pydatetime()
 
         return current_price, open_val, updated_at
+
+    def _slice_replay_bars_to_active_session(
+            bars: pd.DataFrame | None,
+    ) -> pd.DataFrame:
+        visible = bar_view_service.clean_bars(bars)
+        if visible.empty or "time" not in visible.columns:
+            return visible
+
+        try:
+            times = pd.to_datetime(visible["time"], errors="coerce", format="mixed")
+            if times.empty:
+                return visible
+
+            session_day = times.iloc[-1]
+            if pd.isna(session_day):
+                return visible
+
+            session_mask = times.dt.normalize() == session_day.normalize()
+            session_bars = visible.loc[session_mask].copy()
+            if not session_bars.empty:
+                return session_bars.reset_index(drop=True)
+        except Exception:
+            pass
+
+        return visible.reset_index(drop=True)
 
     def _watch_stats_bars(
             symbol: str,
@@ -3184,6 +3200,7 @@ def register_callbacks(
         visible = bar_view_service.clean_bars(
             replay_service.visible_bars(limit=replay_visible_limit)
         )
+        visible = _slice_replay_bars_to_active_session(visible)
         return bar_view_service.resample_bars(visible, display_timeframe)
 
     @app.callback(
@@ -3895,3 +3912,35 @@ def register_callbacks(
 #
 # stats = _build_stats_grid_from_bars(watch_view.chart_bars)
 # return metrics, stats
+#
+# visible = bar_view_service.clean_bars(
+#     replay_service.visible_bars(limit=replay_visible_limit)
+# )
+# open_val = float(visible.iloc[0]["open"]) if not visible.empty else None
+#
+# return [
+#     html.Div(
+#         className="stat-card",
+#         children=[
+#             html.Div(className="stat-row", children=[html.Div("Open", className="stat-label"), html.Div(f"{open_v:,.2f}", className="stat-value")]),
+#             html.Div(className="stat-row", children=[html.Div("High", className="stat-label"), html.Div(f"{high_v:,.2f}", className="stat-value")]),
+#             html.Div(className="stat-row", children=[html.Div("Low", className="stat-label"), html.Div(f"{low_v:,.2f}", className="stat-value")]),
+#         ],
+#     ),
+#     html.Div(
+#         className="stat-card",
+#         children=[
+#             html.Div(className="stat-row", children=[html.Div("Close", className="stat-label"), html.Div(f"{close_v:,.2f}", className="stat-value")]),
+#             html.Div(className="stat-row", children=[html.Div("Bars", className="stat-label"), html.Div(f"{len(df):,}", className="stat-value")]),
+#             html.Div(className="stat-row", children=[html.Div("Volume", className="stat-label"), html.Div(f"{volume_v:,.0f}", className="stat-value")]),
+#         ],
+#     ),
+#     html.Div(
+#         className="stat-card",
+#         children=[
+#             html.Div(className="stat-row", children=[html.Div("Range", className="stat-label"), html.Div(f"{high_v - low_v:,.2f}", className="stat-value")]),
+#             html.Div(className="stat-row", children=[html.Div("First Bar", className="stat-label"), html.Div(str(first["time"])[:16], className="stat-value")]),
+#             html.Div(className="stat-row", children=[html.Div("Last Bar", className="stat-label"), html.Div(str(last["time"])[:16], className="stat-value")]),
+#         ],
+#     ),
+# ]
