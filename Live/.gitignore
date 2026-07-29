@@ -65,3 +65,4 @@ Live/cache/
 .env.*
 venv/
 .venv/
+.ai
