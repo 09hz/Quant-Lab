@@ -2,7 +2,7 @@
 
 A local Python/Dash trading research platform for real-time stock visualization, historical replay, paper trading, strategy scripting, backtesting, and chart overlays.
 
-> **Status:** Portfolio/demo project. This application is for education, research, and strategy development only. It is not financial advice and is not intended for unattended live trading.
+> **Status:** This application is for education, research, and strategy development only. It is not financial advice and is not intended for unattended live trading.
 
 ---
 
