@@ -1,4 +1,4 @@
-# AlgoTrader
+# Quant Lab
 
 A local Python/Dash trading research platform for real-time stock visualization, historical replay, paper trading, strategy scripting, backtesting, and chart overlays.
 
