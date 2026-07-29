@@ -7,6 +7,16 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 
+# Local IDE/project metadata
+.idea/
+
+# Local agent/plugin state
+.ai/
+skills-lock.json
+
+# Local root cache
+cache/
+
 # Python cache files
 __pycache__/
 *.py[cod]
