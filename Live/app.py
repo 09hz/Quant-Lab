@@ -758,7 +758,7 @@ try:
                                     value=5,
                                     searchable=False,
                                     clearable=False,
-                                    className= "valueColor"
+                                    className="dropdownInteriorValueBlack"
                                 ),
                                 _v24_8_3_html.Label("Backend"),
                                 _v24_8_3_dcc.Dropdown(
@@ -770,7 +770,7 @@ try:
                                         {"label": "SQLite fallback", "value": "sqlite"},
                                         {"label": "PostgreSQL", "value": "postgres"},
                                     ],
-                                    className="valueColor"
+                                    className="dropdownInteriorValueBlack"
                                 ),
 
 
@@ -938,7 +938,7 @@ try:
                             type="text",
                             value="AI infrastructure semiconductors",
                             debounce=True,
-                            className="valueColor"
+                            className="inputInteriorValueBlack"
                         ),
                         _v24_9_1_html.Label("Symbols"),
                         _v24_9_1_dcc.Input(
@@ -946,7 +946,7 @@ try:
                             type="text",
                             value="AMD,NVDA,SMH",
                             debounce=True,
-                            className="valueColor"
+                            className="inputInteriorValueBlack"
                         ),
                         _v24_9_1_html.Label("Candidates"),
                         _v24_9_1_dcc.Input(
@@ -957,7 +957,7 @@ try:
                             step=1,
                             value=5,
                             debounce=True,
-                            className="valueColor"
+                            className="inputInteriorValueBlack"
                         ),
                         _v24_9_1_html.Label("Backend"),
                         _v24_9_1_dcc.Dropdown(
@@ -969,7 +969,7 @@ try:
                                 {"label": "SQLite fallback", "value": "sqlite"},
                                 {"label": "PostgreSQL", "value": "postgres"},
                             ],
-                            className="valueColor"
+                            className="dropdownInteriorValueBlack"
                         ),
                         _v24_9_1_html.Div(),
                         _v24_9_1_html.Button(

@@ -34,7 +34,7 @@
 .dropColor{
   color:black;
 }
-
+.textColor{color:black;}
 
 *, *::before, *::after { box-sizing: border-box; }
 html { min-height: 100%; background: var(--bg); }
@@ -285,8 +285,28 @@ color:black;
 
 /* Utilities */
 .hidden { display: none !important; }
-.labelColor { color: var(--muted) !important; }
-.valueColor, .textColor { color: var(--ink) !important; }
+.labelColor { color: var(--white) !important; }
+.valueColor { color: var(--ink) !important; }
+.inputInteriorValueBlack,
+.inputInteriorValueBlack input {
+  color: var(--black) !important;
+}
+.inputInteriorValueBlack::placeholder,
+.inputInteriorValueBlack input::placeholder {
+  color: rgba(0, 0, 0, 0.58) !important;
+}
+.dropdownInteriorValueBlack .Select-value-label,
+.dropdownInteriorValueBlack .Select-placeholder,
+.dropdownInteriorValueBlack .Select-input > input,
+.dropdownInteriorValueBlack .dash-dropdown-value,
+.dropdownInteriorValueBlack .dash-dropdown-value *,
+.dropdownInteriorValueBlack .dash-dropdown-trigger,
+.dropdownInteriorValueBlack .dash-dropdown-trigger * {
+  color: var(--black) !important;
+}
+.dropdownInteriorValueBlack .dash-dropdown-trigger-icon {
+  color: var(--black) !important;
+}
 
 /* Dash DataTable */
 .dash-table-container .dash-spreadsheet-container .dash-spreadsheet-inner table { border-collapse: collapse !important; font-family: var(--mono) !important; }

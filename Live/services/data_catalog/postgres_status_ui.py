@@ -27,7 +27,7 @@ def build_postgres_status_panel():
                             html.Label("Database", className="labelColor"),
                             dcc.Input(id="data-library-pg-database", type="text", value="algotrader"),
                             html.Label("Schema", className="labelColor"),
-                            dcc.Input(id="data-library-pg-schema", type="text", value="algotrader"),
+                            dcc.Input(id="data-library-pg-schema", type="text", value="algotrader", className="textColor"),
                             html.Label("App user", className="labelColor"),
                             dcc.Input(id="data-library-pg-app-user", type="text", value="algotrader_app"),
                             html.Label("App password", className="labelColor"),
