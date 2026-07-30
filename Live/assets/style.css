@@ -271,6 +271,7 @@ color:black;
 .newsroom-result-selectable:hover { border-color: var(--line-strong); }
 .newsroom-result-kind, .newsroom-result-source { color: var(--ink-2); font-family: var(--mono); font-size: 11px; text-transform: uppercase; }
 .newsroom-result-title-disabled { color: var(--muted); text-decoration: line-through; }
+.newsroom-brief-preview { color:white; padding: var(--s3); border: 1px solid var(--line); background: var(--surface-2); }
 
 /* Settings */
 .settings-tab { padding: var(--s4); }

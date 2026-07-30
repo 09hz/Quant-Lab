@@ -102,8 +102,7 @@ Live/data/autolab_report/
 Live/data/autolab_results/
 
 # Local symbol universe files
-Live/data/nasdaq_symbol_names_filled.csv
-Live/data/nasdaq_tickers_simple.txt
 .env.local
 .env.*.local
-!.env.example
+.env
+.idea/
