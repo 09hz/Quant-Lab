@@ -558,6 +558,80 @@ def register_callbacks(
 
     # Strategy overlays are cached by StrategyOverlayService.
 
+    def _symbol_dropdown_options(selected_symbol=None, search_value=None, limit=80):
+        selected = (selected_symbol or DEFAULT_SYMBOL).upper().strip()
+        query = (search_value or "").strip().lower()
+        selected_option = None
+        scored_matches = []
+
+        for option in symbol_options or []:
+            value = str(option.get("value", "")).upper()
+            label = str(option.get("label", ""))
+            search = str(option.get("search", ""))
+            haystack = f"{value} {label} {search}".lower()
+
+            if value == selected:
+                selected_option = option
+
+            if not query:
+                continue
+
+            if value.lower().startswith(query):
+                score = 0
+            elif label.lower().startswith(query):
+                score = 1
+            elif query in haystack:
+                score = 2
+            else:
+                continue
+
+            scored_matches.append((score, value, option))
+
+        results = []
+        seen = set()
+
+        if selected_option is None and selected:
+            selected_option = {"label": selected, "value": selected, "search": selected}
+
+        if selected_option is not None:
+            selected_value = str(selected_option.get("value", "")).upper()
+            results.append(selected_option)
+            seen.add(selected_value)
+
+        for _, value, option in sorted(scored_matches, key=lambda item: (item[0], item[1])):
+            if value in seen:
+                continue
+            results.append(option)
+            seen.add(value)
+            if len(results) >= limit:
+                break
+
+        return results
+
+    @app.callback(
+        Output("symbol-dropdown", "options"),
+        Output("watch-symbol-dropdown", "options"),
+        Input("symbol-dropdown", "search_value"),
+        Input("watch-symbol-dropdown", "search_value"),
+        Input("symbol-dropdown", "value"),
+        Input("watch-symbol-dropdown", "value"),
+        Input("main-tabs", "value"),
+        prevent_initial_call=False,
+    )
+    def hydrate_symbol_dropdown_options(
+            dashboard_search,
+            watch_search,
+            dashboard_symbol,
+            watch_symbol,
+            active_tab,
+    ):
+        dashboard_query = dashboard_search if active_tab == "dashboard" else None
+        watch_query = watch_search if active_tab == "watch" else None
+        return (
+            _symbol_dropdown_options(dashboard_symbol, dashboard_query),
+            _symbol_dropdown_options(watch_symbol, watch_query),
+        )
+
     def _trading_days_between(start_date, end_date):
         start = pd.to_datetime(start_date, errors="coerce")
         end = pd.to_datetime(end_date, errors="coerce")
@@ -2344,7 +2418,7 @@ def register_callbacks(
         Input("active-symbol", "data"),
         Input("timeframe-dropdown", "value"),
         Input("dashboard-chart-state", "data"),
-        State("main-tabs", "value"),
+        Input("main-tabs", "value"),
         prevent_initial_call=False,
     )
     def render_dashboard_chart(
@@ -2365,16 +2439,18 @@ def register_callbacks(
             return no_update, no_update, no_update, no_update
 
         try:
+            trigger_id = ctx.triggered_id
             symbol = (active_symbol or DEFAULT_SYMBOL).upper().strip()
             timeframe = timeframe or DEFAULT_TIMEFRAME
             company_name = rt.get_company_name(symbol)
 
-            # Make sure the dashboard symbol has an active live subscription.
-            # This is cheap if already subscribed.
-            try:
-                rt.request_symbol(symbol)
-            except Exception as req_exc:
-                print(f"[DASHBOARD REQUEST WARNING] {symbol}: {req_exc}", flush=True)
+            # Request live data when the dashboard is entered or the symbol changes,
+            # not on every 500ms render tick.
+            if trigger_id in {None, "main-tabs", "active-symbol", "timeframe-dropdown"}:
+                try:
+                    rt.request_symbol(symbol)
+                except Exception as req_exc:
+                    print(f"[DASHBOARD REQUEST WARNING] {symbol}: {req_exc}", flush=True)
 
             # RealTimeIB can briefly lag after a symbol switch.
             # Instead of throwing "No loaded state", show a loading chart and retry
@@ -2435,13 +2511,33 @@ def register_callbacks(
             latest_close = float(bars.iloc[-1]["close"])
             current_price = float(snap.last) if snap.last is not None else latest_close
 
-            print(
-                f"[DASHBOARD DEBUG] tick={_n} {symbol} last={current_price} "
-                f"bar_o={latest_open} bar_h={latest_high} "
-                f"bar_l={latest_low} bar_c={latest_close} "
-                f"bar_time={latest_time}",
-                flush=True,
+            state = dashboard_chart_state or {}
+            range_key = _safe_range_key(state.get("range_key"), "1D")
+            mode = state.get("mode", "live")
+            redraw_key = (
+                f"{symbol}-{timeframe}-{mode}-{range_key}-"
+                f"{len(bars)}-{latest_time}-{latest_open}-{latest_high}-"
+                f"{latest_low}-{latest_close}"
             )
+
+            if (
+                trigger_id == "ui-interval"
+                and getattr(render_dashboard_chart, "_last_redraw_key", None) == redraw_key
+            ):
+                updated = snap.updated_at.strftime("%H:%M:%S") if snap.updated_at else "--:--:--"
+                quote_text = (
+                    f"LIVE · {company_name} ({symbol}) · Updated {updated} · "
+                    f"Last {current_price:,.2f}"
+                )
+                open_val = float(bars.iloc[0]["open"])
+                metrics = _build_metrics_strip(
+                    symbol,
+                    company_name,
+                    current_price,
+                    open_val,
+                    snap.updated_at,
+                )
+                return quote_text, no_update, metrics, no_update
 
             fig = create_candlestick_figure(
                 bars,
@@ -2456,10 +2552,6 @@ def register_callbacks(
                 dashboard_chart_state,
                 default_range="1D",
             )
-
-            state = dashboard_chart_state or {}
-            range_key = _safe_range_key(state.get("range_key"), "1D")
-            mode = state.get("mode", "live")
 
             try:
                 if fig.data:
@@ -2477,18 +2569,12 @@ def register_callbacks(
             except Exception as trace_exc:
                 print(f"[DASHBOARD TRACE NORMALIZE WARNING] {trace_exc}", flush=True)
 
-            redraw_key = (
-                f"{symbol}-{timeframe}-{mode}-{range_key}-"
-                f"{latest_time}-{latest_open}-{latest_high}-{latest_low}-{latest_close}-"
-                f"{current_price}-{_n}"
-            )
-
             fig.update_layout(
-                uirevision=None,
+                uirevision=f"dashboard-{symbol}-{timeframe}-{mode}-{range_key}",
                 datarevision=redraw_key,
                 dragmode="pan",
                 title={
-                    "text": f"{symbol} · {timeframe} · Last {current_price:,.2f} · tick {_n}",
+                    "text": f"{symbol} · {timeframe}",
                     "x": 0.02,
                     "xanchor": "left",
                 },
@@ -2512,6 +2598,7 @@ def register_callbacks(
 
             stats = _build_stats_grid_from_bars(bars)
 
+            render_dashboard_chart._last_redraw_key = redraw_key
             return quote_text, fig, metrics, stats
 
         except Exception as exc:

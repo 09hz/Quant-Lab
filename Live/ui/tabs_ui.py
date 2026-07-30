@@ -30,6 +30,18 @@ def make_timeframe_options(timeframe_map):
     ]
 
 
+def make_selected_symbol_options(symbol_options, selected_symbol):
+    selected = (selected_symbol or "").upper().strip()
+    for option in symbol_options or []:
+        if str(option.get("value", "")).upper() == selected:
+            return [option]
+
+    if selected:
+        return [{"label": selected, "value": selected, "search": selected}]
+
+    return []
+
+
 def make_replay_speed_options():
     return [
         {"label": "0.25x", "value": 0.25, "search": "0.25x quarter slow"},
@@ -88,7 +100,7 @@ def build_dashboard_tab(symbol_options, timeframe_map, default_symbol, default_t
                             html.Label("Instrument"),
                             dcc.Dropdown(
                                 id="symbol-dropdown",
-                                options=symbol_options,
+                                options=make_selected_symbol_options(symbol_options, default_symbol),
                                 value=default_symbol,
                                 placeholder="Search ticker, symbol, or company...",
                                 searchable=True,
@@ -641,7 +653,7 @@ def build_watch_tab(symbol_options, default_symbol, default_speed=1, default_ind
                             html.Label("Replay Symbol"),
                             dcc.Dropdown(
                                 id="watch-symbol-dropdown",
-                                options=symbol_options,
+                                options=make_selected_symbol_options(symbol_options, default_symbol),
                                 value=default_symbol,
                                 placeholder="Search ticker, symbol, or company...",
                                 searchable=True,

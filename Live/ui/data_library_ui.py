@@ -75,7 +75,7 @@ def build_data_library_layout():
                     html.Div(
                         className="data-library-field",
                         children=[
-                            html.Label("Artifact type", className="labelColor"),
+                            html.Label("Artifact type", className="surfaceTextWhite"),
                             dcc.Dropdown(
                                 id="data-library-artifact-type-filter",
                                 options=ARTIFACT_TYPE_OPTIONS,
@@ -88,7 +88,7 @@ def build_data_library_layout():
                     html.Div(
                         className="data-library-field data-library-small-field",
                         children=[
-                            html.Label("Extension", className="labelColor"),
+                            html.Label("Extension", className="surfaceTextWhite"),
                             dcc.Dropdown(
                                 id="data-library-extension-filter",
                                 options=EXTENSION_OPTIONS,
@@ -101,7 +101,7 @@ def build_data_library_layout():
                     html.Div(
                         className="data-library-field",
                         children=[
-                            html.Label("Search", className="labelColor"),
+                            html.Label("Search", className="surfaceTextWhite"),
                             dcc.Input(
                                 id="data-library-search-input",
                                 type="text",
@@ -114,7 +114,7 @@ def build_data_library_layout():
                     html.Div(
                         className="data-library-field data-library-small-field",
                         children=[
-                            html.Label("Limit", className="labelColor"),
+                            html.Label("Limit", className="surfaceTextWhite"),
                             dcc.Input(
                                 id="data-library-limit-input",
                                 type="number",
@@ -136,7 +136,7 @@ def build_data_library_layout():
                     html.Div(
                         className="data-library-left",
                         children=[
-                            html.H3("Cataloged artifacts", className="labelColor"),
+                            html.H3("Cataloged artifacts", className="surfaceTextWhite"),
                             dcc.Dropdown(
                                 id="data-library-artifact-select",
                                 options=[],
@@ -150,7 +150,7 @@ def build_data_library_layout():
                     html.Div(
                         className="data-library-right",
                         children=[
-                            html.H3("Preview", className="labelColor"),
+                            html.H3("Preview", className="surfaceTextWhite"),
                             dcc.Markdown(
                                 id="data-library-preview",
                                 className="data-library-preview",

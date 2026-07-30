@@ -20,7 +20,7 @@ def build_market_memory_packet_panel():
                 children=[
                     html.Div(
                         children=[
-                            html.H3("Market Memory Research Packet", className="labelColor"),
+                            html.H3("Market Memory Research Packet", className="surfaceTextWhite"),
                             html.P(
                                 "Load the latest persistent Market Memory packet, review quality, then apply its symbols to Auto Lab.",
                                 className="autolab-muted",
@@ -39,7 +39,7 @@ def build_market_memory_packet_panel():
                     html.Div(
                         className="autolab-field",
                         children=[
-                            html.Label("Research theme", className="labelColor"),
+                            html.Label("Research theme", className="surfaceTextWhite"),
                             dcc.Input(
                                 id="main-autolab-memory-theme",
                                 type="text",
@@ -52,7 +52,7 @@ def build_market_memory_packet_panel():
                     html.Div(
                         className="autolab-field autolab-small-field",
                         children=[
-                            html.Label("Max symbols", className="labelColor"),
+                            html.Label("Max symbols", className="surfaceTextWhite"),
                             dcc.Input(
                                 id="main-autolab-memory-max-symbols",
                                 type="number",
