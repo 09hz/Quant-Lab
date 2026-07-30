@@ -8,7 +8,7 @@ def build_postgres_status_panel():
         id="data-library-postgres-status-panel",
         className="data-library-postgres-panel",
         children=[
-            html.H3("PostgreSQL Research Database", className="labelColor"),
+            html.H3("PostgreSQL Research Database", className="surfaceTextWhite"),
             html.P(
                 "Check, set up, migrate, and ingest the optional PostgreSQL backend. "
                 "Passwords typed here are used for the current request only and are not saved.", className="data-library-muted"
@@ -16,21 +16,21 @@ def build_postgres_status_panel():
             html.Details(
                 open=False,
                 children=[
-                    html.Summary("Connection settings", className="labelColor"),
+                    html.Summary("Connection settings", className="surfaceTextWhite"),
                     html.Div(
                         className="data-library-pg-grid",
                         children=[
-                            html.Label("Host", className="labelColor"),
+                            html.Label("Host", className="surfaceTextWhite"),
                             dcc.Input(id="data-library-pg-host", type="text", value="localhost"),
-                            html.Label("Port", className="labelColor"),
+                            html.Label("Port", className="surfaceTextWhite"),
                             dcc.Input(id="data-library-pg-port", type="number", value=5432),
-                            html.Label("Database", className="labelColor"),
+                            html.Label("Database", className="surfaceTextWhite"),
                             dcc.Input(id="data-library-pg-database", type="text", value="algotrader"),
-                            html.Label("Schema", className="labelColor"),
+                            html.Label("Schema", className="surfaceTextWhite"),
                             dcc.Input(id="data-library-pg-schema", type="text", value="algotrader", className="textColor"),
-                            html.Label("App user", className="labelColor"),
+                            html.Label("App user", className="surfaceTextWhite"),
                             dcc.Input(id="data-library-pg-app-user", type="text", value="algotrader_app"),
-                            html.Label("App password", className="labelColor"),
+                            html.Label("App password", className="surfaceTextWhite"),
                             dcc.Input(
                                 id="data-library-pg-app-password",
                                 type="password",
@@ -45,16 +45,16 @@ def build_postgres_status_panel():
             html.Details(
                 open=False,
                 children=[
-                    html.Summary("Local setup / repair database", className="labelColor"),
+                    html.Summary("Local setup / repair database", className="surfaceTextWhite"),
                     html.P(
                         "Use this only for a local PostgreSQL server. The admin password is not saved.", className="data-library-muted"
                     ),
                     html.Div(
                         className="data-library-pg-grid",
                         children=[
-                            html.Label("Admin user",className="labelColor"),
+                            html.Label("Admin user",className="surfaceTextWhite"),
                             dcc.Input(id="data-library-pg-admin-user", type="text", value="postgres"),
-                            html.Label("Admin password", className="labelColor"),
+                            html.Label("Admin password", className="surfaceTextWhite"),
                             dcc.Input(
                                 id="data-library-pg-admin-password",
                                 type="password",
@@ -92,10 +92,10 @@ def build_postgres_status_panel():
                     ),
                 ],
             ),
-            html.Div(id="data-library-pg-setup-output", className="data-library-title"),
-            html.Div(id="data-library-pg-status-output", className="data-library-muted"),
-            html.Div(id="data-library-pg-table-counts", className="data-library-title"),
-            html.Div(id="data-library-pg-last-run", className="data-library-muted"),
-            html.Div(id="data-library-pg-skipped-summary", className="data-library-muted"),
+            html.Div(id="data-library-pg-setup-output", className="data-library-pg-mini-table"),
+            html.Div(id="data-library-pg-status-output", className="data-library-pg-mini-table"),
+            html.Div(id="data-library-pg-table-counts", className="data-library-pg-mini-table"),
+            html.Div(id="data-library-pg-last-run", className="data-library-pg-mini-table"),
+            html.Div(id="data-library-pg-skipped-summary", className="data-library-pg-mini-table"),
         ],
     )

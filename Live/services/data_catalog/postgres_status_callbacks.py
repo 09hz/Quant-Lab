@@ -36,7 +36,7 @@ def _table_from_dict(data: dict[str, Any]):
     for key, value in data.items():
         label = key.replace("_", " ")
         rows.append(html.Tr([html.Td(label), html.Td(str(value))]))
-    return html.Table([html.Tbody(rows)], className="data-library-pg-mini-table")
+    return html.Table([html.Tbody(rows)], className="surfaceTextWhite")
 
 
 def _latest_run_view(run: dict[str, Any] | None):
@@ -57,7 +57,7 @@ def _latest_run_view(run: dict[str, Any] | None):
         "errors",
     ]:
         rows.append(html.Tr([html.Td(key), html.Td(str(run.get(key, "")))]))
-    return html.Div([html.H4("Latest ingestion run"), html.Table([html.Tbody(rows)], className="data-library-pg-mini-table")])
+    return html.Div([html.H4("Latest ingestion run"), html.Table([html.Tbody(rows)], className="surfaceTextWhite")])
 
 
 def _skipped_view(rows: list[dict[str, Any]]):
@@ -70,7 +70,7 @@ def _skipped_view(rows: list[dict[str, Any]]):
             body.append(html.Tr([html.Td("error"), html.Td(str(row["error"])), html.Td("")]))
         else:
             body.append(html.Tr([html.Td(str(row.get("status"))), html.Td(str(row.get("skip_reason"))), html.Td(str(row.get("count")))]))
-    return html.Div([html.H4("Skipped/status summary"), html.Table([html.Thead(header), html.Tbody(body)], className="data-library-pg-mini-table")])
+    return html.Div([html.H4("Skipped/status summary"), html.Table([html.Thead(header), html.Tbody(body)], className="surfaceTextWhite")])
 
 
 def _status_banner(status, action_message: str | None = None):
