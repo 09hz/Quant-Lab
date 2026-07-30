@@ -6,7 +6,7 @@ from services.market_calendar.live_trading_day import get_watch_live_trading_day
 
 
 def _build_guard_banner(status):
-    title = "Live mode available" if status.allowed else "Live mode disabled"
+    title = "Live mode available " if status.allowed else "Live mode disabled "
     detail = f"{status.today} ({status.weekday}) - {status.reason}"
     if not status.allowed:
         detail = detail + " Use Replay or CSV/local data."

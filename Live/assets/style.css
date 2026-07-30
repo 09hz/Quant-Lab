@@ -356,18 +356,18 @@ color:black;
   color: var(--white);
 }
 
-.paper-radio {
+.paper-radio-label {
+  color:var(--white);
   display: flex;
   flex-wrap: wrap;
   gap: var(--s3);
-  color: var(--ink-2);
 }
 
-.paper-radio input[type="radio"] {
+.paper-radio-input[type="radio"] {
+  color:white;
   width: auto;
   min-height: 0;
   margin-right: var(--s1);
-  accent-color: var(--white);
 }
 
 .research-autolab-subtitle {
