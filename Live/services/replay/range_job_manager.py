@@ -184,6 +184,35 @@ class ReplayRangeJobManager:
         self._jobs: dict[str, _ReplayRangeJob] = {}
         self._lock = threading.RLock()
 
+    def _mark_dead_active_jobs_locked(self) -> None:
+        """
+        Release job slots if a worker thread died before updating status.
+        """
+        for job in self._jobs.values():
+            if job.status not in {"queued", "running"}:
+                continue
+
+            thread = job.thread
+            if thread is None or thread.is_alive():
+                continue
+
+            with job.lock:
+                if job.status not in {"queued", "running"}:
+                    continue
+                job.status = "failed"
+                job.finished_at = _utc_now()
+                job.message = "Worker stopped"
+                job.error = "Replay range worker stopped before completing."
+
+    def active_jobs(self) -> list[ReplayRangeJobSnapshot]:
+        with self._lock:
+            self._mark_dead_active_jobs_locked()
+            return [
+                job.snapshot()
+                for job in self._jobs.values()
+                if job.status in {"queued", "running"}
+            ]
+
     def start(
         self,
         request: ReplayRangeJobRequest,
@@ -212,6 +241,7 @@ class ReplayRangeJobManager:
             raise ValueError("end_date is required")
 
         with self._lock:
+            self._mark_dead_active_jobs_locked()
             running = [
                 job
                 for job in self._jobs.values()
@@ -373,15 +403,18 @@ class ReplayRangeJobManager:
 
     def get(self, job_id: str) -> ReplayRangeJobSnapshot | None:
         with self._lock:
+            self._mark_dead_active_jobs_locked()
             job = self._jobs.get(str(job_id or ""))
             return job.snapshot() if job else None
 
     def list_jobs(self) -> list[ReplayRangeJobSnapshot]:
         with self._lock:
+            self._mark_dead_active_jobs_locked()
             return [job.snapshot() for job in self._jobs.values()]
 
     def cancel(self, job_id: str) -> ReplayRangeJobSnapshot | None:
         with self._lock:
+            self._mark_dead_active_jobs_locked()
             job = self._jobs.get(str(job_id or ""))
             if job is None:
                 return None
