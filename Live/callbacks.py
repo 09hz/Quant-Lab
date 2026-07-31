@@ -1017,6 +1017,31 @@ def register_callbacks(
                         from services.replay.range_job_manager import get_replay_range_job_manager
 
                         manager = get_replay_range_job_manager()
+                        active_jobs = manager.active_jobs()
+                        if active_jobs:
+                            snapshot = active_jobs[0]
+                            store = _replay_job_snapshot_to_store(snapshot)
+                            active_req = snapshot.request
+                            print(
+                                f"[REPLAY RANGE JOB ACTIVE] job_id={snapshot.job_id} "
+                                f"symbol={active_req.symbol} timeframe={active_req.timeframe} "
+                                f"start={active_req.start_date} end={active_req.end_date}",
+                                flush=True,
+                            )
+                            return (
+                                (
+                                    f"Replay range job already running for {active_req.symbol} "
+                                    f"{active_req.start_date} -> {active_req.end_date} "
+                                    f"({active_req.timeframe}) · "
+                                    f"{_replay_job_display_percent(snapshot):.0f}%."
+                                ),
+                                no_update,
+                                no_update,
+                                "watch-loading-overlay",
+                                render_trigger or 0,
+                                store,
+                            )
+
                         snapshot = manager.start_for_replay_service(
                             replay_service=replay_service,
                             symbol=symbol,

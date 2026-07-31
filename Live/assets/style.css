@@ -17,7 +17,7 @@
   --positive: #62b67a;
   --negative: #d36b6b;
   --warning: #c9a75d;
-  --info: #94a8bc;
+  --info: #ffffff;
   --radius: 2px;
   --control-h: 42px;
   --control-pad-x: 12px;
@@ -263,8 +263,7 @@ color:black;
 .autolab-capital-summary-html { color:white; padding: var(--s3); border: 1px solid var(--line); background: var(--surface-2); overflow: auto; }
 .autolab-help{color:white; padding: var(--s3); border: 1px solid var(--line); background: var(--surface-2); overflow: auto; }
 .autolab-path-box, .autolab-path-box-secondary { font-family: var(--mono); overflow-wrap: anywhere; }
-.autolab-badge, .autolab-pill, .newsroom-badge, .newsroom-pill, .data-library-badge, .settings-mode-badge { display: inline-block; padding: 4px 7px; border: 1px solid var(--line-strong); border-radius: 0; color: var(--ink-2); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
-.autolab-badge-research { border-color: var(--info); color: var(--info); }
+.autolab-badge-research, .autolab-badge, .autolab-pill, .newsroom-badge, .newsroom-pill, .data-library-badge, .settings-mode-badge { display: inline-block; padding: 4px 7px; border: 1px solid var(--line-strong); border-radius: 0; color: var(--ink-2); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .autolab-status-subtle { color: var(--muted); font-family: var(--mono); }
 .autolab-markdown, .autolab-script-markdown { color:white;line-height: 1.6; }
 .autolab-markdown-small { color: #ffffff;font-size: 12px; }
@@ -318,7 +317,8 @@ color:black;
 .settings-tab-placeholder { padding: var(--s5); border: 1px dashed var(--line-strong); color: var(--muted); text-align: center; }
 
 /* Replay progress */
-.replay-range-progress { margin-top: var(--s3); }
+.replay-range-progress { color:white; margin-top: var(--s3); }
+.replay-range-panel{color:white;}
 .replay-range-progress-topline { display: flex; justify-content: space-between; gap: var(--s3); margin-bottom: var(--s2); }
 .replay-range-progress-title { font-weight: 700; }
 .replay-range-progress-status, .replay-range-progress-detail, .replay-range-progress-message { color: var(--ink-2); font-family: var(--mono); font-size: 12px; }
