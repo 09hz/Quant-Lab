@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 import csv
+import hashlib
+import math
 import shutil
 
 
@@ -17,6 +20,14 @@ class BootstrapResult:
     last_date: str = ""
     message: str = ""
     warnings: list[str] | None = None
+    requested_start: str = ""
+    requested_end: str = ""
+    coverage_ok: bool = False
+    data_quality_ok: bool = False
+    duplicate_rows: int = 0
+    invalid_ohlc_rows: int = 0
+    large_gap_count: int = 0
+    data_hash: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -32,27 +43,163 @@ def output_csv_path(live_root: Path, symbol: str, timeframe: str = "1d") -> Path
     return market_bars_dir(live_root) / f"{safe_symbol}_{safe_timeframe}.csv"
 
 
+def _parse_datetime(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).replace(tzinfo=None)
+    except Exception:
+        try:
+            return datetime.strptime(text[:10], "%Y-%m-%d")
+        except Exception:
+            return None
+
+
+def _content_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _analyze_csv(path: Path, start: str = "", end: str = "", timeframe: str = "1d") -> dict[str, Any]:
+    warnings: list[str] = []
+    row_count = 0
+    duplicate_rows = 0
+    invalid_ohlc_rows = 0
+    timestamps: list[datetime] = []
+    seen_timestamps: set[datetime] = set()
+
+    with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
+        reader = csv.DictReader(handle)
+        lowered = {str(column).strip().lower(): column for column in (reader.fieldnames or [])}
+        date_col = next((lowered[key] for key in ("date", "datetime", "timestamp", "time") if key in lowered), None)
+        price_cols = {
+            name: lowered.get(name)
+            for name in ("open", "high", "low", "close")
+        }
+
+        if date_col is None:
+            warnings.append("Missing date/time column.")
+        if any(column is None for column in price_cols.values()):
+            warnings.append("Missing one or more OHLC columns.")
+
+        for row in reader:
+            row_count += 1
+            timestamp = _parse_datetime(row.get(date_col, "") if date_col else "")
+            if timestamp is not None:
+                if timestamp in seen_timestamps:
+                    duplicate_rows += 1
+                else:
+                    seen_timestamps.add(timestamp)
+                    timestamps.append(timestamp)
+
+            try:
+                open_price = float(row.get(price_cols["open"], ""))
+                high_price = float(row.get(price_cols["high"], ""))
+                low_price = float(row.get(price_cols["low"], ""))
+                close_price = float(row.get(price_cols["close"], ""))
+                values = (open_price, high_price, low_price, close_price)
+                valid = all(math.isfinite(value) and value > 0 for value in values)
+                valid = valid and high_price >= max(open_price, close_price, low_price)
+                valid = valid and low_price <= min(open_price, close_price, high_price)
+                if not valid:
+                    invalid_ohlc_rows += 1
+            except Exception:
+                invalid_ohlc_rows += 1
+
+    timestamps.sort()
+    first_timestamp = timestamps[0] if timestamps else None
+    last_timestamp = timestamps[-1] if timestamps else None
+    daily = str(timeframe or "").lower().strip() in {"1d", "d", "day", "daily"}
+    maximum_gap = timedelta(days=7 if daily else 4)
+    large_gap_count = sum(
+        1
+        for previous, current in zip(timestamps, timestamps[1:])
+        if current - previous > maximum_gap
+    )
+
+    requested_start = _parse_datetime(start)
+    requested_end = _parse_datetime(end)
+    tolerance = timedelta(days=4 if daily else 1)
+    start_ok = requested_start is None or (
+        first_timestamp is not None and first_timestamp <= requested_start + tolerance
+    )
+    end_ok = requested_end is None or (
+        last_timestamp is not None and last_timestamp >= requested_end - tolerance
+    )
+    coverage_ok = bool(row_count > 0 and timestamps and start_ok and end_ok)
+    data_quality_ok = bool(
+        row_count > 0
+        and len(timestamps) > 0
+        and duplicate_rows == 0
+        and invalid_ohlc_rows == 0
+        and large_gap_count == 0
+    )
+
+    if not start_ok:
+        warnings.append(f"Requested start {start!r} precedes available data {first_timestamp}.")
+    if not end_ok:
+        warnings.append(f"Requested end {end!r} exceeds available data {last_timestamp}.")
+    if duplicate_rows:
+        warnings.append(f"Detected {duplicate_rows} duplicate timestamp rows.")
+    if invalid_ohlc_rows:
+        warnings.append(f"Detected {invalid_ohlc_rows} invalid OHLC rows.")
+    if large_gap_count:
+        warnings.append(f"Detected {large_gap_count} unexpectedly large time gaps.")
+
+    return {
+        "row_count": row_count,
+        "first_date": first_timestamp.isoformat(sep=" ") if first_timestamp else "",
+        "last_date": last_timestamp.isoformat(sep=" ") if last_timestamp else "",
+        "coverage_ok": coverage_ok,
+        "data_quality_ok": data_quality_ok,
+        "duplicate_rows": duplicate_rows,
+        "invalid_ohlc_rows": invalid_ohlc_rows,
+        "large_gap_count": large_gap_count,
+        "data_hash": _content_hash(path),
+        "warnings": warnings,
+    }
+
+
+def _build_result(
+    *,
+    path: Path,
+    symbol: str,
+    source: str,
+    message: str,
+    start: str = "",
+    end: str = "",
+    timeframe: str = "1d",
+    warnings: list[str] | None = None,
+) -> BootstrapResult:
+    profile = _analyze_csv(path, start=start, end=end, timeframe=timeframe)
+    return BootstrapResult(
+        symbol=symbol.upper(),
+        csv_path=str(path),
+        source=source,
+        row_count=profile["row_count"],
+        first_date=profile["first_date"],
+        last_date=profile["last_date"],
+        message=message,
+        warnings=list(warnings or []) + profile["warnings"],
+        requested_start=start or "",
+        requested_end=end or "",
+        coverage_ok=profile["coverage_ok"],
+        data_quality_ok=profile["data_quality_ok"],
+        duplicate_rows=profile["duplicate_rows"],
+        invalid_ohlc_rows=profile["invalid_ohlc_rows"],
+        large_gap_count=profile["large_gap_count"],
+        data_hash=profile["data_hash"],
+    )
+
+
 def _profile_csv(path: Path) -> tuple[int, str, str]:
     try:
-        with path.open("r", encoding="utf-8", errors="replace", newline="") as handle:
-            reader = csv.DictReader(handle)
-            date_col = None
-            if reader.fieldnames:
-                lowered = {str(c).lower(): c for c in reader.fieldnames}
-                for key in ("date", "datetime", "timestamp", "time"):
-                    if key in lowered:
-                        date_col = lowered[key]
-                        break
-            count = 0
-            first = ""
-            last = ""
-            for row in reader:
-                count += 1
-                value = str(row.get(date_col, "") if date_col else "")
-                if count == 1:
-                    first = value
-                last = value
-            return count, first, last
+        profile = _analyze_csv(path)
+        return profile["row_count"], profile["first_date"], profile["last_date"]
     except Exception:
         return 0, "", ""
 
@@ -78,12 +225,15 @@ def _candidate_local_paths(live_root: Path, symbol: str, timeframe: str = "1d") 
     return [root / name for root in roots for name in names]
 
 
-def find_local_bars_csv(live_root: Path, symbol: str, timeframe: str = "1d") -> Path | None:
-    for path in _candidate_local_paths(live_root, symbol=symbol, timeframe=timeframe):
-        if path.exists() and path.is_file():
-            rows, _, _ = _profile_csv(path)
-            if rows > 0:
-                return path
+def find_local_bars_csv(
+    live_root: Path,
+    symbol: str,
+    timeframe: str = "1d",
+    start: str = "",
+    end: str = "",
+) -> Path | None:
+    candidates = _candidate_local_paths(live_root, symbol=symbol, timeframe=timeframe)
+    fallback: Path | None = None
 
     for root in [
         market_bars_dir(live_root),
@@ -91,31 +241,79 @@ def find_local_bars_csv(live_root: Path, symbol: str, timeframe: str = "1d") -> 
         live_root / "data" / "market_data",
         live_root / "data" / "historical_bars",
     ]:
-        if not root.exists() or not root.is_dir():
-            continue
-        matches = sorted(root.glob(f"*{symbol.upper()}*.csv")) + sorted(root.glob(f"*{symbol.lower()}*.csv"))
-        for match in matches:
-            rows, _, _ = _profile_csv(match)
-            if rows > 0:
-                return match
-    return None
+        if root.exists() and root.is_dir():
+            candidates.extend(sorted(root.glob(f"*{symbol.upper()}*.csv")))
+            candidates.extend(sorted(root.glob(f"*{symbol.lower()}*.csv")))
+
+    for path in dict.fromkeys(candidates):
+        if path.exists() and path.is_file():
+            profile = _analyze_csv(path, start=start, end=end, timeframe=timeframe)
+            if profile["row_count"] > 0 and fallback is None:
+                fallback = path
+            if profile["coverage_ok"] and profile["data_quality_ok"]:
+                return path
+
+    return fallback
 
 
-def copy_local_bars_to_market_dir(live_root: Path, source_path: Path, symbol: str, timeframe: str = "1d") -> BootstrapResult:
+def copy_local_bars_to_market_dir(
+    live_root: Path,
+    source_path: Path,
+    symbol: str,
+    timeframe: str = "1d",
+    start: str = "",
+    end: str = "",
+) -> BootstrapResult:
     dest = output_csv_path(live_root, symbol=symbol, timeframe=timeframe)
     dest.parent.mkdir(parents=True, exist_ok=True)
     if source_path.resolve() != dest.resolve():
         shutil.copyfile(source_path, dest)
-    rows, first, last = _profile_csv(dest)
-    return BootstrapResult(
-        symbol=symbol.upper(),
-        csv_path=str(dest),
+    return _build_result(
+        path=dest,
+        symbol=symbol,
         source=f"local_cache:{source_path}",
-        row_count=rows,
-        first_date=first,
-        last_date=last,
         message="Found local CSV bars and copied them to Live/data/market_bars.",
-        warnings=[],
+        start=start,
+        end=end,
+        timeframe=timeframe,
+    )
+
+
+def fetch_provider_to_csv(
+    live_root: Path,
+    provider: Any,
+    symbol: str,
+    start: str,
+    end: str,
+    timeframe: str = "1d",
+) -> BootstrapResult:
+    from services.market_data.base import normalize_ohlcv
+
+    bars = normalize_ohlcv(
+        provider.get_history(
+            symbol=symbol,
+            timeframe=timeframe,
+            start=start or None,
+            end=end or None,
+        )
+    )
+    if bars.empty:
+        raise RuntimeError(f"MarketDataProvider returned no bars for {symbol}.")
+
+    dest = output_csv_path(live_root, symbol=symbol, timeframe=timeframe)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    output = bars.rename(columns={"time": "date"}).copy()
+    output.to_csv(dest, index=False)
+    provider_name = str(getattr(provider, "name", provider.__class__.__name__) or "unknown")
+    return _build_result(
+        path=dest,
+        symbol=symbol,
+        source=f"provider:{provider_name}",
+        message="Loaded historical bars through the configured MarketDataProvider and cached them for Auto Lab.",
+        start=start,
+        end=end,
+        timeframe=timeframe,
+        warnings=["Simulation/research only; provider data was normalized before use."],
     )
 
 
@@ -143,7 +341,7 @@ def download_yfinance_to_csv(
         start=start or None,
         end=end or None,
         interval=interval,
-        auto_adjust=False,
+        auto_adjust=True,
         progress=False,
         threads=False,
     )
@@ -186,17 +384,17 @@ def download_yfinance_to_csv(
     df = df[["date", "open", "high", "low", "close", "volume"]].copy()
     df.to_csv(dest, index=False)
 
-    rows, first, last = _profile_csv(dest)
-    return BootstrapResult(
-        symbol=symbol.upper(),
-        csv_path=str(dest),
+    return _build_result(
+        path=dest,
+        symbol=symbol,
         source="yfinance",
-        row_count=rows,
-        first_date=first,
-        last_date=last,
         message="Downloaded public historical bars with yfinance and saved CSV.",
+        start=start,
+        end=end,
+        timeframe=timeframe,
         warnings=[
             "Data source is third-party/public-market data; validate before research conclusions.",
+            "Yahoo prices use auto-adjustment for splits and distributions.",
             "Simulation/research only; not live trading advice.",
         ],
     )
@@ -210,16 +408,64 @@ def bootstrap_bars_csv(
     timeframe: str = "1d",
     prefer_local: bool = True,
     allow_yfinance: bool = True,
+    provider: Any | None = None,
 ) -> BootstrapResult:
     symbol = symbol.upper().strip() or "AMD"
+    local_result: BootstrapResult | None = None
 
     if prefer_local:
-        existing = find_local_bars_csv(live_root, symbol=symbol, timeframe=timeframe)
+        existing = find_local_bars_csv(
+            live_root,
+            symbol=symbol,
+            timeframe=timeframe,
+            start=start,
+            end=end,
+        )
         if existing:
-            return copy_local_bars_to_market_dir(live_root, existing, symbol=symbol, timeframe=timeframe)
+            local_result = copy_local_bars_to_market_dir(
+                live_root,
+                existing,
+                symbol=symbol,
+                timeframe=timeframe,
+                start=start,
+                end=end,
+            )
+            if local_result.coverage_ok and local_result.data_quality_ok:
+                return local_result
+
+    if provider is not None:
+        provider_result = fetch_provider_to_csv(
+            live_root,
+            provider=provider,
+            symbol=symbol,
+            start=start,
+            end=end,
+            timeframe=timeframe,
+        )
+        if provider_result.coverage_ok and provider_result.data_quality_ok:
+            return provider_result
+        raise ValueError(
+            f"Provider bars failed coverage or quality checks for {symbol}: "
+            f"coverage_ok={provider_result.coverage_ok}, data_quality_ok={provider_result.data_quality_ok}, "
+            f"warnings={provider_result.warnings}"
+        )
 
     if allow_yfinance:
-        return download_yfinance_to_csv(live_root, symbol=symbol, start=start, end=end, timeframe=timeframe)
+        downloaded = download_yfinance_to_csv(live_root, symbol=symbol, start=start, end=end, timeframe=timeframe)
+        if downloaded.coverage_ok and downloaded.data_quality_ok:
+            return downloaded
+        raise ValueError(
+            f"Downloaded bars failed coverage or quality checks for {symbol}: "
+            f"coverage_ok={downloaded.coverage_ok}, data_quality_ok={downloaded.data_quality_ok}, "
+            f"warnings={downloaded.warnings}"
+        )
+
+    if local_result is not None:
+        raise ValueError(
+            f"Local bars failed coverage or quality checks for {symbol}: "
+            f"coverage_ok={local_result.coverage_ok}, data_quality_ok={local_result.data_quality_ok}, "
+            f"warnings={local_result.warnings}"
+        )
 
     raise FileNotFoundError(
         f"No local CSV bars found for {symbol}, and yfinance fallback is disabled. "

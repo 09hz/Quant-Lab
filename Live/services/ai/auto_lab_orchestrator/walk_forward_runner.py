@@ -4,6 +4,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 import argparse
 import math
+import statistics
 import sys
 import traceback
 
@@ -87,6 +88,328 @@ def buy_hold_return_pct(bars) -> float:
     return ((last / first) - 1.0) * 100.0
 
 
+def _window_date(bars, index: int) -> str:
+    try:
+        if hasattr(bars, "columns"):
+            for column in ("date", "datetime", "timestamp", "time"):
+                if column in bars.columns:
+                    value = bars.iloc[index][column]
+                    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+        row = bars[index]
+        if isinstance(row, dict):
+            value = next((row.get(key) for key in ("date", "datetime", "timestamp", "time") if row.get(key) is not None), "")
+        else:
+            value = next((getattr(row, key) for key in ("date", "datetime", "timestamp", "time") if getattr(row, key, None) is not None), "")
+        return value.isoformat() if hasattr(value, "isoformat") else str(value)
+    except Exception:
+        return ""
+
+
+def _slice_bars(bars, start: int, end: int):
+    if hasattr(bars, "iloc"):
+        return bars.iloc[start:end].reset_index(drop=True)
+    return bars[start:end]
+
+
+def reserve_final_holdout(bars, *, holdout_pct: float = 20.0, min_holdout_bars: int = 20) -> dict:
+    """Reserve the final chronological bars without exposing them to validation."""
+    total_rows = len(bars) if bars is not None else 0
+    minimum = max(1, int(min_holdout_bars or 1))
+    percentage = min(100.0, max(0.0, _safe_float(holdout_pct, 20.0)))
+    holdout_rows = max(minimum, int(math.ceil(total_rows * percentage / 100.0)))
+
+    if total_rows <= holdout_rows:
+        return {
+            "holdout_available": False,
+            "validation_start": _window_date(bars, 0) if total_rows else "",
+            "validation_end": _window_date(bars, total_rows - 1) if total_rows else "",
+            "holdout_start": "",
+            "holdout_end": "",
+            "holdout_rows": 0,
+            "validation_bars": _slice_bars(bars, 0, total_rows) if bars is not None else [],
+            "holdout_bars": _slice_bars(bars, 0, 0) if bars is not None else [],
+        }
+
+    split_index = total_rows - holdout_rows
+    return {
+        "holdout_available": True,
+        "validation_start": _window_date(bars, 0),
+        "validation_end": _window_date(bars, split_index - 1),
+        "holdout_start": _window_date(bars, split_index),
+        "holdout_end": _window_date(bars, total_rows - 1),
+        "holdout_rows": holdout_rows,
+        "validation_bars": _slice_bars(bars, 0, split_index),
+        "holdout_bars": _slice_bars(bars, split_index, total_rows),
+    }
+
+
+def classify_holdout_regime(bars) -> str:
+    """Classify holdout-only price trend and bar-return volatility."""
+    try:
+        if hasattr(bars, "columns") and "close" in bars.columns:
+            closes = [_safe_float(value, 0.0) for value in bars["close"].dropna().tolist()]
+        else:
+            closes = []
+            for row in ([] if bars is None else bars):
+                value = row.get("close") if isinstance(row, dict) else getattr(row, "close", 0.0)
+                closes.append(_safe_float(value, 0.0))
+        closes = [value for value in closes if value > 0]
+    except Exception:
+        closes = []
+
+    if len(closes) < 2:
+        return "unavailable"
+
+    total_return_pct = ((closes[-1] / closes[0]) - 1.0) * 100.0
+    returns_pct = [((current / previous) - 1.0) * 100.0 for previous, current in zip(closes, closes[1:])]
+    volatility_pct = statistics.pstdev(returns_pct) if len(returns_pct) > 1 else 0.0
+
+    if total_return_pct > 2.0:
+        trend = "uptrend"
+    elif total_return_pct < -2.0:
+        trend = "downtrend"
+    else:
+        trend = "sideways"
+    volatility = "high_volatility" if volatility_pct >= 2.0 else "low_volatility"
+    return f"{trend}_{volatility}"
+
+
+def build_rolling_windows(bars, *, window_count: int = 3, min_bars: int = 20) -> list[dict]:
+    """Partition unseen bars into chronological, non-overlapping validation windows."""
+    total_rows = len(bars) if bars is not None else 0
+    requested_count = max(1, int(window_count or 1))
+    minimum = max(2, int(min_bars or 2))
+    available_count = total_rows // minimum
+    actual_count = min(requested_count, available_count)
+    if actual_count < 1:
+        return []
+
+    windows = []
+    for index in range(actual_count):
+        start_index = (index * total_rows) // actual_count
+        end_index = ((index + 1) * total_rows) // actual_count
+        if hasattr(bars, "iloc"):
+            window_bars = bars.iloc[start_index:end_index].reset_index(drop=True)
+        else:
+            window_bars = bars[start_index:end_index]
+        windows.append(
+            {
+                "window": index + 1,
+                "start": _window_date(bars, start_index),
+                "end": _window_date(bars, end_index - 1),
+                "row_count": len(window_bars),
+                "bars": window_bars,
+            }
+        )
+    return windows
+
+
+def summarize_rolling_results(rows: list[dict], *, max_drawdown_pct: float) -> dict:
+    if not rows:
+        return {
+            "rolling_status": "unavailable",
+            "rolling_window_count": 0,
+            "rolling_engine_pass_count": 0,
+            "rolling_pass_count": 0,
+            "rolling_pass_rate_pct": 0.0,
+            "rolling_median_score": 0.0,
+            "rolling_worst_score": 0.0,
+            "rolling_worst_drawdown_pct": 0.0,
+            "rolling_total_fees": 0.0,
+            "rolling_total_slippage": 0.0,
+        }
+
+    drawdown_limit = abs(_safe_float(max_drawdown_pct, 0.0))
+    passes = [
+        row
+        for row in rows
+        if bool(row.get("engine_pass"))
+        and bool(row.get("research_pass"))
+        and abs(_safe_float(row.get("max_drawdown_pct"), 0.0)) <= drawdown_limit
+    ]
+    pass_rate = (len(passes) / len(rows)) * 100.0
+    if len(passes) * 3 >= len(rows) * 2:
+        status = "robust"
+    elif passes:
+        status = "partial"
+    else:
+        status = "failed"
+
+    scores = [_safe_float(row.get("score"), 0.0) for row in rows]
+    drawdowns = [abs(_safe_float(row.get("max_drawdown_pct"), 0.0)) for row in rows]
+    return {
+        "rolling_status": status,
+        "rolling_window_count": len(rows),
+        "rolling_engine_pass_count": sum(1 for row in rows if row.get("engine_pass")),
+        "rolling_pass_count": len(passes),
+        "rolling_pass_rate_pct": round(pass_rate, 4),
+        "rolling_median_score": round(statistics.median(scores), 4),
+        "rolling_worst_score": round(min(scores), 4),
+        "rolling_worst_drawdown_pct": round(max(drawdowns), 4),
+        "rolling_total_fees": round(sum(_safe_float(row.get("fees"), 0.0) for row in rows), 4),
+        "rolling_total_slippage": round(sum(_safe_float(row.get("slippage"), 0.0) for row in rows), 4),
+    }
+
+
+def run_rolling_stress_test(
+    *,
+    adapter,
+    candidate,
+    symbol: str,
+    test_bars,
+    timeframe: str,
+    initial_cash: float,
+    target_equity: float,
+    max_drawdown_pct: float,
+    window_count: int,
+    min_bars: int,
+    commission_per_order: float,
+    slippage_bps: float,
+) -> dict:
+    from services.ai.auto_lab_orchestrator.models import ExperimentGoal
+    from services.ai.auto_lab_orchestrator.scorecard import score_strategy_result
+
+    public_rows = []
+    for window in build_rolling_windows(test_bars, window_count=window_count, min_bars=min_bars):
+        goal = ExperimentGoal(
+            question=f"Test 3 rolling stress validation for {symbol}, window {window['window']}.",
+            symbols=[symbol],
+            timeframe=timeframe,
+            starting_cash=initial_cash,
+            target_equity=target_equity,
+            max_drawdown_pct=max_drawdown_pct,
+            min_trades=1,
+            execution_mode="next_open",
+            commission_per_order=max(0.0, _safe_float(commission_per_order, 0.0)),
+            slippage_bps=max(0.0, _safe_float(slippage_bps, 0.0)),
+            max_runs=1,
+            simulation_only=True,
+            notes="Fixed-candidate rolling out-of-sample validation with fee and slippage stress.",
+        )
+        result = adapter.run_candidate(candidate, window["bars"], goal, symbol)
+        scorecard = score_strategy_result(result, goal)
+        metrics = dict(getattr(result, "metrics", {}) or {})
+        public_rows.append(
+            {
+                "window": window["window"],
+                "start": window["start"],
+                "end": window["end"],
+                "row_count": window["row_count"],
+                "score": scorecard.total_score,
+                "grade": scorecard.grade,
+                "engine_pass": scorecard.engine_pass,
+                "research_pass": scorecard.research_pass,
+                "objective_hit": scorecard.objective_hit,
+                "objective_progress_pct": scorecard.objective_progress_pct,
+                "total_return_pct": metrics.get("total_return_pct", 0.0),
+                "final_equity": metrics.get("final_equity", 0.0),
+                "max_drawdown_pct": metrics.get("max_drawdown_pct", 0.0),
+                "trade_count": metrics.get("trade_count", 0),
+                "fees": metrics.get("fees", 0.0),
+                "slippage": metrics.get("slippage", 0.0),
+                "buy_hold_return_pct": buy_hold_return_pct(window["bars"]),
+                "warnings": list(scorecard.warnings or []),
+                "fail_reasons": list(scorecard.fail_reasons or []),
+            }
+        )
+
+    summary = summarize_rolling_results(public_rows, max_drawdown_pct=max_drawdown_pct)
+    summary.update(
+        {
+            "rolling_commission_per_order": max(0.0, _safe_float(commission_per_order, 0.0)),
+            "rolling_slippage_bps": max(0.0, _safe_float(slippage_bps, 0.0)),
+            "rolling_windows": public_rows,
+        }
+    )
+    return summary
+
+
+def _empty_holdout_result() -> dict:
+    return {
+        "holdout_available": False,
+        "holdout_start": "",
+        "holdout_end": "",
+        "holdout_rows": 0,
+        "holdout_score": 0.0,
+        "holdout_engine_pass": False,
+        "holdout_research_pass": False,
+        "holdout_objective_hit": False,
+        "holdout_objective_progress_pct": 0.0,
+        "holdout_total_return_pct": 0.0,
+        "holdout_max_drawdown_pct": 0.0,
+        "holdout_trade_count": 0,
+        "holdout_fees": 0.0,
+        "holdout_slippage": 0.0,
+        "holdout_regime": "unavailable",
+    }
+
+
+def best_holdout_symbol_fields(row: dict | None) -> dict:
+    source = row or {}
+    return {
+        f"best_{key}": source.get(key, default)
+        for key, default in _empty_holdout_result().items()
+    }
+
+
+def run_final_holdout_test(
+    *,
+    adapter,
+    candidate,
+    symbol: str,
+    holdout_bars,
+    holdout_available: bool,
+    timeframe: str,
+    initial_cash: float,
+    target_equity: float,
+    max_drawdown_pct: float,
+    commission_per_order: float,
+    slippage_bps: float,
+) -> dict:
+    """Run a fixed candidate once on the untouched final holdout."""
+    if not holdout_available or holdout_bars is None or len(holdout_bars) < 1:
+        return _empty_holdout_result()
+
+    from services.ai.auto_lab_orchestrator.models import ExperimentGoal
+    from services.ai.auto_lab_orchestrator.scorecard import score_strategy_result
+
+    goal = ExperimentGoal(
+        question=f"Test 4 final untouched holdout for {symbol}.",
+        symbols=[symbol],
+        timeframe=timeframe,
+        starting_cash=initial_cash,
+        target_equity=target_equity,
+        max_drawdown_pct=max_drawdown_pct,
+        min_trades=1,
+        execution_mode="next_open",
+        commission_per_order=max(0.0, _safe_float(commission_per_order, 0.0)),
+        slippage_bps=max(0.0, _safe_float(slippage_bps, 0.0)),
+        max_runs=1,
+        simulation_only=True,
+        notes="Fixed-candidate final holdout with fee and slippage stress; no reselection or resizing.",
+    )
+    result = adapter.run_candidate(candidate, holdout_bars, goal, symbol)
+    scorecard = score_strategy_result(result, goal)
+    metrics = dict(getattr(result, "metrics", {}) or {})
+    return {
+        "holdout_available": True,
+        "holdout_start": _window_date(holdout_bars, 0),
+        "holdout_end": _window_date(holdout_bars, len(holdout_bars) - 1),
+        "holdout_rows": len(holdout_bars),
+        "holdout_score": scorecard.total_score,
+        "holdout_engine_pass": scorecard.engine_pass,
+        "holdout_research_pass": scorecard.research_pass,
+        "holdout_objective_hit": scorecard.objective_hit,
+        "holdout_objective_progress_pct": scorecard.objective_progress_pct,
+        "holdout_total_return_pct": metrics.get("total_return_pct", 0.0),
+        "holdout_max_drawdown_pct": metrics.get("max_drawdown_pct", 0.0),
+        "holdout_trade_count": metrics.get("trade_count", 0),
+        "holdout_fees": metrics.get("fees", 0.0),
+        "holdout_slippage": metrics.get("slippage", 0.0),
+        "holdout_regime": classify_holdout_regime(holdout_bars),
+    }
+
+
 def _result_by_key(run):
     return {(r.candidate_id, r.symbol): r for r in run.results}
 
@@ -162,12 +485,19 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args) -> dict:
         start=args.train_start,
         end=args.train_end,
     )
-    test_bars, test_profile = load_csv_bars(
+    full_test_bars, test_profile = load_csv_bars(
         csv_path=boot.csv_path,
         symbol=symbol,
         start=args.test_start,
         end=args.test_end,
     )
+    holdout_split = reserve_final_holdout(
+        full_test_bars,
+        holdout_pct=getattr(args, "holdout_pct", 20.0),
+        min_holdout_bars=getattr(args, "holdout_min_bars", 20),
+    )
+    test_bars = holdout_split["validation_bars"]
+    holdout_bars = holdout_split["holdout_bars"]
 
     train_buy_hold = buy_hold_return_pct(train_bars)
     test_buy_hold = buy_hold_return_pct(test_bars)
@@ -195,7 +525,8 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args) -> dict:
         config=sizing_config,
     )
 
-    orchestrator = AutoLabOrchestrator(adapter=CoreStrategyBacktestAdapter(), live_root=live_root)
+    adapter = CoreStrategyBacktestAdapter()
+    orchestrator = AutoLabOrchestrator(adapter=adapter, live_root=live_root)
 
     baseline_goal = ExperimentGoal(
         question=f"v21.6 walk-forward TRAIN baseline for {symbol}.",
@@ -242,10 +573,13 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args) -> dict:
             "data_source": boot.source,
             "csv_path": boot.csv_path,
             "train_rows": train_profile.row_count,
-            "test_rows": test_profile.row_count,
+            "full_test_rows": test_profile.row_count,
+            "test_rows": len(test_bars),
+            "reserved_holdout_rows": holdout_split["holdout_rows"],
             "buy_hold_train_return_pct": train_buy_hold,
             "buy_hold_test_return_pct": test_buy_hold,
             "validated_candidates": [],
+            **best_holdout_symbol_fields(None),
         }
 
     sized_mutations_train, train_mutation_sizing = apply_simulation_sizing(
@@ -293,10 +627,13 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args) -> dict:
             "data_source": boot.source,
             "csv_path": boot.csv_path,
             "train_rows": train_profile.row_count,
-            "test_rows": test_profile.row_count,
+            "full_test_rows": test_profile.row_count,
+            "test_rows": len(test_bars),
+            "reserved_holdout_rows": holdout_split["holdout_rows"],
             "buy_hold_train_return_pct": train_buy_hold,
             "buy_hold_test_return_pct": test_buy_hold,
             "validated_candidates": [],
+            **best_holdout_symbol_fields(None),
         }
 
     sized_test_candidates, test_sizing = apply_simulation_sizing(
@@ -324,7 +661,13 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args) -> dict:
         bars_by_symbol={symbol: test_bars},
     )
     test_run.summary["walk_forward_phase"] = "test_validation"
-    test_run.summary["data_profile"] = test_profile.to_dict()
+    test_run.summary["data_profile"] = {
+        **test_profile.to_dict(),
+        "row_count": len(test_bars),
+        "first_date": holdout_split["validation_start"],
+        "last_date": holdout_split["validation_end"],
+        "reserved_holdout_rows": holdout_split["holdout_rows"],
+    }
     test_run.summary["sizing"] = test_sizing
     normalize_run_execution_quality(test_run, context=f"{symbol}_test_validation")
     write_run_bundle(test_run, Path(test_run.artifacts["report_md"]).parent)
@@ -339,7 +682,39 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args) -> dict:
         candidate = test_candidate_by_id.get(test_sc.candidate_id)
         test_result = test_result_by_key.get((test_sc.candidate_id, test_sc.symbol))
         if train_sc and candidate:
-            rows.append(_row_from_train_test(symbol, train_sc, test_sc, test_result, candidate, test_buy_hold))
+            row = _row_from_train_test(symbol, train_sc, test_sc, test_result, candidate, test_buy_hold)
+            row.update(
+                run_rolling_stress_test(
+                    adapter=adapter,
+                    candidate=candidate,
+                    symbol=symbol,
+                    test_bars=test_bars,
+                    timeframe=args.timeframe,
+                    initial_cash=initial_cash,
+                    target_equity=target_equity,
+                    max_drawdown_pct=args.max_drawdown_pct,
+                    window_count=args.rolling_windows,
+                    min_bars=args.rolling_min_bars,
+                    commission_per_order=args.rolling_commission_per_order,
+                    slippage_bps=args.rolling_slippage_bps,
+                )
+            )
+            row.update(
+                run_final_holdout_test(
+                    adapter=adapter,
+                    candidate=candidate,
+                    symbol=symbol,
+                    holdout_bars=holdout_bars,
+                    holdout_available=holdout_split["holdout_available"],
+                    timeframe=args.timeframe,
+                    initial_cash=initial_cash,
+                    target_equity=target_equity,
+                    max_drawdown_pct=args.max_drawdown_pct,
+                    commission_per_order=args.rolling_commission_per_order,
+                    slippage_bps=args.rolling_slippage_bps,
+                )
+            )
+            rows.append(row)
 
     best = rows[0] if rows else {}
 
@@ -349,11 +724,13 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args) -> dict:
         "data_source": boot.source,
         "csv_path": boot.csv_path,
         "train_rows": train_profile.row_count,
-        "test_rows": test_profile.row_count,
+        "full_test_rows": test_profile.row_count,
+        "test_rows": len(test_bars),
+        "reserved_holdout_rows": holdout_split["holdout_rows"],
         "train_first_date": train_profile.first_date,
         "train_last_date": train_profile.last_date,
-        "test_first_date": test_profile.first_date,
-        "test_last_date": test_profile.last_date,
+        "test_first_date": holdout_split["validation_start"],
+        "test_last_date": holdout_split["validation_end"],
         "buy_hold_train_return_pct": train_buy_hold,
         "buy_hold_test_return_pct": test_buy_hold,
         "baseline_run_id": baseline_run.run_id,
@@ -370,12 +747,14 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args) -> dict:
         "best_test_objective_hit": best.get("test_objective_hit", False),
         "best_test_objective_progress_pct": best.get("test_objective_progress_pct", 0.0),
         "best_overfit_label": best.get("overfit_label", ""),
+        "best_rolling_status": best.get("rolling_status", "unavailable"),
+        "best_rolling_pass_rate_pct": best.get("rolling_pass_rate_pct", 0.0),
+        "best_rolling_worst_score": best.get("rolling_worst_score", 0.0),
+        **best_holdout_symbol_fields(best),
     }
 
 
-def main() -> int:
-    live_root = _bootstrap_import_path()
-
+def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run multi-symbol walk-forward validation.")
     parser.add_argument("--symbols", default="AMD,NVDA,MSFT,AAPL,TSLA")
     parser.add_argument("--train-start", default="2020-01-01")
@@ -395,10 +774,21 @@ def main() -> int:
     parser.add_argument("--max-mutations-per-parent", type=int, default=4)
     parser.add_argument("--max-total-runs-per-symbol", type=int, default=20)
     parser.add_argument("--top-n-per-symbol", type=int, default=3)
+    parser.add_argument("--rolling-windows", type=int, default=3)
+    parser.add_argument("--rolling-min-bars", type=int, default=20)
+    parser.add_argument("--rolling-commission-per-order", type=float, default=1.0)
+    parser.add_argument("--rolling-slippage-bps", type=float, default=5.0)
+    parser.add_argument("--holdout-pct", type=float, default=20.0)
+    parser.add_argument("--holdout-min-bars", type=int, default=20)
     parser.add_argument("--mutate-quantity", action="store_true")
     parser.add_argument("--strict-parent-gate", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> int:
+    live_root = _bootstrap_import_path()
+    args = build_argument_parser().parse_args()
 
     from services.ai.auto_lab_orchestrator.walk_forward_reporter import build_walk_forward_payload, write_walk_forward_artifacts
 
@@ -413,7 +803,7 @@ def main() -> int:
 
     settings = {
         "symbols": symbols,
-        "validation_mode": "single_train_test_split",
+        "validation_mode": "train_unseen_test_then_rolling_stress_then_final_holdout",
         "train_start": args.train_start,
         "train_end": args.train_end,
         "test_start": args.test_start,
@@ -428,6 +818,12 @@ def main() -> int:
         "target_equity": args.target_equity,
         "max_drawdown_pct": args.max_drawdown_pct,
         "top_n_per_symbol": args.top_n_per_symbol,
+        "rolling_windows": args.rolling_windows,
+        "rolling_min_bars": args.rolling_min_bars,
+        "rolling_commission_per_order": args.rolling_commission_per_order,
+        "rolling_slippage_bps": args.rolling_slippage_bps,
+        "holdout_pct": args.holdout_pct,
+        "holdout_min_bars": args.holdout_min_bars,
         "max_mutations_per_parent": args.max_mutations_per_parent,
         "max_total_runs_per_symbol": args.max_total_runs_per_symbol,
         "benchmark": "buy_and_hold_return_pct",
@@ -447,7 +843,9 @@ def main() -> int:
                 f"best={result.get('best_candidate_id', '')} "
                 f"test_score={result.get('best_test_score', 0.0)} "
                 f"test_hit={result.get('best_test_objective_hit', False)} "
-                f"label={result.get('best_overfit_label', '')}"
+                f"label={result.get('best_overfit_label', '')} "
+                f"rolling={result.get('best_rolling_status', 'unavailable')} "
+                f"holdout={result.get('best_holdout_research_pass', False)}"
             )
         except Exception as exc:
             error = {
@@ -456,6 +854,7 @@ def main() -> int:
                 "error_type": exc.__class__.__name__,
                 "error": str(exc),
                 "traceback": traceback.format_exc(),
+                **best_holdout_symbol_fields(None),
             }
             results.append(error)
             errors.append(error)

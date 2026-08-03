@@ -2341,6 +2341,7 @@ def register_callbacks(
                     f"Backtest complete for {symbol}. "
                     f"Bars: {len(bars):,} · "
                     f"Signals: {len(strategy_result.signals):,} · "
+                    f"Safe order intents: {len(strategy_result.order_intents):,} · "
                     f"Trades: {backtest_result.trade_count:,}"
                 ),
                 _build_backtest_results_panel(backtest_result),
@@ -2787,8 +2788,11 @@ def register_callbacks(
             # Strategy Lab overlays.
             try:
                 strategy_store = strategy_store or {}
-                script_text = str(strategy_store.get("script") or "").strip()
-                strategy_enabled = bool(strategy_store.get("enabled"))
+                script_text = strategy_overlay_service.script_for_symbol(
+                    strategy_store,
+                    symbol,
+                )
+                strategy_enabled = bool(script_text)
 
                 if strategy_enabled and script_text:
                     try:
@@ -3098,24 +3102,49 @@ def register_callbacks(
         Output("strategy-status", "children"),
         Input("strategy-run", "n_clicks"),
         Input("strategy-clear", "n_clicks"),
+        Input("main-autolab-paper-review-store", "data"),
         State("strategy-script-input", "value"),
         State("strategy-script-store", "data"),
         State("main-tabs", "value"),
-        prevent_initial_call=True,
+        prevent_initial_call=False,
     )
     def update_strategy_script_store(
             run_clicks,
             clear_clicks,
+            review_state,
             script_text,
             current_store,
             active_tab,
     ):
-        if active_tab != "watch":
-            return no_update, no_update, no_update
-
         trigger = ctx.triggered_id
         current_store = dict(current_store or {})
         nonce = int(current_store.get("nonce", 0)) + 1
+
+        if trigger == "main-autolab-paper-review-store" or trigger is None:
+            try:
+                synced_store = strategy_overlay_service.sync_review_store(
+                    review_state,
+                    current_store,
+                )
+            except Exception as exc:
+                return no_update, no_update, f"Auto Lab strategy overlay failed: {exc}"
+
+            if synced_store is None:
+                return no_update, no_update, no_update
+            if synced_store.get("enabled"):
+                return (
+                    synced_store,
+                    synced_store.get("script", ""),
+                    (
+                        f"Auto Lab overlay loaded: {synced_store.get('symbol')} / "
+                        f"{synced_store.get('candidate_id')}. Indicators, signals, and safe "
+                        "order intents are review-only; no orders are submitted."
+                    ),
+                )
+            return synced_store, "", "Auto Lab strategy overlay removed."
+
+        if active_tab != "watch":
+            return no_update, no_update, no_update
 
         if trigger == "strategy-clear":
             return (
@@ -3123,6 +3152,7 @@ def register_callbacks(
                     "script": "",
                     "enabled": False,
                     "nonce": nonce,
+                    "source": "strategy_lab_manual",
                 },
                 "",
                 "Strategy cleared.",
@@ -3137,6 +3167,7 @@ def register_callbacks(
                         "script": "",
                         "enabled": False,
                         "nonce": nonce,
+                        "source": "strategy_lab_manual",
                     },
                     script_text,
                     "No strategy script entered.",
@@ -3147,6 +3178,7 @@ def register_callbacks(
                     "script": script_text,
                     "enabled": True,
                     "nonce": nonce,
+                    "source": "strategy_lab_manual",
                 },
                 script_text,
                 "Strategy script loaded. Indicators will draw on the Watch chart.",
@@ -3346,8 +3378,10 @@ def register_callbacks(
         Input("paper-sell", "n_clicks"),
         Input("paper-short-buy", "n_clicks"),
         Input("paper-short-sell", "n_clicks"),
+        Input("paper-apply-cash", "n_clicks"),
         Input("paper-reset", "n_clicks"),
         State("paper-order-qty", "value"),
+        State("paper-starting-cash", "value"),
         State("watch-symbol-dropdown", "value"),
         State("paper-price-source", "value"),
         State("paper-position-mode", "value"),
@@ -3361,8 +3395,10 @@ def register_callbacks(
             sell_clicks,
             short_buy_clicks,
             short_sell_clicks,
+            apply_cash_clicks,
             reset_clicks,
             quantity,
+            starting_cash,
             symbol,
             price_source,
             position_mode,
@@ -3380,6 +3416,24 @@ def register_callbacks(
         paper_trigger = int(paper_trigger or 0)
 
         try:
+            if trigger == "paper-apply-cash":
+                applied_cash = paper_trading_service.set_starting_cash(
+                    starting_cash,
+                    reset_account=True,
+                )
+
+                try:
+                    if paper_state_cache is not None:
+                        paper_state_cache.clear()
+                        paper_state_cache.save_from_service(paper_trading_service)
+                except Exception as cache_exc:
+                    print(f"[PAPER CACHE RESET ERROR] {cache_exc}", flush=True)
+
+                return (
+                    f"Paper account reset with starting cash ${applied_cash:,.2f}.",
+                    paper_trigger + 1,
+                )
+
             if trigger == "paper-reset":
                 paper_trading_service.reset()
 
@@ -3562,6 +3616,80 @@ def register_callbacks(
 
         return "Replay Cursor paper trading enabled."
 
+    @app.callback(
+        Output("paper-active-review-status", "children"),
+        Input("main-autolab-paper-review-store", "data"),
+        Input("strategy-script-store", "data"),
+        Input("paper-trade-trigger", "data"),
+        Input("watch-ui-refresh-trigger", "data"),
+        State("paper-price-source", "value"),
+        State("replay-date", "date"),
+        State("main-tabs", "value"),
+        prevent_initial_call=False,
+    )
+    def render_active_paper_review(
+        review_store,
+        strategy_store,
+        _paper_trigger,
+        _watch_refresh,
+        price_source,
+        replay_date,
+        active_tab,
+    ):
+        if active_tab != "watch":
+            return no_update
+        if paper_trading_service is None:
+            return "Auto Lab paper review is unavailable because Paper Trading is disabled."
+
+        status = paper_trading_service.review_status()
+        if status.get("review_status") != "active_paper_review":
+            return "Auto Lab paper review is inactive. Normal manual paper trading limits apply."
+
+        symbol = str(status.get("symbol") or "").upper().strip()
+        try:
+            price, price_timestamp, _source_label = _paper_current_price_and_time(
+                symbol,
+                source=price_source,
+                replay_date=replay_date,
+            )
+            if price is not None:
+                status = paper_trading_service.review_status(
+                    {symbol: float(price)},
+                    timestamp=price_timestamp,
+                )
+        except Exception:
+            pass
+
+        policy = status.get("risk_policy") or {}
+        daily_loss = float(status.get("daily_loss_pct") or 0.0)
+        drawdown = float(status.get("drawdown_pct") or 0.0)
+        orders_today = int(status.get("orders_today") or 0)
+        lock_reasons = []
+        if daily_loss >= float(policy.get("max_daily_loss_pct") or 0.0):
+            lock_reasons.append("daily-loss lock")
+        if drawdown >= float(policy.get("max_drawdown_pct") or 0.0):
+            lock_reasons.append("drawdown lock")
+        if orders_today >= int(policy.get("max_orders_per_day") or 0):
+            lock_reasons.append("order-count lock")
+        lock_text = ", ".join(lock_reasons) if lock_reasons else "new entries available within limits"
+        strategy_store = dict(strategy_store or {})
+        overlay_active = (
+            strategy_store.get("source") == "auto_lab_paper_review"
+            and bool(strategy_store.get("enabled"))
+            and strategy_store.get("candidate_id") == status.get("candidate_id")
+            and str(strategy_store.get("symbol") or "").upper() == symbol
+        )
+        overlay_text = "Watch overlay active" if overlay_active else "Watch overlay replaced or disabled"
+
+        return (
+            f"AUTO LAB REVIEW ACTIVE | {symbol} | {status.get('candidate_id')} | "
+            f"daily loss {daily_loss:.2f}/{float(policy.get('max_daily_loss_pct') or 0):.2f}% | "
+            f"drawdown {drawdown:.2f}/{float(policy.get('max_drawdown_pct') or 0):.2f}% | "
+            f"orders {orders_today}/{int(policy.get('max_orders_per_day') or 0)} | "
+            f"position cap {float(policy.get('max_position_pct') or 0):.2f}% | {lock_text} | {overlay_text}. "
+            "Orders remain manual; exits stay available under a lock."
+        )
+
 
     @app.callback(
         Output("paper-summary-panel", "children"),
@@ -3620,6 +3748,13 @@ def register_callbacks(
         summary_cards = html.Div(
             className="paper-summary-cards",
             children=[
+                html.Div(
+                    className="paper-summary-card",
+                    children=[
+                        html.Div("Starting Cash", className="paper-summary-label"),
+                        html.Div(f"${summary.get('starting_cash', 0):,.2f}", className="paper-summary-value"),
+                    ],
+                ),
                 html.Div(
                     className="paper-summary-card",
                     children=[

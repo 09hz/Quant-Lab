@@ -260,6 +260,7 @@ label, .control-label, .input-label, .analytics-label, .paper-control-label, .au
 .paper-summary-label, .quant-native-count-label { color: var(--muted); font-size: 11px; letter-spacing: .05em; text-transform: uppercase; }
 .paper-trade-status, .strategy-status, .strategy-ai-status, .strategy-ai-context-status, .newsroom-status, .research-autolab-status, .research-analyst-status, .autolab-status { min-height: 20px; margin-top: var(--s3); color: var(--ink-2); font-family: var(--mono); white-space: pre-wrap; }
 .paper-trade-status:empty, .strategy-status:empty, .strategy-ai-status:empty, .strategy-ai-context-status:empty, .newsroom-status:empty, .research-autolab-status:empty, .research-analyst-status:empty, .autolab-status:empty { display: none; }
+.paper-review-guard-status { margin-top: var(--s2); padding: var(--s2) var(--s3); border: 1px solid var(--line); border-left: 3px solid var(--warning); background: var(--surface-2); color: var(--ink-2); font-family: var(--mono); font-size: var(--fs-sm); white-space: pre-wrap; }
 .trade-analytics-content, .trade-analytics-content-tabbed { min-width: 0; }
 .analytics-pnl-chart { min-height: 320px; }
 .analytics-section-title, .paper-table-title, .strategy-backtest-title { color: var(--ink); margin: 0 0 var(--s3); font-size: 14px; font-weight: 700; text-transform: uppercase; }
@@ -319,6 +320,10 @@ label, .control-label, .input-label, .analytics-label, .paper-control-label, .au
 .autolab-output, .autolab-path-box, .autolab-path-box-secondary { color: var(--ink); padding: var(--s3); border: 1px solid var(--line); background: var(--surface-2); overflow: auto; }
 .autolab-capital-summary-html { color: var(--ink); padding: var(--s3); border: 1px solid var(--line); background: var(--surface-2); overflow: auto; }
 .autolab-help { color: var(--ink); padding: var(--s3); border: 1px solid var(--line); background: var(--surface-2); overflow: auto; }
+.autolab-paper-review-card { margin-top: var(--s3); border-left: 3px solid var(--accent); }
+.autolab-review-preview { margin: var(--s3) 0; padding: var(--s3); border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-2); font-family: var(--mono); white-space: pre-wrap; }
+.autolab-review-risk-grid { margin-top: var(--s3); }
+.autolab-paper-review-card .autolab-action-row { margin-top: var(--s3); }
 .autolab-path-box, .autolab-path-box-secondary { font-family: var(--mono); overflow-wrap: anywhere; }
 .autolab-badge-research, .autolab-badge, .autolab-pill, .newsroom-badge, .newsroom-pill, .data-library-badge, .settings-mode-badge { display: inline-block; padding: 4px 7px; border: 1px solid var(--line-strong); border-radius: 0; color: var(--ink-2); font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .autolab-status-subtle { color: var(--muted); font-family: var(--mono); }

@@ -294,6 +294,9 @@ class CoreStrategyBacktestAdapter:
                 signals=signals or [],
                 initial_cash=goal.starting_cash,
                 quantity=safe_int(candidate.parameters.get("quantity"), 1),
+                execution_mode=str(goal.execution_mode or "next_open"),
+                commission_per_order=safe_float(goal.commission_per_order, 0.0),
+                slippage_bps=safe_float(goal.slippage_bps, 1.0),
             )
             normalized = normalize_core_backtest_result(
                 result=result,
@@ -481,6 +484,11 @@ def normalize_core_backtest_result(
         "trade_count": safe_int(_pick(mapping, "trade_count", "num_trades", default=derived_trade_metrics["trade_count"])),
         "win_rate_pct": safe_float(_pick(mapping, "win_rate_pct", "win_rate", default=derived_trade_metrics["win_rate_pct"])),
         "profit_factor": safe_float(_pick(mapping, "profit_factor", default=derived_trade_metrics["profit_factor"])),
+        "execution_mode": str(_pick(mapping, "execution_mode", default="next_open")),
+        "fees": safe_float(_pick(mapping, "total_commission", "fees", "commissions", default=0.0)),
+        "slippage": safe_float(_pick(mapping, "total_slippage", "slippage", default=0.0)),
+        "slippage_bps": safe_float(_pick(mapping, "slippage_bps", default=0.0)),
+        "unfilled_signal_count": safe_int(_pick(mapping, "unfilled_signal_count", default=0)),
     }
 
     if not metrics["profit_factor"] and derived_trade_metrics["profit_factor"]:

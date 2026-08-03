@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from typing import Optional
+import math
 
 import pandas as pd
 
@@ -82,6 +83,20 @@ class PaperBroker:
         self.orders.clear()
         self.fills.clear()
         self.positions.clear()
+
+    def set_starting_cash(self, value: float, *, reset_account: bool = True) -> float:
+        try:
+            starting_cash = float(value)
+        except Exception as exc:
+            raise ValueError("Starting cash must be numeric.") from exc
+
+        if not math.isfinite(starting_cash) or starting_cash <= 0:
+            raise ValueError("Starting cash must be greater than zero.")
+
+        self.starting_cash = starting_cash
+        if reset_account:
+            self.reset()
+        return self.starting_cash
 
     def get_position_quantity(self, symbol: str) -> float:
         symbol = str(symbol or "").upper().strip()

@@ -54,35 +54,40 @@ def build_universe_payload(
                 strategy_key,
                 {
                     "strategy_key": strategy_key,
-                    "symbols_tested": 0,
-                    "symbols_research_pass": 0,
-                    "symbols_objective_hit": 0,
-                    "scores": [],
-                    "progress_values": [],
-                    "symbols": [],
+                    "by_symbol": {},
                 },
             )
-            bucket["symbols_tested"] += 1
-            bucket["symbols"].append(symbol)
-            if row.get("research_pass"):
-                bucket["symbols_research_pass"] += 1
-            if row.get("objective_hit"):
-                bucket["symbols_objective_hit"] += 1
-            bucket["scores"].append(_safe_float(row.get("score"), 0.0))
-            bucket["progress_values"].append(_safe_float(row.get("objective_progress_pct"), 0.0))
+            symbol_summary = bucket["by_symbol"].setdefault(
+                symbol,
+                {
+                    "score": 0.0,
+                    "objective_progress_pct": 0.0,
+                    "research_pass": False,
+                    "objective_hit": False,
+                },
+            )
+            symbol_summary["score"] = max(symbol_summary["score"], _safe_float(row.get("score"), 0.0))
+            symbol_summary["objective_progress_pct"] = max(
+                symbol_summary["objective_progress_pct"],
+                _safe_float(row.get("objective_progress_pct"), 0.0),
+            )
+            symbol_summary["research_pass"] = bool(symbol_summary["research_pass"] or row.get("research_pass"))
+            symbol_summary["objective_hit"] = bool(symbol_summary["objective_hit"] or row.get("objective_hit"))
 
     robustness_rows = []
     for bucket in robustness.values():
-        scores = bucket["scores"]
-        progress = bucket["progress_values"]
+        by_symbol = bucket["by_symbol"]
+        symbols_for_strategy = list(by_symbol)
+        scores = [item["score"] for item in by_symbol.values()]
+        progress = [item["objective_progress_pct"] for item in by_symbol.values()]
         row = {
             "strategy_key": bucket["strategy_key"],
-            "symbols_tested": bucket["symbols_tested"],
-            "symbols_research_pass": bucket["symbols_research_pass"],
-            "symbols_objective_hit": bucket["symbols_objective_hit"],
+            "symbols_tested": len(symbols_for_strategy),
+            "symbols_research_pass": sum(1 for item in by_symbol.values() if item["research_pass"]),
+            "symbols_objective_hit": sum(1 for item in by_symbol.values() if item["objective_hit"]),
             "avg_score": round(sum(scores) / len(scores), 4) if scores else 0.0,
             "avg_objective_progress_pct": round(sum(progress) / len(progress), 4) if progress else 0.0,
-            "symbols": bucket["symbols"],
+            "symbols": symbols_for_strategy,
         }
         robustness_rows.append(row)
 

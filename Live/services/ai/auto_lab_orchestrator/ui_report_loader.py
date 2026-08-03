@@ -80,6 +80,8 @@ def load_latest_walk_forward_report(live_root: str | Path | None = None) -> dict
         "overfit_warning_report": str(run_dir / "overfit_warning_report.md"),
         "top_walk_forward_strategy_algorithm": str(run_dir / "top_walk_forward_strategy_algorithm.md"),
         "walk_forward_universe_results": str(run_dir / "walk_forward_universe_results.json"),
+        "paper_review_queue": str(run_dir / "paper_review_queue.json"),
+        "paper_review_queue_report": str(run_dir / "paper_review_queue.md"),
     }
     return {
         "kind": "walk_forward",
@@ -87,6 +89,49 @@ def load_latest_walk_forward_report(live_root: str | Path | None = None) -> dict
         "status": "ok",
         "report_md": read_text_file(paths["walk_forward_universe_report"]),
         "paths": paths,
+    }
+
+
+def load_latest_paper_review_queue(live_root: str | Path | None = None) -> dict[str, Any]:
+    root = Path(live_root) if live_root else live_root_from_here()
+    run_dir = latest_dir(root / "data" / "auto_lab_walk_forward_runs")
+    if not run_dir:
+        return {
+            "schema_version": "paper_review_queue_v24_0",
+            "status": "missing",
+            "run_dir": "",
+            "candidate_count": 0,
+            "candidates": [],
+            "auto_execute": False,
+        }
+
+    queue_path = run_dir / "paper_review_queue.json"
+    payload = load_json_summary(queue_path)
+    if not payload:
+        return {
+            "schema_version": "paper_review_queue_v24_0",
+            "status": "missing",
+            "run_dir": str(run_dir),
+            "queue_path": str(queue_path),
+            "candidate_count": 0,
+            "candidates": [],
+            "auto_execute": False,
+        }
+
+    candidates = [
+        candidate
+        for candidate in payload.get("candidates", [])
+        if isinstance(candidate, dict)
+        and str(candidate.get("promotion_decision") or "").lower() == "promote"
+    ]
+    return {
+        **payload,
+        "status": "ok",
+        "run_dir": str(run_dir),
+        "queue_path": str(queue_path),
+        "candidate_count": len(candidates),
+        "candidates": candidates,
+        "auto_execute": False,
     }
 
 

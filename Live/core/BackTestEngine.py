@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pandas as pd
 
-from core.StrategyEngine import StrategySignal
+if TYPE_CHECKING:
+    from core.StrategyEngine import StrategySignal
 
 
 @dataclass
@@ -18,6 +19,10 @@ class BacktestTrade:
     pnl: float
     return_pct: float
     bars_held: int
+    entry_commission: float = 0.0
+    exit_commission: float = 0.0
+    slippage_cost: float = 0.0
+    total_costs: float = 0.0
 
 
 @dataclass
@@ -35,6 +40,12 @@ class BacktestResult:
     trades: list[BacktestTrade] = field(default_factory=list)
     equity_curve: pd.DataFrame = field(default_factory=pd.DataFrame)
     errors: list[str] = field(default_factory=list)
+    execution_mode: str = "next_open"
+    commission_per_order: float = 0.0
+    slippage_bps: float = 0.0
+    total_commission: float = 0.0
+    total_slippage: float = 0.0
+    unfilled_signal_count: int = 0
 
 
 class BackTestEngine:
@@ -45,7 +56,8 @@ class BackTestEngine:
         BUY opens a long position if flat.
         SELL closes the long position if open.
         No shorts yet.
-        No commissions/slippage yet.
+        Signals execute at the next bar open by default.
+        Optional commission and adverse slippage are included in net PnL.
         One fixed quantity per trade.
     """
 
@@ -55,6 +67,9 @@ class BackTestEngine:
         signals: list[StrategySignal],
         initial_cash: float = 100_000.0,
         quantity: int = 1,
+        execution_mode: str = "next_open",
+        commission_per_order: float = 0.0,
+        slippage_bps: float = 0.0,
     ) -> BacktestResult:
         errors: list[str] = []
 
@@ -78,6 +93,29 @@ class BackTestEngine:
             quantity = 1
             errors.append("Quantity must be greater than zero. Used 1.")
 
+        execution_mode = str(execution_mode or "next_open").strip().lower()
+        if execution_mode not in {"next_open", "same_close"}:
+            execution_mode = "next_open"
+            errors.append("Invalid execution mode. Used next_open.")
+
+        try:
+            commission_per_order = float(commission_per_order)
+        except Exception:
+            commission_per_order = 0.0
+            errors.append("Invalid commission per order. Used 0.")
+        if commission_per_order < 0:
+            commission_per_order = 0.0
+            errors.append("Commission per order cannot be negative. Used 0.")
+
+        try:
+            slippage_bps = float(slippage_bps)
+        except Exception:
+            slippage_bps = 0.0
+            errors.append("Invalid slippage basis points. Used 0.")
+        if slippage_bps < 0:
+            slippage_bps = 0.0
+            errors.append("Slippage basis points cannot be negative. Used 0.")
+
         if bars is None or bars.empty:
             return BacktestResult(
                 initial_cash=initial_cash,
@@ -91,6 +129,9 @@ class BackTestEngine:
                 winning_trades=0,
                 losing_trades=0,
                 errors=["No bars available."],
+                execution_mode=execution_mode,
+                commission_per_order=commission_per_order,
+                slippage_bps=slippage_bps,
             )
 
         clean_bars = self._clean_bars(bars)
@@ -108,33 +149,49 @@ class BackTestEngine:
                 winning_trades=0,
                 losing_trades=0,
                 errors=["No valid bars available."],
+                execution_mode=execution_mode,
+                commission_per_order=commission_per_order,
+                slippage_bps=slippage_bps,
             )
 
         signal_map: dict[int, list[StrategySignal]] = {}
+        execution_lag = 1 if execution_mode == "next_open" else 0
+        unfilled_signal_count = 0
         for signal in signals or []:
-            signal_map.setdefault(int(signal.index), []).append(signal)
+            execution_index = int(signal.index) + execution_lag
+            if execution_index >= len(clean_bars):
+                unfilled_signal_count += 1
+                continue
+            signal_map.setdefault(execution_index, []).append(signal)
 
         cash = initial_cash
         position_qty = 0
         entry_price: float | None = None
         entry_time: Any = None
         entry_index: int | None = None
+        entry_commission = 0.0
+        entry_slippage = 0.0
+        total_commission = 0.0
+        total_slippage = 0.0
 
         trades: list[BacktestTrade] = []
         equity_rows: list[dict[str, Any]] = []
 
         for idx, row in clean_bars.iterrows():
-            price = float(row["close"])
+            market_price = float(row["close"])
+            execution_price = float(row["open"] if execution_mode == "next_open" else row["close"])
             bar_time = row["time"] if "time" in clean_bars.columns else idx
 
             for signal in signal_map.get(int(idx), []):
                 side = str(signal.side).upper()
+                fill_price = self._apply_slippage(execution_price, side, slippage_bps)
+                slippage_cost = abs(fill_price - execution_price) * quantity
 
                 if side == "BUY":
                     if position_qty != 0:
                         continue
 
-                    cost = price * quantity
+                    cost = (fill_price * quantity) + commission_per_order
 
                     if cost > cash:
                         errors.append(
@@ -145,21 +202,32 @@ class BackTestEngine:
 
                     cash -= cost
                     position_qty = quantity
-                    entry_price = price
+                    entry_price = fill_price
                     entry_time = bar_time
                     entry_index = int(idx)
+                    entry_commission = commission_per_order
+                    entry_slippage = slippage_cost
+                    total_commission += commission_per_order
+                    total_slippage += slippage_cost
 
                 elif side == "SELL":
                     if position_qty <= 0 or entry_price is None:
                         continue
 
-                    proceeds = price * position_qty
+                    proceeds = (fill_price * position_qty) - commission_per_order
                     cash += proceeds
+                    total_commission += commission_per_order
+                    total_slippage += slippage_cost
 
-                    pnl = (price - entry_price) * position_qty
+                    pnl = (
+                        (fill_price - entry_price) * position_qty
+                        - entry_commission
+                        - commission_per_order
+                    )
+                    entry_capital = (entry_price * position_qty) + entry_commission
                     return_pct = (
-                        ((price - entry_price) / entry_price) * 100.0
-                        if entry_price
+                        (pnl / entry_capital) * 100.0
+                        if entry_capital
                         else 0.0
                     )
                     bars_held = int(idx) - int(entry_index or idx)
@@ -169,11 +237,15 @@ class BackTestEngine:
                             entry_time=entry_time,
                             exit_time=bar_time,
                             entry_price=float(entry_price),
-                            exit_price=price,
+                            exit_price=fill_price,
                             quantity=int(position_qty),
                             pnl=float(pnl),
                             return_pct=float(return_pct),
                             bars_held=int(bars_held),
+                            entry_commission=float(entry_commission),
+                            exit_commission=float(commission_per_order),
+                            slippage_cost=float(entry_slippage + slippage_cost),
+                            total_costs=float(entry_commission + commission_per_order + entry_slippage + slippage_cost),
                         )
                     )
 
@@ -181,8 +253,10 @@ class BackTestEngine:
                     entry_price = None
                     entry_time = None
                     entry_index = None
+                    entry_commission = 0.0
+                    entry_slippage = 0.0
 
-            market_value = position_qty * price
+            market_value = position_qty * market_price
             equity = cash + market_value
 
             equity_rows.append(
@@ -190,7 +264,7 @@ class BackTestEngine:
                     "time": bar_time,
                     "cash": float(cash),
                     "position_qty": int(position_qty),
-                    "price": float(price),
+                    "price": float(market_price),
                     "market_value": float(market_value),
                     "equity": float(equity),
                 }
@@ -230,7 +304,21 @@ class BackTestEngine:
             trades=trades,
             equity_curve=equity_curve,
             errors=errors,
+            execution_mode=execution_mode,
+            commission_per_order=float(commission_per_order),
+            slippage_bps=float(slippage_bps),
+            total_commission=float(total_commission),
+            total_slippage=float(total_slippage),
+            unfilled_signal_count=int(unfilled_signal_count),
         )
+
+    def _apply_slippage(self, price: float, side: str, slippage_bps: float) -> float:
+        adjustment = slippage_bps / 10_000.0
+        if str(side).upper() == "BUY":
+            return price * (1.0 + adjustment)
+        if str(side).upper() == "SELL":
+            return price * (1.0 - adjustment)
+        return price
 
     def _clean_bars(self, bars: pd.DataFrame) -> pd.DataFrame:
         clean_bars = bars.copy()

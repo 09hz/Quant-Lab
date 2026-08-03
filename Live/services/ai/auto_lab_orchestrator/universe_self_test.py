@@ -20,6 +20,56 @@ def main() -> int:
 
     from services.ai.auto_lab_orchestrator.data_adapters import write_sample_csv
     from services.ai.auto_lab_orchestrator.bars_bootstrapper import output_csv_path
+    from services.ai.auto_lab_orchestrator.universe_reporter import build_universe_payload
+
+    aggregation = build_universe_payload(
+        universe_run_id="aggregation_self_test",
+        symbols=["AMD", "NVDA"],
+        settings={},
+        symbol_results=[
+            {
+                "symbol": "AMD",
+                "ranked_mutations": [
+                    {
+                        "candidate_id": "trend_fast",
+                        "strategy_family": "trend",
+                        "score": 90.0,
+                        "research_pass": True,
+                        "objective_hit": False,
+                        "objective_progress_pct": 80.0,
+                    },
+                    {
+                        "candidate_id": "trend_slow",
+                        "strategy_family": "trend",
+                        "score": 70.0,
+                        "research_pass": False,
+                        "objective_hit": True,
+                        "objective_progress_pct": 100.0,
+                    },
+                ],
+            },
+            {
+                "symbol": "NVDA",
+                "ranked_mutations": [
+                    {
+                        "candidate_id": "trend_nvda",
+                        "strategy_family": "trend",
+                        "score": 60.0,
+                        "research_pass": False,
+                        "objective_hit": False,
+                        "objective_progress_pct": 50.0,
+                    }
+                ],
+            },
+        ],
+    )
+    robustness = aggregation["strategy_robustness"][0]
+    assert robustness["symbols_tested"] == 2, "Mutations must not inflate unique symbol coverage"
+    assert robustness["symbols"] == ["AMD", "NVDA"], "Robustness symbols must be unique"
+    assert robustness["symbols_research_pass"] == 1, "Research pass count must be symbol-level"
+    assert robustness["symbols_objective_hit"] == 1, "Objective count must be symbol-level"
+    assert robustness["avg_score"] == 75.0, "Average score must use each symbol's best family result"
+    assert robustness["avg_objective_progress_pct"] == 75.0, "Progress must not overweight repeated mutations"
 
     for symbol in ["AMD", "NVDA"]:
         write_sample_csv(output_csv_path(live_root, symbol=symbol, timeframe="1d"), symbol=symbol, days=260)

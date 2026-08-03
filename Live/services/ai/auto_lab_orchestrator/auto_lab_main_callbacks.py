@@ -23,6 +23,14 @@ def _clean_symbols(value: str | None) -> str:
     return ",".join(dict.fromkeys(symbols)) or "AMD,NVDA,MSFT,AAPL,TSLA"
 
 
+def _normalize_holdout_pct(value) -> int:
+    try:
+        normalized = int(float(value))
+    except (TypeError, ValueError, OverflowError):
+        normalized = 20
+    return max(5, min(50, normalized))
+
+
 def _run_command(cmd: list[str], cwd: Path) -> tuple[str, int]:
     started = time.strftime("%Y-%m-%d %H:%M:%S")
     result = subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True)
@@ -48,12 +56,13 @@ def _run_command(cmd: list[str], cwd: Path) -> tuple[str, int]:
     return output, result.returncode
 
 
-def register_auto_lab_main_callbacks(app):
-    from dash import Input, Output, State, callback_context
+def register_auto_lab_main_callbacks(app, paper_trading_service=None):
+    from dash import Input, Output, State, callback_context, html, no_update
     from dash.exceptions import PreventUpdate
 
     from services.ai.auto_lab_orchestrator.capital_controls import (
         append_supported_capital_flags,
+        money,
         normalize_capital,
     )
     from services.ai.auto_lab_orchestrator.script_viewer import (
@@ -62,14 +71,171 @@ def register_auto_lab_main_callbacks(app):
         write_latest_manifest,
     )
     from services.ai.auto_lab_orchestrator.ui_report_loader import (
+        load_latest_paper_review_queue,
         load_latest_universe_report,
         load_latest_walk_forward_report,
         summarize_paths,
+    )
+    from services.ai.auto_lab_orchestrator.walk_forward_reporter import (
+        build_paper_review_overlay,
     )
 
     live_root = _live_root()
     package_dir = _package_dir()
     python_exe = sys.executable
+
+    @app.callback(
+        Output("main-autolab-capital-summary", "children"),
+        Input("main-autolab-initial-cash", "value"),
+        Input("main-autolab-target-cash", "value"),
+        Input("main-autolab-cash-exposure", "value"),
+        Input("main-autolab-sizing-mode", "value"),
+        prevent_initial_call=False,
+    )
+    def update_capital_summary(initial_cash, target_cash, cash_exposure, sizing_mode):
+        capital = normalize_capital(
+            initial_cash=initial_cash,
+            target_cash=target_cash,
+            cash_exposure_pct=cash_exposure,
+            sizing_mode=sizing_mode,
+        )
+        return [
+            html.H4("Simulated capital assumptions"),
+            html.Ul(
+                [
+                    html.Li(f"Starting cash: {money(capital.initial_cash)}"),
+                    html.Li(f"Target cash: {money(capital.target_cash)}"),
+                    html.Li(f"Target return needed: {capital.target_return_pct:.2f}%"),
+                    html.Li(f"Cash exposure: {capital.cash_exposure_pct:.2f}%"),
+                    html.Li(f"Sizing mode: {capital.sizing_mode}"),
+                ]
+            ),
+            html.Strong("Research/simulation only. These are not real account balances."),
+        ]
+
+    @app.callback(
+        Output("main-autolab-paper-review-candidate", "options"),
+        Output("main-autolab-paper-review-candidate", "value"),
+        Output("main-autolab-paper-review-preview", "children"),
+        Input("main-autolab-walk-forward-report", "children"),
+        Input("main-autolab-refresh", "n_clicks"),
+        State("main-autolab-paper-review-candidate", "value"),
+        prevent_initial_call=False,
+    )
+    def refresh_paper_review_candidates(_walk_report, _refresh_clicks, selected_review_id):
+        queue = load_latest_paper_review_queue(live_root)
+        candidates = list(queue.get("candidates") or [])
+        options = [
+            {
+                "label": (
+                    f"{candidate.get('symbol', '?')} | {candidate.get('candidate_id', 'candidate')} "
+                    f"| Test 2 {float(candidate.get('test_score') or 0):.2f} "
+                    f"| Test 4 {float(candidate.get('holdout_score') or 0):.2f}"
+                ),
+                "value": candidate.get("review_id"),
+            }
+            for candidate in candidates
+            if candidate.get("review_id")
+        ]
+        valid_ids = {option["value"] for option in options}
+        selected = selected_review_id if selected_review_id in valid_ids else (options[0]["value"] if options else None)
+        candidate = next(
+            (item for item in candidates if item.get("review_id") == selected),
+            None,
+        )
+        if candidate is None:
+            return options, None, "No promoted candidate is available for paper review."
+
+        reasons = candidate.get("promotion_reasons") or []
+        reason_text = "; ".join(str(reason) for reason in reasons) or "All promotion gates passed."
+        preview = "\n".join(
+            [
+                f"Symbol: {candidate.get('symbol', '')}",
+                f"Candidate: {candidate.get('candidate_id', '')}",
+                f"Test 2 score: {float(candidate.get('test_score') or 0):.2f}",
+                f"Test 3: {candidate.get('rolling_status', 'unknown')}",
+                f"Test 4 score: {float(candidate.get('holdout_score') or 0):.2f}",
+                f"Promotion evidence: {reason_text}",
+                "Execution: manual paper orders only",
+            ]
+        )
+        return options, selected, preview
+
+    @app.callback(
+        Output("main-autolab-paper-review-store", "data"),
+        Output("main-autolab-paper-review-status", "children"),
+        Output("watch-symbol-dropdown", "value"),
+        Input("main-autolab-review-activate", "n_clicks"),
+        Input("main-autolab-review-deactivate", "n_clicks"),
+        State("main-autolab-paper-review-candidate", "value"),
+        State("main-autolab-review-max-position", "value"),
+        State("main-autolab-review-max-daily-loss", "value"),
+        State("main-autolab-review-max-drawdown", "value"),
+        State("main-autolab-review-max-orders", "value"),
+        prevent_initial_call=True,
+    )
+    def control_paper_review(
+        _activate_clicks,
+        _deactivate_clicks,
+        selected_review_id,
+        max_position_pct,
+        max_daily_loss_pct,
+        max_drawdown_pct,
+        max_orders_per_day,
+    ):
+        triggered = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else ""
+        if paper_trading_service is None:
+            return no_update, "Paper trading service is unavailable; no review was activated.", no_update
+
+        if triggered == "main-autolab-review-deactivate":
+            status = paper_trading_service.deactivate_review()
+            return status, "Paper review and its Auto Lab chart overlay were deactivated.", no_update
+
+        if triggered != "main-autolab-review-activate":
+            raise PreventUpdate
+        if not selected_review_id:
+            return no_update, "Select a promoted candidate before activating paper review.", no_update
+
+        queue = load_latest_paper_review_queue(live_root)
+        candidate = next(
+            (
+                item
+                for item in queue.get("candidates", [])
+                if item.get("review_id") == selected_review_id
+            ),
+            None,
+        )
+        if candidate is None:
+            return no_update, "The selected promoted candidate is no longer in the latest review queue.", no_update
+
+        try:
+            overlay = build_paper_review_overlay(candidate)
+            status = paper_trading_service.activate_review(
+                candidate,
+                risk_policy={
+                    "max_position_pct": max_position_pct,
+                    "max_daily_loss_pct": max_daily_loss_pct,
+                    "max_drawdown_pct": max_drawdown_pct,
+                    "max_orders_per_day": max_orders_per_day,
+                    "allow_short": False,
+                },
+            )
+        except Exception as exc:
+            return no_update, f"Paper review activation failed: {exc}", no_update
+
+        policy = status.get("risk_policy", {})
+        return (
+            {**status, "overlay": overlay},
+            (
+                f"Active manual review: {status.get('symbol')} / {status.get('candidate_id')} | "
+                f"position {policy.get('max_position_pct', 0):g}% | "
+                f"daily loss {policy.get('max_daily_loss_pct', 0):g}% | "
+                f"drawdown {policy.get('max_drawdown_pct', 0):g}% | "
+                f"orders/day {policy.get('max_orders_per_day', 0)}. "
+                "The visual strategy overlay is loaded in Watch. No order was submitted."
+            ),
+            status.get("symbol"),
+        )
 
     @app.callback(
         Output("main-autolab-symbols", "value"),
@@ -132,6 +298,10 @@ def register_auto_lab_main_callbacks(app):
         State("main-autolab-test-start", "value"),
         State("main-autolab-test-end", "value"),
         State("main-autolab-top-n", "value"),
+        State("main-autolab-holdout-pct", "value"),
+        State("main-autolab-rolling-windows", "value"),
+        State("main-autolab-rolling-commission", "value"),
+        State("main-autolab-rolling-slippage", "value"),
         prevent_initial_call=False,
     )
     def run_or_refresh(
@@ -152,6 +322,10 @@ def register_auto_lab_main_callbacks(app):
         test_start,
         test_end,
         top_n,
+        holdout_pct,
+        rolling_windows,
+        rolling_commission,
+        rolling_slippage,
     ):
         triggered = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else "initial"
         command_output = "Reports refreshed."
@@ -169,6 +343,10 @@ def register_auto_lab_main_callbacks(app):
         max_runs = max_runs or 20
         max_mutations = max_mutations or 4
         top_n = top_n or 3
+        holdout_pct = _normalize_holdout_pct(holdout_pct)
+        rolling_windows = max(1, min(12, int(rolling_windows or 3)))
+        rolling_commission = max(0.0, float(rolling_commission or 0.0))
+        rolling_slippage = max(0.0, float(rolling_slippage or 0.0))
 
         if triggered == "main-autolab-run-universe":
             script_path = package_dir / "universe_runner.py"
@@ -181,7 +359,6 @@ def register_auto_lab_main_callbacks(app):
                 str(universe_start or "2020-01-01"),
                 "--end",
                 str(universe_end or "2025-12-31"),
-                "--yfinance-first",
                 "--sizing-mode",
                 str(capital.sizing_mode),
                 "--cash-exposure-pct",
@@ -224,13 +401,20 @@ def register_auto_lab_main_callbacks(app):
                 str(test_start or "2024-01-01"),
                 "--test-end",
                 str(test_end or "2025-12-31"),
-                "--yfinance-first",
                 "--sizing-mode",
                 str(capital.sizing_mode),
                 "--cash-exposure-pct",
                 str(capital.cash_exposure_pct),
                 "--top-n-per-symbol",
                 str(top_n),
+                "--holdout-pct",
+                str(holdout_pct),
+                "--rolling-windows",
+                str(rolling_windows),
+                "--rolling-commission-per-order",
+                str(rolling_commission),
+                "--rolling-slippage-bps",
+                str(rolling_slippage),
                 "--max-total-runs-per-symbol",
                 str(max_runs),
                 "--max-mutations-per-parent",
@@ -249,6 +433,10 @@ def register_auto_lab_main_callbacks(app):
                     "test_start": test_start,
                     "test_end": test_end,
                     "top_n_per_symbol": top_n,
+                    "holdout_pct": holdout_pct,
+                    "rolling_windows": rolling_windows,
+                    "rolling_commission_per_order": rolling_commission,
+                    "rolling_slippage_bps": rolling_slippage,
                     "max_runs_per_symbol": max_runs,
                     "max_mutations_per_parent": max_mutations,
                 },

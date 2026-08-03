@@ -19,6 +19,22 @@ class StrategySignal:
 
 
 @dataclass
+class StrategyOrderIntent:
+    intent_id: str
+    index: int
+    time: Any
+    action: str
+    position_id: str
+    direction: str
+    side: str
+    price: float
+    rule: str
+    order_type: str = "MARKET"
+    source: str = "strategy_engine"
+    auto_execute: bool = False
+
+
+@dataclass
 class StrategyBackground:
     start_index: int
     end_index: int
@@ -34,6 +50,7 @@ class StrategyScriptResult:
     lines: dict[str, pd.Series] = field(default_factory=dict)
     plots: list[str] = field(default_factory=list)
     signals: list[StrategySignal] = field(default_factory=list)
+    order_intents: list[StrategyOrderIntent] = field(default_factory=list)
     backgrounds: list[StrategyBackground] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
@@ -42,7 +59,7 @@ class StrategyEngine:
     """
     Safe Pine-inspired Strategy Lab engine.
 
-    Strategy Language v0.4 supports:
+    Strategy Language v0.5 supports:
         - ta.* aliases
         - indicator assignments:
               fast = ta.ema(close, 9)
@@ -59,6 +76,9 @@ class StrategyEngine:
         - buy/sell conditions:
               buy when longSignal
               sell when bearCross or r > 80
+        - named long-only strategy orders:
+              entry Long long when longSignal
+              close Long when exitSignal
         - background regime shading:
               bgcolor bullMarket color="green"
               bgcolor bearMarket color="red"
@@ -90,6 +110,17 @@ class StrategyEngine:
 
     SIGNAL_RE = re.compile(
         r"^(?P<side>buy|sell)\s+when\s+(?P<expr>.+?)\s*$",
+        flags=re.IGNORECASE,
+    )
+
+    ENTRY_RE = re.compile(
+        rf"^entry\s+(?P<position_id>{NAME_PATTERN})\s+"
+        r"(?P<direction>long)\s+when\s+(?P<expr>.+?)\s*$",
+        flags=re.IGNORECASE,
+    )
+
+    CLOSE_RE = re.compile(
+        rf"^close\s+(?P<position_id>{NAME_PATTERN})\s+when\s+(?P<expr>.+?)\s*$",
         flags=re.IGNORECASE,
     )
 
@@ -245,6 +276,29 @@ class StrategyEngine:
                 signal_rules.append((side, expr, line))
                 continue
 
+            entry_match = self.ENTRY_RE.match(line)
+            if entry_match:
+                signal_rules.append(("BUY", entry_match.group("expr").strip(), line))
+                continue
+
+            close_match = self.CLOSE_RE.match(line)
+            if close_match:
+                signal_rules.append(("SELL", close_match.group("expr").strip(), line))
+                continue
+
+            if re.match(r"^entry\b", line, flags=re.IGNORECASE):
+                result.errors.append(
+                    "Only long strategy entries are supported. "
+                    "Use: entry <Name> long when <condition>."
+                )
+                continue
+
+            if re.match(r"^close\b", line, flags=re.IGNORECASE):
+                result.errors.append(
+                    "Invalid strategy close. Use: close <Name> when <condition>."
+                )
+                continue
+
             result.errors.append(f"Could not parse line: {line}")
 
         self._build_backgrounds_from_rules(
@@ -262,6 +316,7 @@ class StrategyEngine:
             conditions=conditions,
             result=result,
         )
+        self._build_order_intents_from_signals(result)
 
         return result
 
@@ -308,6 +363,7 @@ class StrategyEngine:
             lines={},
             plots=list(result.plots or []),
             signals=[],
+            order_intents=[],
             backgrounds=[],
             errors=list(result.errors or []),
         )
@@ -347,6 +403,14 @@ class StrategyEngine:
                 sig_time = pd.to_datetime(sig.time, errors="coerce")
                 if pd.notna(sig_time) and target_min <= sig_time <= target_max:
                     filtered.signals.append(sig)
+            except Exception:
+                continue
+
+        for intent in list(getattr(result, "order_intents", []) or []):
+            try:
+                intent_time = pd.to_datetime(intent.time, errors="coerce")
+                if pd.notna(intent_time) and target_min <= intent_time <= target_max:
+                    filtered.order_intents.append(intent)
             except Exception:
                 continue
 
@@ -1030,6 +1094,42 @@ class StrategyEngine:
                 continue
 
         return None
+
+    def _build_order_intents_from_signals(self, result: StrategyScriptResult) -> None:
+        """Normalize legacy and named long-only signals into safe, non-executing intents."""
+        intents: list[StrategyOrderIntent] = []
+        for signal in list(result.signals or []):
+            side = str(signal.side or "").upper().strip()
+            rule = str(signal.rule or "").strip()
+            action = "ENTRY" if side == "BUY" else "CLOSE"
+            position_id = "Long"
+            direction = "LONG"
+
+            entry_match = self.ENTRY_RE.match(rule)
+            close_match = self.CLOSE_RE.match(rule)
+            if entry_match:
+                position_id = entry_match.group("position_id")
+                direction = entry_match.group("direction").upper()
+                action = "ENTRY"
+            elif close_match:
+                position_id = close_match.group("position_id")
+                action = "CLOSE"
+
+            intents.append(
+                StrategyOrderIntent(
+                    intent_id=f"{position_id}:{action}:{int(signal.index)}",
+                    index=int(signal.index),
+                    time=signal.time,
+                    action=action,
+                    position_id=position_id,
+                    direction=direction,
+                    side=side,
+                    price=float(signal.price),
+                    rule=rule,
+                    auto_execute=False,
+                )
+            )
+        result.order_intents = intents
 
     def _resolve_expression_value(
         self,

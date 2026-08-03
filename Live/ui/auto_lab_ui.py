@@ -33,7 +33,7 @@ def _number_input(component_id: str, label: str, value, min_value=None, max_valu
 def build_auto_lab_tab() -> html.Div:
     """Build the main-app AI Auto Lab tab.
 
-    Research/simulation only. This layout does not create broker/order controls.
+    Research/simulation only. Paper review controls never create orders.
     """
     return html.Div(
         className="autolab-shell",
@@ -57,8 +57,8 @@ def build_auto_lab_tab() -> html.Div:
                 className="autolab-safety-banner",
                 children=[
                     html.Strong("Safety: "),
-                    "No live orders, no broker connection, no PaperBroker calls, no account credentials, and no financial advice. "
-                    "Capital values and symbol suggestions are simulation/research assumptions only.",
+                    "No live orders, no broker connection, no automatic PaperBroker orders, no account credentials, and no financial advice. "
+                    "Paper review only activates local limits; every simulated order still requires a manual action in Paper Trading.",
                 ],
             ),
             html.Div(
@@ -134,6 +134,19 @@ def build_auto_lab_tab() -> html.Div:
                                     _date_input("main-autolab-test-start", "Test start", "2024-01-01"),
                                     _date_input("main-autolab-test-end", "Test end", "2025-12-31"),
                                 ],
+                            ),
+                            html.Div(
+                                className="autolab-two-col",
+                                children=[
+                                    _number_input("main-autolab-holdout-pct", "Final untouched holdout %", 20, 5, 50, 5),
+                                    _number_input("main-autolab-rolling-windows", "Test 3 rolling windows", 3, 1, 12, 1),
+                                    _number_input("main-autolab-rolling-commission", "Stress commission / order", 1, 0, None, 0.25),
+                                    _number_input("main-autolab-rolling-slippage", "Stress slippage (bps)", 5, 0, 100, 0.5),
+                                ],
+                            ),
+                            html.Div(
+                                "The final slice is excluded from Tests 2 and 3, then used once for promotion Test 4. Test 3 keeps each selected strategy fixed and reruns it across the remaining unseen period with stricter trading costs.",
+                                className="autolab-help",
                             ),
                         ],
                     ),
@@ -235,6 +248,66 @@ def build_auto_lab_tab() -> html.Div:
                             ),
                             html.Strong("Research/simulation only. These are not real account balances."),
                         ],
+                    ),
+                ],
+            ),
+            html.Div(
+                className="autolab-card autolab-paper-review-card",
+                children=[
+                    dcc.Store(
+                        id="main-autolab-paper-review-store",
+                        data={"review_status": "inactive", "auto_execute": False},
+                        storage_type="session",
+                    ),
+                    html.H3("Phase 5 Strategy Paper Review", className="surfaceTextWhite"),
+                    html.Div(
+                        "Only candidates that passed Tests 2, 3, and 4 appear here. Activation loads the candidate's declared indicators and signals into Watch, applies local risk limits, and never submits an order.",
+                        className="autolab-help",
+                    ),
+                    html.Label("Promoted candidate", className="autolab-label"),
+                    dcc.Dropdown(
+                        id="main-autolab-paper-review-candidate",
+                        options=[],
+                        value=None,
+                        placeholder="Run or refresh walk-forward validation",
+                        clearable=False,
+                        className="autolab-dropdown",
+                    ),
+                    html.Div(
+                        id="main-autolab-paper-review-preview",
+                        children="No promoted candidate is available for paper review.",
+                        className="autolab-review-preview",
+                    ),
+                    html.Div(
+                        className="autolab-two-col autolab-review-risk-grid",
+                        children=[
+                            _number_input("main-autolab-review-max-position", "Max position %", 20, 0.1, 100, 0.1),
+                            _number_input("main-autolab-review-max-daily-loss", "Max daily loss %", 2, 0.1, 100, 0.1),
+                            _number_input("main-autolab-review-max-drawdown", "Max drawdown %", 10, 0.1, 100, 0.1),
+                            _number_input("main-autolab-review-max-orders", "Max orders / day", 10, 1, 10000, 1),
+                        ],
+                    ),
+                    html.Div(
+                        className="autolab-action-row",
+                        children=[
+                            html.Button(
+                                "Activate Review + Watch Overlay",
+                                id="main-autolab-review-activate",
+                                n_clicks=0,
+                                className="autolab-button autolab-button-primary",
+                            ),
+                            html.Button(
+                                "Deactivate Review",
+                                id="main-autolab-review-deactivate",
+                                n_clicks=0,
+                                className="autolab-button",
+                            ),
+                        ],
+                    ),
+                    html.Div(
+                        id="main-autolab-paper-review-status",
+                        children="Paper review is inactive.",
+                        className="autolab-status",
                     ),
                 ],
             ),

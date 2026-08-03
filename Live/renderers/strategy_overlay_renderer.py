@@ -72,6 +72,7 @@ class StrategyOverlayRenderer:
         for name in (
             "lines",
             "signals",
+            "order_intents",
             "errors",
             "backgrounds",
             "background_ranges",

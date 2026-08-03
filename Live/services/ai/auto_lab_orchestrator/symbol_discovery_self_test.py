@@ -96,7 +96,7 @@ def main() -> int:
         "outputs_discovery_report": 'Output("main-autolab-discovery-report", "children")' in cb_text,
         "outputs_discovery_paths": 'Output("main-autolab-discovery-paths", "children")' in cb_text,
         "button_input": 'Input("main-autolab-suggest-symbols", "n_clicks")' in cb_text,
-        "no_capital_summary_output": 'Output("main-autolab-capital-summary", "children")' not in cb_text,
+        "capital_summary_output": 'Output("main-autolab-capital-summary", "children")' in cb_text,
     }
     failed = [name for name, ok in callback_checks.items() if not ok]
     if failed:

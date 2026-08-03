@@ -69,6 +69,9 @@ class ExperimentGoal:
     target_equity: float = 24000.0
     max_drawdown_pct: float = 30.0
     min_trades: int = 3
+    execution_mode: str = "next_open"
+    commission_per_order: float = 0.0
+    slippage_bps: float = 1.0
     max_runs: int = 10
     simulation_only: bool = True
     notes: str = ""
