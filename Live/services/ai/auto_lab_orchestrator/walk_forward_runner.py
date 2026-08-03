@@ -9,6 +9,17 @@ import sys
 import traceback
 
 
+def _emit_progress(percent: float, stage: str, message: str) -> None:
+    clean_stage = str(stage or "running").replace("|", "/")
+    clean_message = str(message or "Working...").replace("|", "/")
+    print(f"AUTOLAB_PROGRESS|{float(percent):.2f}|{clean_stage}|{clean_message}", flush=True)
+
+
+def _report_symbol_progress(progress_callback, percent: float, stage: str, message: str) -> None:
+    if progress_callback is not None:
+        progress_callback(float(percent), str(stage), str(message))
+
+
 def _bootstrap_import_path() -> Path:
     here = Path(__file__).resolve()
     live_root = here.parents[3]
@@ -457,7 +468,7 @@ def _row_from_train_test(symbol, train_sc, test_sc, test_result, candidate, buy_
     }
 
 
-def run_symbol_walk_forward(*, live_root: Path, symbol: str, args) -> dict:
+def run_symbol_walk_forward(*, live_root: Path, symbol: str, args, progress_callback=None) -> dict:
     from services.ai.auto_lab_orchestrator.models import ExperimentGoal
     from services.ai.auto_lab_orchestrator.orchestrator import AutoLabOrchestrator
     from services.ai.auto_lab_orchestrator.adapters import CoreStrategyBacktestAdapter
@@ -469,6 +480,7 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args) -> dict:
     from services.ai.auto_lab_orchestrator.execution_quality import normalize_run_execution_quality
     from services.ai.auto_lab_orchestrator.report_builder import write_run_bundle
 
+    _report_symbol_progress(progress_callback, 4, "data", f"Loading train and test bars for {symbol}")
     boot = bootstrap_bars_csv(
         live_root=live_root,
         symbol=symbol,
@@ -498,6 +510,8 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args) -> dict:
     )
     test_bars = holdout_split["validation_bars"]
     holdout_bars = holdout_split["holdout_bars"]
+
+    _report_symbol_progress(progress_callback, 12, "test_1", f"Preparing training candidates for {symbol}")
 
     train_buy_hold = buy_hold_return_pct(train_bars)
     test_buy_hold = buy_hold_return_pct(test_bars)
@@ -540,6 +554,7 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args) -> dict:
         simulation_only=True,
         notes="Walk-forward train baseline; simulation-only.",
     )
+    _report_symbol_progress(progress_callback, 20, "test_1", f"Running training baseline for {symbol}")
     baseline_run = orchestrator.run_experiment(
         goal=baseline_goal,
         candidates=sized_seeds_train,
@@ -565,6 +580,8 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args) -> dict:
             max_total=args.max_total_runs_per_symbol,
             mutate_quantity=args.mutate_quantity,
         )
+
+    _report_symbol_progress(progress_callback, 36, "test_1", f"Generated training mutations for {symbol}")
 
     if not mutations:
         return {
@@ -601,6 +618,7 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args) -> dict:
         simulation_only=True,
         notes="Walk-forward train mutation retest; simulation-only.",
     )
+    _report_symbol_progress(progress_callback, 42, "test_1", f"Ranking training mutations for {symbol}")
     train_run = orchestrator.run_experiment(
         goal=train_goal,
         candidates=sized_mutations_train,
@@ -655,6 +673,7 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args) -> dict:
         simulation_only=True,
         notes="Walk-forward unseen test validation; simulation-only.",
     )
+    _report_symbol_progress(progress_callback, 58, "test_2", f"Testing selected strategies on unseen {symbol} data")
     test_run = orchestrator.run_experiment(
         goal=test_goal,
         candidates=sized_test_candidates,
@@ -677,12 +696,21 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args) -> dict:
     test_candidate_by_id = _candidate_by_id(sized_test_candidates)
 
     rows = []
-    for test_sc in sorted(test_run.scorecards, key=lambda sc: sc.total_score, reverse=True):
+    sorted_test_scorecards = sorted(test_run.scorecards, key=lambda sc: sc.total_score, reverse=True)
+    validation_count = max(1, len(sorted_test_scorecards))
+    for validation_index, test_sc in enumerate(sorted_test_scorecards):
         train_sc = train_sc_by_id.get(test_sc.candidate_id)
         candidate = test_candidate_by_id.get(test_sc.candidate_id)
         test_result = test_result_by_key.get((test_sc.candidate_id, test_sc.symbol))
         if train_sc and candidate:
             row = _row_from_train_test(symbol, train_sc, test_sc, test_result, candidate, test_buy_hold)
+            validation_start = 68.0 + (validation_index * 23.0 / validation_count)
+            _report_symbol_progress(
+                progress_callback,
+                validation_start,
+                "test_3",
+                f"Rolling stress test {validation_index + 1}/{validation_count} for {symbol}",
+            )
             row.update(
                 run_rolling_stress_test(
                     adapter=adapter,
@@ -698,6 +726,12 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args) -> dict:
                     commission_per_order=args.rolling_commission_per_order,
                     slippage_bps=args.rolling_slippage_bps,
                 )
+            )
+            _report_symbol_progress(
+                progress_callback,
+                validation_start + (13.0 / validation_count),
+                "test_4",
+                f"Final holdout test {validation_index + 1}/{validation_count} for {symbol}",
             )
             row.update(
                 run_final_holdout_test(
@@ -717,6 +751,8 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args) -> dict:
             rows.append(row)
 
     best = rows[0] if rows else {}
+
+    _report_symbol_progress(progress_callback, 96, "artifacts", f"Preparing walk-forward results for {symbol}")
 
     return {
         "symbol": symbol,
@@ -833,10 +869,23 @@ def main() -> int:
     results = []
     errors = []
 
-    for symbol in symbols:
+    _emit_progress(2, "starting", f"Preparing walk-forward validation for {len(symbols)} symbols")
+    symbol_span = 90.0 / max(1, len(symbols))
+    for symbol_index, symbol in enumerate(symbols):
+        symbol_start = 4.0 + (symbol_index * symbol_span)
+
+        def report_symbol(percent, stage, message, *, _start=symbol_start):
+            overall = _start + (symbol_span * max(0.0, min(100.0, float(percent))) / 100.0)
+            _emit_progress(overall, stage, message)
+
         print(f"=== Walk-forward symbol: {symbol} ===")
         try:
-            result = run_symbol_walk_forward(live_root=live_root, symbol=symbol, args=args)
+            result = run_symbol_walk_forward(
+                live_root=live_root,
+                symbol=symbol,
+                args=args,
+                progress_callback=report_symbol,
+            )
             results.append(result)
             print(
                 f"{symbol}: status={result.get('status')} "
@@ -862,6 +911,13 @@ def main() -> int:
             if not args.continue_on_error:
                 break
 
+        _emit_progress(
+            min(94.0, symbol_start + symbol_span),
+            "symbol_complete",
+            f"Completed {symbol_index + 1}/{len(symbols)} walk-forward symbols",
+        )
+
+    _emit_progress(96, "reports", "Building walk-forward leaderboard and promotion reports")
     payload = build_walk_forward_payload(
         walk_forward_run_id=run_id,
         symbols=symbols,
@@ -869,6 +925,7 @@ def main() -> int:
         symbol_results=results,
     )
     artifacts = write_walk_forward_artifacts(payload, out_dir)
+    _emit_progress(99, "finalizing", "Finalizing walk-forward research artifacts")
 
     print("AI Auto Lab walk-forward universe run complete.")
     print(f"walk_forward_run_id: {run_id}")

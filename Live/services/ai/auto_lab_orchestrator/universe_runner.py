@@ -8,6 +8,17 @@ import sys
 import traceback
 
 
+def _emit_progress(percent: float, stage: str, message: str) -> None:
+    clean_stage = str(stage or "running").replace("|", "/")
+    clean_message = str(message or "Working...").replace("|", "/")
+    print(f"AUTOLAB_PROGRESS|{float(percent):.2f}|{clean_stage}|{clean_message}", flush=True)
+
+
+def _report_symbol_progress(progress_callback, percent: float, stage: str, message: str) -> None:
+    if progress_callback is not None:
+        progress_callback(float(percent), str(stage), str(message))
+
+
 def _bootstrap_import_path() -> Path:
     here = Path(__file__).resolve()
     live_root = here.parents[3]
@@ -81,6 +92,7 @@ def run_symbol_pipeline(
     live_root: Path,
     symbol: str,
     args,
+    progress_callback=None,
 ) -> dict:
     from services.ai.auto_lab_orchestrator.models import ExperimentGoal
     from services.ai.auto_lab_orchestrator.orchestrator import AutoLabOrchestrator
@@ -97,6 +109,7 @@ def run_symbol_pipeline(
     from services.ai.auto_lab_orchestrator.csv_mutation_retest_sized import write_same_data_baseline_artifacts
     from services.ai.auto_lab_orchestrator.strategy_trace import write_strategy_build_trace_for_report_dir
 
+    _report_symbol_progress(progress_callback, 5, "data", f"Loading historical bars for {symbol}")
     boot = bootstrap_bars_csv(
         live_root=live_root,
         symbol=symbol,
@@ -114,6 +127,7 @@ def run_symbol_pipeline(
     )
     data_profile = profile.to_dict()
 
+    _report_symbol_progress(progress_callback, 15, "baseline", f"Preparing baseline strategies for {symbol}")
     seeds = discover_strategy_seed_candidates(
         live_root=live_root,
         symbol=symbol,
@@ -151,6 +165,7 @@ def run_symbol_pipeline(
         simulation_only=True,
         notes="Universe runner baseline; simulation-only.",
     )
+    _report_symbol_progress(progress_callback, 22, "baseline", f"Running baseline tests for {symbol}")
     baseline_run = orchestrator.run_experiment(
         goal=baseline_goal,
         candidates=sized_seeds,
@@ -167,6 +182,8 @@ def run_symbol_pipeline(
     baseline_pass_ids = {sc.candidate_id for sc in baseline_scorecards if sc.engine_pass and sc.research_pass}
     eligible_parents = [candidate for candidate in sized_seeds if candidate.candidate_id in baseline_pass_ids]
     eligible_parent_scorecards = [sc for sc in baseline_scorecards if sc.candidate_id in baseline_pass_ids]
+
+    _report_symbol_progress(progress_callback, 42, "mutations", f"Selecting mutation parents for {symbol}")
 
     if not eligible_parents and not args.strict_parent_gate:
         # Allow engine-pass candidates if none clear research pass, so the universe report still shows why a symbol failed.
@@ -220,6 +237,7 @@ def run_symbol_pipeline(
         simulation_only=True,
         notes="Universe runner mutation retest; simulation-only.",
     )
+    _report_symbol_progress(progress_callback, 58, "mutations", f"Backtesting mutations for {symbol}")
     run = orchestrator.run_experiment(
         goal=mutation_goal,
         candidates=sized_mutations,
@@ -289,6 +307,8 @@ def run_symbol_pipeline(
 
     ranked_rows = _result_rows(run, run.scorecards)
     run_dir = Path(run.artifacts["report_md"]).parent
+
+    _report_symbol_progress(progress_callback, 92, "artifacts", f"Writing universe reports for {symbol}")
 
     return {
         "symbol": symbol,
@@ -373,10 +393,23 @@ def main() -> int:
     symbol_results = []
     errors = []
 
-    for symbol in symbols:
+    _emit_progress(2, "starting", f"Preparing universe run for {len(symbols)} symbols")
+    symbol_span = 90.0 / max(1, len(symbols))
+    for symbol_index, symbol in enumerate(symbols):
+        symbol_start = 4.0 + (symbol_index * symbol_span)
+
+        def report_symbol(percent, stage, message, *, _start=symbol_start):
+            overall = _start + (symbol_span * max(0.0, min(100.0, float(percent))) / 100.0)
+            _emit_progress(overall, stage, message)
+
         print(f"=== Running universe symbol: {symbol} ===")
         try:
-            result = run_symbol_pipeline(live_root=live_root, symbol=symbol, args=args)
+            result = run_symbol_pipeline(
+                live_root=live_root,
+                symbol=symbol,
+                args=args,
+                progress_callback=report_symbol,
+            )
             symbol_results.append(result)
             best = (result.get("ranked_mutations") or [{}])[0]
             print(
@@ -400,6 +433,13 @@ def main() -> int:
             if not args.continue_on_error:
                 break
 
+        _emit_progress(
+            min(94.0, symbol_start + symbol_span),
+            "symbol_complete",
+            f"Completed {symbol_index + 1}/{len(symbols)} universe symbols",
+        )
+
+    _emit_progress(96, "reports", "Building universe leaderboard and reports")
     payload = build_universe_payload(
         universe_run_id=universe_run_id,
         symbols=symbols,
@@ -407,6 +447,7 @@ def main() -> int:
         symbol_results=symbol_results,
     )
     artifacts = write_universe_artifacts(payload, out_dir)
+    _emit_progress(99, "finalizing", "Finalizing universe research artifacts")
 
     print("AI Auto Lab universe run complete.")
     print(f"universe_run_id: {universe_run_id}")

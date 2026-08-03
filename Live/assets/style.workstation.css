@@ -329,6 +329,19 @@ label, .control-label, .input-label, .analytics-label, .paper-control-label, .au
 .autolab-status-subtle { color: var(--muted); font-family: var(--mono); }
 .autolab-markdown, .autolab-script-markdown { color: var(--ink); line-height: 1.6; }
 .autolab-markdown-small { color: var(--ink); font-size: 12px; }
+.autolab-progress-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--s2); margin: var(--s3) 0; }
+.autolab-progress-panel { padding: var(--s3); border: 1px solid var(--line); background: var(--surface); box-shadow: var(--shadow-panel); }
+.autolab-progress-running, .autolab-progress-queued { border-color: var(--line-strong); }
+.autolab-progress-head, .autolab-progress-detail { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
+.autolab-progress-label { color: var(--ink); font-size: 12px; font-weight: 700; letter-spacing: .02em; }
+.autolab-progress-percent, .autolab-progress-stage { color: var(--ink-2); font-family: var(--mono); font-size: 11px; font-variant-numeric: tabular-nums; }
+.autolab-progress-track { height: 7px; margin: var(--s2) 0; border: 1px solid var(--line); background: var(--surface-2); overflow: hidden; }
+.autolab-progress-fill { height: 100%; min-width: 0; background: var(--accent); transition: width 240ms ease-out; }
+.autolab-progress-completed .autolab-progress-fill { background: var(--positive); }
+.autolab-progress-failed .autolab-progress-fill { background: var(--negative); }
+.autolab-progress-message { min-width: 0; overflow: hidden; color: var(--muted); font-family: var(--mono); font-size: 10px; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.autolab-progress-completed .autolab-progress-percent, .autolab-progress-completed .autolab-progress-stage { color: var(--positive); }
+.autolab-progress-failed .autolab-progress-percent, .autolab-progress-failed .autolab-progress-stage { color: var(--negative); }
 
 /* Data library */
 .data-library-root, .newsroom-page { padding: var(--s3); }

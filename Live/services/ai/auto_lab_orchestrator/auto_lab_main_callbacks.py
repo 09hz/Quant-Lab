@@ -1,9 +1,193 @@
 from __future__ import annotations
 
+from collections import deque
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import time
+import uuid
+
+
+AUTO_LAB_PROGRESS_PREFIX = "AUTOLAB_PROGRESS"
+
+
+def parse_auto_lab_progress(line: str) -> dict | None:
+    """Parse one machine-readable progress line emitted by an Auto Lab runner."""
+    parts = str(line or "").strip().split("|", 3)
+    if len(parts) != 4 or parts[0] != AUTO_LAB_PROGRESS_PREFIX:
+        return None
+    try:
+        percent = max(0.0, min(99.5, float(parts[1])))
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return {
+        "percent": round(percent, 2),
+        "stage": parts[2].strip() or "running",
+        "message": parts[3].strip() or "Working...",
+    }
+
+
+class AutoLabCommandJobManager:
+    """Run one Auto Lab subprocess at a time and expose a serializable snapshot."""
+
+    ACTIVE_STATUSES = {"queued", "running"}
+
+    def __init__(self, *, max_output_lines: int = 2000):
+        self._lock = threading.RLock()
+        self._max_output_lines = max(100, int(max_output_lines or 2000))
+        self._output_lines: deque[str] = deque(maxlen=self._max_output_lines)
+        self._state = self._idle_state()
+
+    @staticmethod
+    def _idle_state() -> dict:
+        return {
+            "job_id": "",
+            "kind": "",
+            "label": "Auto Lab",
+            "status": "idle",
+            "percent": 0.0,
+            "stage": "idle",
+            "message": "Ready.",
+            "started_at": "",
+            "ended_at": "",
+            "return_code": None,
+            "command": [],
+        }
+
+    def start(self, *, kind: str, label: str, cmd: list[str], cwd: Path) -> dict:
+        kind = str(kind or "").strip().lower()
+        if kind not in {"universe", "walk_forward"}:
+            raise ValueError(f"Unsupported Auto Lab job kind: {kind}")
+        command = [str(part) for part in cmd]
+        if not command:
+            raise ValueError("Auto Lab command is empty.")
+
+        with self._lock:
+            if self._state.get("status") in self.ACTIVE_STATUSES:
+                raise RuntimeError(
+                    f"{self._state.get('label', 'Auto Lab job')} is already running at "
+                    f"{float(self._state.get('percent') or 0.0):.0f}%."
+                )
+            self._output_lines = deque(maxlen=self._max_output_lines)
+            self._state = {
+                "job_id": f"autolab_{kind}_{uuid.uuid4().hex[:12]}",
+                "kind": kind,
+                "label": str(label or kind.replace("_", " ").title()),
+                "status": "queued",
+                "percent": 1.0,
+                "stage": "queued",
+                "message": "Queued for background execution.",
+                "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "ended_at": "",
+                "return_code": None,
+                "command": command,
+            }
+            queued_snapshot = self._snapshot_unlocked()
+
+        worker = threading.Thread(
+            target=self._run,
+            args=(command, Path(cwd)),
+            name=f"auto-lab-{kind}-job",
+            daemon=True,
+        )
+        worker.start()
+        return queued_snapshot
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            return self._snapshot_unlocked()
+
+    def _snapshot_unlocked(self) -> dict:
+        snapshot = dict(self._state)
+        command = list(snapshot.pop("command", []) or [])
+        output_lines = list(self._output_lines)
+        output_parts = [
+            f"Started: {snapshot.get('started_at') or 'pending'}",
+            f"Ended: {snapshot.get('ended_at') or 'running'}",
+            f"Status: {snapshot.get('status', 'idle')}",
+            f"Progress: {float(snapshot.get('percent') or 0.0):.1f}%",
+        ]
+        if snapshot.get("return_code") is not None:
+            output_parts.append(f"Return code: {snapshot.get('return_code')}")
+        output_parts.extend(
+            [
+                "",
+                "Research/simulation only. No live orders or broker calls were made.",
+                "",
+                "Command:",
+                " ".join(f'\"{part}\"' if " " in part else part for part in command),
+                "",
+                "OUTPUT:",
+                *output_lines,
+            ]
+        )
+        snapshot["output"] = "\n".join(output_parts).rstrip()
+        return snapshot
+
+    def _update(self, **values) -> None:
+        with self._lock:
+            self._state.update(values)
+
+    def _run(self, command: list[str], cwd: Path) -> None:
+        self._update(
+            status="running",
+            percent=2.0,
+            stage="starting",
+            message="Starting the research process.",
+        )
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=str(cwd),
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                bufsize=1,
+                creationflags=creationflags,
+            )
+            if process.stdout is not None:
+                for raw_line in process.stdout:
+                    line = raw_line.rstrip("\r\n")
+                    progress = parse_auto_lab_progress(line)
+                    if progress is not None:
+                        self._update(**progress)
+                        continue
+                    with self._lock:
+                        self._output_lines.append(line)
+            return_code = process.wait()
+            ended_at = time.strftime("%Y-%m-%d %H:%M:%S")
+            if return_code == 0:
+                self._update(
+                    status="completed",
+                    percent=100.0,
+                    stage="complete",
+                    message="Research reports are ready.",
+                    ended_at=ended_at,
+                    return_code=return_code,
+                )
+            else:
+                self._update(
+                    status="failed",
+                    stage="failed",
+                    message=f"Research process exited with code {return_code}.",
+                    ended_at=ended_at,
+                    return_code=return_code,
+                )
+        except Exception as exc:
+            with self._lock:
+                self._output_lines.append(f"{exc.__class__.__name__}: {exc}")
+            self._update(
+                status="failed",
+                stage="failed",
+                message=f"Could not run research process: {exc}",
+                ended_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+                return_code=-1,
+            )
+
+
+_AUTO_LAB_JOB_MANAGER = AutoLabCommandJobManager()
 
 
 def _live_root() -> Path:
@@ -65,6 +249,9 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
         money,
         normalize_capital,
     )
+    from services.ai.auto_lab_orchestrator.market_memory_packet_callbacks import (
+        register_market_memory_packet_callbacks,
+    )
     from services.ai.auto_lab_orchestrator.script_viewer import (
         build_script_packet,
         summarize_script_paths,
@@ -79,6 +266,7 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
     from services.ai.auto_lab_orchestrator.walk_forward_reporter import (
         build_paper_review_overlay,
     )
+    from ui.auto_lab_ui import build_auto_lab_progress_children
 
     live_root = _live_root()
     package_dir = _package_dir()
@@ -273,6 +461,65 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
 
         return suggested_value, paths.get("report_md", ""), path_text
 
+    def _report_packet(manifest_paths: dict[str, str] | None = None) -> tuple:
+        universe = load_latest_universe_report(live_root)
+        walk_forward = load_latest_walk_forward_report(live_root)
+        scripts = build_script_packet(live_root)
+        path_text = "\n".join(
+            [
+                "UNIVERSE",
+                summarize_paths(universe.get("paths", {})),
+                "",
+                "WALK_FORWARD",
+                summarize_paths(walk_forward.get("paths", {})),
+                "",
+                "UI MANIFEST",
+                summarize_paths(manifest_paths or {}),
+            ]
+        )
+        return (
+            universe.get("report_md", "No universe report available."),
+            walk_forward.get("report_md", "No walk-forward report available."),
+            path_text,
+            scripts.get("universe_md", "No universe strategy script loaded."),
+            scripts.get("walk_forward_md", "No walk-forward strategy script loaded."),
+            summarize_script_paths(scripts.get("paths", {})),
+        )
+
+    def _job_store(snapshot: dict, *, consumed: bool, manifest_paths=None) -> dict:
+        return {
+            key: snapshot.get(key)
+            for key in (
+                "job_id",
+                "kind",
+                "label",
+                "status",
+                "percent",
+                "stage",
+                "message",
+                "started_at",
+                "ended_at",
+                "return_code",
+            )
+        } | {
+            "consumed": bool(consumed),
+            "manifest_paths": dict(manifest_paths or {}),
+        }
+
+    def _progress_pair(snapshot: dict, *, initialize_other: bool = False):
+        kind = str(snapshot.get("kind") or "")
+        active_child = build_auto_lab_progress_children(
+            str(snapshot.get("label") or "Auto Lab"),
+            snapshot,
+        )
+        idle_universe = build_auto_lab_progress_children("Universe Auto Lab")
+        idle_walk = build_auto_lab_progress_children("Walk-Forward Validation")
+        if kind == "universe":
+            return active_child, idle_walk if initialize_other else no_update
+        if kind == "walk_forward":
+            return idle_universe if initialize_other else no_update, active_child
+        return idle_universe, idle_walk
+
     @app.callback(
         Output("main-autolab-command-output", "value"),
         Output("main-autolab-universe-report", "children"),
@@ -281,9 +528,16 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
         Output("main-autolab-universe-script", "children"),
         Output("main-autolab-walk-forward-script", "children"),
         Output("main-autolab-script-paths", "children"),
+        Output("main-autolab-job-store", "data"),
+        Output("main-autolab-universe-progress", "children"),
+        Output("main-autolab-walk-forward-progress", "children"),
+        Output("main-autolab-run-universe", "disabled"),
+        Output("main-autolab-run-walk-forward", "disabled"),
         Input("main-autolab-run-universe", "n_clicks"),
         Input("main-autolab-run-walk-forward", "n_clicks"),
         Input("main-autolab-refresh", "n_clicks"),
+        Input("ui-interval", "n_intervals"),
+        State("main-autolab-job-store", "data"),
         State("main-autolab-symbols", "value"),
         State("main-autolab-sizing-mode", "value"),
         State("main-autolab-cash-exposure", "value"),
@@ -308,6 +562,8 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
         _run_universe_clicks,
         _run_walk_forward_clicks,
         _refresh_clicks,
+        _ui_intervals,
+        current_job_store,
         symbols,
         sizing_mode,
         cash_exposure,
@@ -328,9 +584,75 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
         rolling_slippage,
     ):
         triggered = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else "initial"
-        command_output = "Reports refreshed."
-        flag_warnings: list[str] = []
-        manifest_paths: dict[str, str] = {}
+        current_job_store = dict(current_job_store or {})
+
+        if triggered in {"main-autolab-run-universe", "main-autolab-run-walk-forward"}:
+            active_snapshot = _AUTO_LAB_JOB_MANAGER.snapshot()
+            if active_snapshot.get("status") in AutoLabCommandJobManager.ACTIVE_STATUSES:
+                universe_progress, walk_progress = _progress_pair(active_snapshot)
+                return (
+                    active_snapshot.get("output", "An Auto Lab research job is already running."),
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    _job_store(
+                        active_snapshot,
+                        consumed=False,
+                        manifest_paths=current_job_store.get("manifest_paths"),
+                    ),
+                    universe_progress,
+                    walk_progress,
+                    True,
+                    True,
+                )
+
+        if triggered == "ui-interval":
+            snapshot = _AUTO_LAB_JOB_MANAGER.snapshot()
+            current_job_id = str(current_job_store.get("job_id") or "")
+            if not snapshot.get("job_id") or (
+                current_job_id and current_job_id != snapshot.get("job_id")
+            ):
+                raise PreventUpdate
+            if snapshot.get("status") in AutoLabCommandJobManager.ACTIVE_STATUSES:
+                universe_progress, walk_progress = _progress_pair(snapshot)
+                return (
+                    snapshot.get("output", "Research process is running."),
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    no_update,
+                    _job_store(
+                        snapshot,
+                        consumed=False,
+                        manifest_paths=current_job_store.get("manifest_paths"),
+                    ),
+                    universe_progress,
+                    walk_progress,
+                    True,
+                    True,
+                )
+            if snapshot.get("status") in {"completed", "failed"} and not current_job_store.get("consumed"):
+                report_packet = _report_packet(current_job_store.get("manifest_paths"))
+                universe_progress, walk_progress = _progress_pair(snapshot)
+                return (
+                    snapshot.get("output", "Research process finished."),
+                    *report_packet,
+                    _job_store(
+                        snapshot,
+                        consumed=True,
+                        manifest_paths=current_job_store.get("manifest_paths"),
+                    ),
+                    universe_progress,
+                    walk_progress,
+                    False,
+                    False,
+                )
+            raise PreventUpdate
 
         symbols_clean = _clean_symbols(symbols)
         capital = normalize_capital(
@@ -348,7 +670,15 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
         rolling_commission = max(0.0, float(rolling_commission or 0.0))
         rolling_slippage = max(0.0, float(rolling_slippage or 0.0))
 
+        job_kind = ""
+        job_label = ""
+        cmd: list[str] = []
+        flag_warnings: list[str] = []
+        manifest_paths: dict[str, str] = {}
+
         if triggered == "main-autolab-run-universe":
+            job_kind = "universe"
+            job_label = "Universe Auto Lab"
             script_path = package_dir / "universe_runner.py"
             cmd = [
                 python_exe,
@@ -370,7 +700,6 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
                 "--continue-on-error",
             ]
             cmd, flag_warnings = append_supported_capital_flags(cmd, script_path, capital)
-            command_output, _return_code = _run_command(cmd, cwd=live_root.parent)
             manifest_paths = write_latest_manifest(
                 live_root,
                 "universe",
@@ -387,6 +716,8 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
             )
 
         elif triggered == "main-autolab-run-walk-forward":
+            job_kind = "walk_forward"
+            job_label = "Walk-Forward Validation"
             script_path = package_dir / "walk_forward_runner.py"
             cmd = [
                 python_exe,
@@ -422,7 +753,6 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
                 "--continue-on-error",
             ]
             cmd, flag_warnings = append_supported_capital_flags(cmd, script_path, capital)
-            command_output, _return_code = _run_command(cmd, cwd=live_root.parent)
             manifest_paths = write_latest_manifest(
                 live_root,
                 "walk_forward",
@@ -445,33 +775,60 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
                 warnings=flag_warnings,
             )
 
-        universe = load_latest_universe_report(live_root)
-        walk_forward = load_latest_walk_forward_report(live_root)
-        scripts = build_script_packet(live_root)
+        if job_kind:
+            try:
+                snapshot = _AUTO_LAB_JOB_MANAGER.start(
+                    kind=job_kind,
+                    label=job_label,
+                    cmd=cmd,
+                    cwd=live_root.parent,
+                )
+            except RuntimeError as exc:
+                snapshot = _AUTO_LAB_JOB_MANAGER.snapshot()
+                snapshot["message"] = str(exc)
+            universe_progress, walk_progress = _progress_pair(snapshot)
+            return (
+                snapshot.get("output", f"{job_label} queued."),
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                _job_store(snapshot, consumed=False, manifest_paths=manifest_paths),
+                universe_progress,
+                walk_progress,
+                True,
+                True,
+            )
 
-        path_text = "\n".join(
-            [
-                "UNIVERSE",
-                summarize_paths(universe.get("paths", {})),
-                "",
-                "WALK_FORWARD",
-                summarize_paths(walk_forward.get("paths", {})),
-                "",
-                "UI MANIFEST",
-                summarize_paths(manifest_paths),
-            ]
-        )
-
+        report_packet = _report_packet()
+        latest_snapshot = _AUTO_LAB_JOB_MANAGER.snapshot()
+        is_active = latest_snapshot.get("status") in AutoLabCommandJobManager.ACTIVE_STATUSES
+        if is_active:
+            universe_progress, walk_progress = _progress_pair(latest_snapshot)
+            store_data = _job_store(latest_snapshot, consumed=False)
+        else:
+            universe_progress, walk_progress = _progress_pair({}, initialize_other=True)
+            store_data = {"job_id": "", "status": "idle", "consumed": True}
         return (
-            command_output,
-            universe.get("report_md", "No universe report available."),
-            walk_forward.get("report_md", "No walk-forward report available."),
-            path_text,
-            scripts.get("universe_md", "No universe strategy script loaded."),
-            scripts.get("walk_forward_md", "No walk-forward strategy script loaded."),
-            summarize_script_paths(scripts.get("paths", {})),
+            "Reports refreshed.",
+            *report_packet,
+            store_data,
+            universe_progress,
+            walk_progress,
+            is_active,
+            is_active,
         )
 
+    register_market_memory_packet_callbacks(
+        app,
+        symbol_input_id="main-autolab-symbols",
+    )
+
+# Legacy broad callback attachment retained for reference only.
+# Callback ownership is now explicit in register_auto_lab_main_callbacks().
+r'''
 # --- v23.2.2.1 Market Memory Packet Callback Registration ---
 try:
     from services.ai.auto_lab_orchestrator.market_memory_packet_callbacks import (
@@ -511,6 +868,7 @@ try:
 except Exception as _v23_2_2_1_memory_callback_error:
     print(f"v23.2.2.1 Market Memory Packet Callback Registration failed: {_v23_2_2_1_memory_callback_error}")
 # --- end v23.2.2.1 Market Memory Packet Callback Registration ---
+'''
 
 # BEGIN v24.6 direct producer wiring
 try:

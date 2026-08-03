@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from collections import Counter
 from pathlib import Path
 import ast
 import sys
+import time
+import traceback
 
 
 def _repo_root() -> Path:
@@ -128,6 +131,12 @@ def main() -> int:
         "review_overlay_symbol_scope": "script_for_symbol" in (
             paper_callback_path.read_text(encoding="utf-8", errors="replace")
         ),
+        "job_interval_polling": 'Input("ui-interval", "n_intervals")' in callback_text,
+        "job_store_state": 'State("main-autolab-job-store", "data")' in callback_text,
+        "universe_progress_output": 'Output("main-autolab-universe-progress", "children")' in callback_text,
+        "walk_forward_progress_output": 'Output("main-autolab-walk-forward-progress", "children")' in callback_text,
+        "universe_button_lock": 'Output("main-autolab-run-universe", "disabled")' in callback_text,
+        "walk_forward_button_lock": 'Output("main-autolab-run-walk-forward", "disabled")' in callback_text,
     }
     failed_capital = [name for name, ok in capital_checks.items() if not ok]
     if failed_capital:
@@ -190,16 +199,84 @@ def main() -> int:
     if str(live_root) not in sys.path:
         sys.path.insert(0, str(live_root))
     try:
-        from services.ai.auto_lab_orchestrator.auto_lab_main_callbacks import _normalize_holdout_pct
-        from ui.auto_lab_ui import build_auto_lab_tab
+        from services.ai.auto_lab_orchestrator.auto_lab_main_callbacks import (
+            AutoLabCommandJobManager,
+            _normalize_holdout_pct,
+            parse_auto_lab_progress,
+        )
+        from dash._validate import validate_layout
+        from ui.auto_lab_ui import build_auto_lab_progress_children, build_auto_lab_tab
 
         assert _normalize_holdout_pct(None) == 20
         assert _normalize_holdout_pct(1) == 5
         assert _normalize_holdout_pct(55) == 50
         assert _normalize_holdout_pct("25") == 25
         assert _normalize_holdout_pct("invalid") == 20
+        assert parse_auto_lab_progress("AUTOLAB_PROGRESS|37.5|test_3|Rolling window 2/4") == {
+            "percent": 37.5,
+            "stage": "test_3",
+            "message": "Rolling window 2/4",
+        }
+        assert parse_auto_lab_progress("ordinary output") is None
+
+        manager = AutoLabCommandJobManager()
+        started = manager.start(
+            kind="universe",
+            label="Universe Auto Lab",
+            cmd=[
+                sys.executable,
+                "-u",
+                "-c",
+                (
+                    "print('AUTOLAB_PROGRESS|40|symbol|Testing AMD', flush=True); "
+                    "print('job output', flush=True)"
+                ),
+            ],
+            cwd=repo_root,
+        )
+        assert started["status"] in {"queued", "running"}
+        deadline = time.monotonic() + 10.0
+        completed = manager.snapshot()
+        while completed["status"] in {"queued", "running"} and time.monotonic() < deadline:
+            time.sleep(0.02)
+            completed = manager.snapshot()
+        assert completed["status"] == "completed"
+        assert completed["percent"] == 100.0
+        assert completed["return_code"] == 0
+        assert "job output" in completed["output"]
+        assert "AUTOLAB_PROGRESS" not in completed["output"].split("OUTPUT:", 1)[-1]
+
         layout = build_auto_lab_tab()
         assert layout is not None
+        validate_layout(layout, layout)
+        component_ids = [
+            getattr(component, "id", None)
+            for component in _walk_layout(layout)
+            if getattr(component, "id", None)
+        ]
+        duplicate_ids = {
+            component_id: count
+            for component_id, count in Counter(component_ids).items()
+            if count > 1
+        }
+        assert not duplicate_ids, f"Duplicate Auto Lab component IDs: {duplicate_ids}"
+
+        for progress_label in ("Universe Auto Lab", "Walk-Forward Validation"):
+            progress_children = build_auto_lab_progress_children(progress_label)
+            progress_ids = [
+                getattr(component, "id", None)
+                for component in _walk_layout(progress_children)
+                if getattr(component, "id", None)
+            ]
+            memory_ids = [
+                component_id
+                for component_id in progress_ids
+                if str(component_id).startswith("main-autolab-memory-")
+            ]
+            assert not memory_ids, (
+                f"{progress_label} progress children contain Market Memory IDs: {memory_ids}"
+            )
+
         holdout = next(
             component
             for component in _walk_layout(layout)
@@ -224,6 +301,12 @@ def main() -> int:
             "main-autolab-paper-review-status",
         }
         assert expected_review_ids.issubset(components)
+        expected_progress_ids = {
+            "main-autolab-job-store",
+            "main-autolab-universe-progress",
+            "main-autolab-walk-forward-progress",
+        }
+        assert expected_progress_ids.issubset(components)
         assert components["main-autolab-paper-review-store"].storage_type == "session"
         assert components["main-autolab-review-max-position"].value == 20
         assert components["main-autolab-review-max-daily-loss"].value == 2
@@ -231,7 +314,8 @@ def main() -> int:
         assert components["main-autolab-review-max-orders"].value == 10
         layout_status = "PASS"
     except Exception as exc:
-        print(f"Layout/control check failed: {exc}")
+        print(f"Layout/control check failed: {exc!r}")
+        traceback.print_exc()
         return 7
 
     print("AI Auto Lab main UI self-test: PASS")

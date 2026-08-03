@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dash import dcc, html
 
+from ui.auto_lab_memory_packet_ui import build_market_memory_packet_panel
+
 
 def _date_input(component_id: str, label: str, value: str):
     return html.Div(
@@ -27,6 +29,47 @@ def _number_input(component_id: str, label: str, value, min_value=None, max_valu
                 className="autolab-input",
             ),
         ]
+    )
+
+
+def build_auto_lab_progress_children(label: str, snapshot: dict | None = None):
+    state = dict(snapshot or {})
+    status = str(state.get("status") or "idle").lower()
+    percent = max(0.0, min(100.0, float(state.get("percent") or 0.0)))
+    stage = str(state.get("stage") or "idle").replace("_", " ").title()
+    message = str(state.get("message") or "Ready.")
+    return html.Div(
+        className=f"autolab-progress-panel autolab-progress-{status}",
+        children=[
+            html.Div(
+                className="autolab-progress-head",
+                children=[
+                    html.Span(label, className="autolab-progress-label"),
+                    html.Span(f"{percent:.0f}%", className="autolab-progress-percent"),
+                ],
+            ),
+            html.Div(
+                className="autolab-progress-track",
+                role="progressbar",
+                **{
+                    "aria-label": f"{label} progress",
+                    "aria-valuemin": 0,
+                    "aria-valuemax": 100,
+                    "aria-valuenow": round(percent, 2),
+                },
+                children=html.Div(
+                    className="autolab-progress-fill",
+                    style={"width": f"{percent:.2f}%"},
+                ),
+            ),
+            html.Div(
+                className="autolab-progress-detail",
+                children=[
+                    html.Span(stage, className="autolab-progress-stage"),
+                    html.Span(message, className="autolab-progress-message"),
+                ],
+            ),
+        ],
     )
 
 
@@ -61,6 +104,7 @@ def build_auto_lab_tab() -> html.Div:
                     "Paper review only activates local limits; every simulated order still requires a manual action in Paper Trading.",
                 ],
             ),
+            build_market_memory_packet_panel(),
             html.Div(
                 className="autolab-grid autolab-grid-controls",
                 children=[
@@ -225,6 +269,24 @@ def build_auto_lab_tab() -> html.Div:
                         id="main-autolab-refresh",
                         n_clicks=0,
                         className="autolab-button",
+                    ),
+                ],
+            ),
+            dcc.Store(
+                id="main-autolab-job-store",
+                data={"job_id": "", "status": "idle", "consumed": True},
+                storage_type="memory",
+            ),
+            html.Div(
+                className="autolab-progress-grid",
+                children=[
+                    html.Div(
+                        id="main-autolab-universe-progress",
+                        children=build_auto_lab_progress_children("Universe Auto Lab"),
+                    ),
+                    html.Div(
+                        id="main-autolab-walk-forward-progress",
+                        children=build_auto_lab_progress_children("Walk-Forward Validation"),
                     ),
                 ],
             ),
@@ -411,6 +473,9 @@ def build_auto_lab_tab() -> html.Div:
         ],
     )
 
+# Legacy broad Market Memory attachment retained for reference only.
+# It wrapped every public builder, including both progress builders, and caused duplicate IDs.
+r'''
 # --- v23.2.2 Market Memory Packet Direct Attachment ---
 try:
     from dash import html as _v23_2_2_html
@@ -592,3 +657,4 @@ try:
 except Exception as _v23_2_2_1_memory_panel_error:
     print(f"v23.2.2.1 Market Memory Packet Direct Attachment failed: {_v23_2_2_1_memory_panel_error}")
 # --- end v23.2.2.1 Market Memory Packet Direct Attachment ---
+'''
