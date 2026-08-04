@@ -223,6 +223,8 @@ class CoreStrategyBacktestAdapter:
     def __init__(self) -> None:
         self._strategy_cls = None
         self._backtest_cls = None
+        self._strategy_engine = None
+        self._backtest_engine = None
 
     def _load_core_classes(self) -> tuple[type, type]:
         if self._strategy_cls and self._backtest_cls:
@@ -272,8 +274,12 @@ class CoreStrategyBacktestAdapter:
 
         try:
             strategy_cls, backtest_cls = self._load_core_classes()
-            strategy_engine = strategy_cls()
-            backtest_engine = backtest_cls()
+            if self._strategy_engine is None:
+                self._strategy_engine = strategy_cls()
+            if self._backtest_engine is None:
+                self._backtest_engine = backtest_cls()
+            strategy_engine = self._strategy_engine
+            backtest_engine = self._backtest_engine
 
             strategy_result = strategy_engine.run(candidate.script, bars)
             strategy_errors = _extract_errors(strategy_result)
@@ -297,6 +303,8 @@ class CoreStrategyBacktestAdapter:
                 execution_mode=str(goal.execution_mode or "next_open"),
                 commission_per_order=safe_float(goal.commission_per_order, 0.0),
                 slippage_bps=safe_float(goal.slippage_bps, 1.0),
+                sizing_mode=str(candidate.parameters.get("sizing_mode") or "fixed_quantity"),
+                cash_exposure_pct=safe_float(candidate.parameters.get("cash_exposure_pct"), 100.0),
             )
             normalized = normalize_core_backtest_result(
                 result=result,
@@ -470,6 +478,8 @@ def normalize_core_backtest_result(
 ) -> NormalizedBacktestResult:
     mapping = _object_to_mapping(result)
     error_texts = _extract_errors(result)
+    result_mapping = _object_to_mapping(result)
+    warning_texts = [str(item) for item in result_mapping.get("warnings", []) or [] if str(item).strip()]
 
     trades = _normalize_sequence(_pick(mapping, "trades", "trade_ledger", default=[]))
     equity_curve = _normalize_sequence(_pick(mapping, "equity_curve", "equity", default=[]))
@@ -485,10 +495,15 @@ def normalize_core_backtest_result(
         "win_rate_pct": safe_float(_pick(mapping, "win_rate_pct", "win_rate", default=derived_trade_metrics["win_rate_pct"])),
         "profit_factor": safe_float(_pick(mapping, "profit_factor", default=derived_trade_metrics["profit_factor"])),
         "execution_mode": str(_pick(mapping, "execution_mode", default="next_open")),
+        "sizing_mode": str(_pick(mapping, "sizing_mode", default="fixed_quantity")),
+        "cash_exposure_pct": safe_float(_pick(mapping, "cash_exposure_pct", default=100.0)),
         "fees": safe_float(_pick(mapping, "total_commission", "fees", "commissions", default=0.0)),
         "slippage": safe_float(_pick(mapping, "total_slippage", "slippage", default=0.0)),
         "slippage_bps": safe_float(_pick(mapping, "slippage_bps", default=0.0)),
         "unfilled_signal_count": safe_int(_pick(mapping, "unfilled_signal_count", default=0)),
+        "eligible_buy_signal_count": safe_int(_pick(mapping, "eligible_buy_signal_count", default=0)),
+        "filled_buy_signal_count": safe_int(_pick(mapping, "filled_buy_signal_count", default=0)),
+        "fill_rate_pct": safe_float(_pick(mapping, "fill_rate_pct", default=100.0)),
     }
 
     if not metrics["profit_factor"] and derived_trade_metrics["profit_factor"]:
@@ -524,5 +539,6 @@ def normalize_core_backtest_result(
         trades=trades,
         equity_curve=equity_curve,
         errors=error_texts,
+        warnings=warning_texts,
         raw_summary=to_plain_data(mapping),
     )

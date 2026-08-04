@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from datetime import datetime, timezone
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import argparse
 import math
 import statistics
@@ -37,6 +38,31 @@ def _parse_symbols(text: str) -> list[str]:
         if item and item not in symbols:
             symbols.append(item)
     return symbols
+
+
+def validate_walk_forward_dates(*, train_start: str, train_end: str, test_start: str, test_end: str) -> dict[str, str]:
+    """Validate strictly chronological train and unseen-test boundaries."""
+    values = {
+        "train_start": train_start,
+        "train_end": train_end,
+        "test_start": test_start,
+        "test_end": test_end,
+    }
+    parsed = {}
+    for name, value in values.items():
+        try:
+            parsed[name] = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00")).date()
+        except Exception as exc:
+            raise ValueError(f"Invalid {name.replace('_', ' ')} date: {value!r}.") from exc
+    if parsed["train_start"] > parsed["train_end"]:
+        raise ValueError("Training start must be on or before training end.")
+    if parsed["test_start"] > parsed["test_end"]:
+        raise ValueError("Test start must be on or before test end.")
+    if parsed["train_end"] >= parsed["test_start"]:
+        raise ValueError(
+            "Training and unseen-test windows overlap. Training end must be before test start."
+        )
+    return {name: value.isoformat() for name, value in parsed.items()}
 
 
 def _run_id() -> str:
@@ -321,6 +347,8 @@ def run_rolling_stress_test(
                 "buy_hold_return_pct": buy_hold_return_pct(window["bars"]),
                 "warnings": list(scorecard.warnings or []),
                 "fail_reasons": list(scorecard.fail_reasons or []),
+                "engine_errors": list(getattr(result, "errors", []) or []),
+                "engine_warnings": list(getattr(result, "warnings", []) or []),
             }
         )
 
@@ -352,6 +380,8 @@ def _empty_holdout_result() -> dict:
         "holdout_fees": 0.0,
         "holdout_slippage": 0.0,
         "holdout_regime": "unavailable",
+        "holdout_errors": [],
+        "holdout_warnings": [],
     }
 
 
@@ -418,6 +448,8 @@ def run_final_holdout_test(
         "holdout_fees": metrics.get("fees", 0.0),
         "holdout_slippage": metrics.get("slippage", 0.0),
         "holdout_regime": classify_holdout_regime(holdout_bars),
+        "holdout_errors": list(getattr(result, "errors", []) or []),
+        "holdout_warnings": list(getattr(result, "warnings", []) or []),
     }
 
 
@@ -427,6 +459,56 @@ def _result_by_key(run):
 
 def _candidate_by_id(candidates):
     return {c.candidate_id: c for c in candidates}
+
+
+def _signal_fingerprint(result) -> tuple | None:
+    raw = dict(getattr(result, "raw_summary", {}) or {})
+    strategy_result = raw.get("strategy_result")
+    if not isinstance(strategy_result, dict):
+        return None
+    signals = strategy_result.get("signals")
+    if not isinstance(signals, list):
+        return None
+    return tuple(
+        (
+            int(signal.get("index", -1)),
+            str(signal.get("side") or signal.get("action") or "").upper(),
+        )
+        for signal in signals
+        if isinstance(signal, dict)
+    )
+
+
+def select_diverse_scorecards(*, scorecards, candidates_by_id: dict, results, limit: int):
+    """Select high scores while excluding train-equivalent signal behavior."""
+    ordered = sorted(scorecards, key=lambda scorecard: scorecard.total_score, reverse=True)
+    results_by_id = {result.candidate_id: result for result in results}
+    selected = []
+    selected_ids: set[str] = set()
+    seen_fingerprints: set[tuple] = set()
+    family_counts: dict[str, int] = {}
+
+    for enforce_family_quota in (True, False):
+        for scorecard in ordered:
+            if len(selected) >= max(0, int(limit)):
+                return selected
+            if scorecard.candidate_id in selected_ids:
+                continue
+            candidate = candidates_by_id.get(scorecard.candidate_id)
+            if candidate is None:
+                continue
+            family = str(getattr(candidate, "family", "unknown") or "unknown")
+            if enforce_family_quota and family_counts.get(family, 0) >= 1:
+                continue
+            fingerprint = _signal_fingerprint(results_by_id.get(scorecard.candidate_id))
+            if fingerprint is not None and fingerprint in seen_fingerprints:
+                continue
+            selected.append(scorecard)
+            selected_ids.add(scorecard.candidate_id)
+            family_counts[family] = family_counts.get(family, 0) + 1
+            if fingerprint is not None:
+                seen_fingerprints.add(fingerprint)
+    return selected
 
 
 def _row_from_train_test(symbol, train_sc, test_sc, test_result, candidate, buy_hold_test):
@@ -468,7 +550,7 @@ def _row_from_train_test(symbol, train_sc, test_sc, test_result, candidate, buy_
     }
 
 
-def run_symbol_walk_forward(*, live_root: Path, symbol: str, args, progress_callback=None) -> dict:
+def _run_symbol_walk_forward_uncached(*, live_root: Path, symbol: str, args, progress_callback=None) -> dict:
     from services.ai.auto_lab_orchestrator.models import ExperimentGoal
     from services.ai.auto_lab_orchestrator.orchestrator import AutoLabOrchestrator
     from services.ai.auto_lab_orchestrator.adapters import CoreStrategyBacktestAdapter
@@ -559,6 +641,7 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args, progress_call
         goal=baseline_goal,
         candidates=sized_seeds_train,
         bars_by_symbol={symbol: train_bars},
+        write_artifacts=False,
     )
     baseline_run.summary["walk_forward_phase"] = "train_baseline"
     baseline_run.summary["data_profile"] = train_profile.to_dict()
@@ -623,6 +706,7 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args, progress_call
         goal=train_goal,
         candidates=sized_mutations_train,
         bars_by_symbol={symbol: train_bars},
+        write_artifacts=False,
     )
     train_run.summary["walk_forward_phase"] = "train_mutation"
     train_run.summary["data_profile"] = train_profile.to_dict()
@@ -632,10 +716,22 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args, progress_call
 
     train_candidates_by_id = _candidate_by_id(sized_mutations_train)
     train_scorecards_sorted = sorted(train_run.scorecards, key=lambda sc: sc.total_score, reverse=True)
-    train_selected = [sc for sc in train_scorecards_sorted if sc.engine_pass and sc.research_pass][: args.top_n_per_symbol]
+    preferred = [sc for sc in train_scorecards_sorted if sc.engine_pass and sc.research_pass]
+    train_selected = select_diverse_scorecards(
+        scorecards=preferred,
+        candidates_by_id=train_candidates_by_id,
+        results=train_run.results,
+        limit=args.top_n_per_symbol,
+    )
     if len(train_selected) < args.top_n_per_symbol:
-        extra = [sc for sc in train_scorecards_sorted if sc.engine_pass and sc not in train_selected]
-        train_selected += extra[: max(0, args.top_n_per_symbol - len(train_selected))]
+        extra = [sc for sc in train_scorecards_sorted if sc.engine_pass]
+        expanded = select_diverse_scorecards(
+            scorecards=[*train_selected, *extra],
+            candidates_by_id=train_candidates_by_id,
+            results=train_run.results,
+            limit=args.top_n_per_symbol,
+        )
+        train_selected = expanded
 
     selected_candidates = [train_candidates_by_id[sc.candidate_id] for sc in train_selected if sc.candidate_id in train_candidates_by_id]
     if not selected_candidates:
@@ -678,6 +774,7 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args, progress_call
         goal=test_goal,
         candidates=sized_test_candidates,
         bars_by_symbol={symbol: test_bars},
+        write_artifacts=False,
     )
     test_run.summary["walk_forward_phase"] = "test_validation"
     test_run.summary["data_profile"] = {
@@ -790,9 +887,72 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args, progress_call
     }
 
 
+def run_symbol_walk_forward(*, live_root: Path, symbol: str, args, progress_callback=None) -> dict:
+    from services.ai.auto_lab_orchestrator.bars_bootstrapper import bootstrap_bars_csv
+    from services.ai.auto_lab_orchestrator.orchestrator import (
+        build_exact_result_cache_key,
+        load_exact_symbol_result,
+        save_exact_symbol_result,
+    )
+
+    boot = bootstrap_bars_csv(
+        live_root=live_root,
+        symbol=symbol,
+        start=args.train_start,
+        end=args.test_end,
+        timeframe=args.timeframe,
+        prefer_local=not args.yfinance_first,
+        allow_yfinance=not args.local_only,
+    )
+    settings = {
+        key: value
+        for key, value in vars(args).items()
+        if key not in {"run_id", "continue_on_error", "workers", "no_cache"}
+    }
+    cache_key = build_exact_result_cache_key(
+        live_root=live_root,
+        kind="walk_forward",
+        symbol=symbol,
+        csv_path=Path(boot.csv_path),
+        settings=settings,
+    )
+    cached = None if getattr(args, "no_cache", False) else load_exact_symbol_result(live_root=live_root, kind="walk_forward", cache_key=cache_key)
+    if cached is not None:
+        cached["cache_hit"] = True
+        cached["cache_key"] = cache_key
+        _report_symbol_progress(progress_callback, 96, "cache_hit", f"Loaded exact cached result for {symbol}")
+        return cached
+    result = _run_symbol_walk_forward_uncached(
+        live_root=live_root,
+        symbol=symbol,
+        args=args,
+        progress_callback=progress_callback,
+    )
+    result["cache_hit"] = False
+    result["cache_key"] = cache_key
+    if not getattr(args, "no_cache", False):
+        save_exact_symbol_result(
+            live_root=live_root,
+            kind="walk_forward",
+            cache_key=cache_key,
+            result=result,
+        )
+    return result
+
+
+def _run_walk_forward_symbol_worker(live_root_text: str, symbol: str, args_dict: dict) -> dict:
+    return run_symbol_walk_forward(
+        live_root=Path(live_root_text),
+        symbol=symbol,
+        args=argparse.Namespace(**args_dict),
+        progress_callback=None,
+    )
+
+
 def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run multi-symbol walk-forward validation.")
     parser.add_argument("--symbols", default="AMD,NVDA,MSFT,AAPL,TSLA")
+    parser.add_argument("--run-id", default="")
     parser.add_argument("--train-start", default="2020-01-01")
     parser.add_argument("--train-end", default="2023-12-31")
     parser.add_argument("--test-start", default="2024-01-01")
@@ -819,6 +979,8 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--mutate-quantity", action="store_true")
     parser.add_argument("--strict-parent-gate", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
+    parser.add_argument("--workers", type=int, default=2)
+    parser.add_argument("--no-cache", action="store_true")
     return parser
 
 
@@ -833,7 +995,25 @@ def main() -> int:
         print("No symbols provided.")
         return 2
 
-    run_id = _run_id()
+    try:
+        validated_dates = validate_walk_forward_dates(
+            train_start=args.train_start,
+            train_end=args.train_end,
+            test_start=args.test_start,
+            test_end=args.test_end,
+        )
+    except ValueError as exc:
+        print(f"Invalid walk-forward date configuration: {exc}")
+        return 2
+    args.train_start = validated_dates["train_start"]
+    args.train_end = validated_dates["train_end"]
+    args.test_start = validated_dates["test_start"]
+    args.test_end = validated_dates["test_end"]
+
+    run_id = str(args.run_id or _run_id()).strip()
+    if not run_id.replace("-", "").replace("_", "").isalnum():
+        print("Invalid run ID. Use letters, numbers, underscores, or hyphens only.")
+        return 2
     out_dir = live_root / "data" / "auto_lab_walk_forward_runs" / run_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -862,6 +1042,8 @@ def main() -> int:
         "holdout_min_bars": args.holdout_min_bars,
         "max_mutations_per_parent": args.max_mutations_per_parent,
         "max_total_runs_per_symbol": args.max_total_runs_per_symbol,
+        "workers": min(max(1, int(args.workers or 1)), 4),
+        "exact_result_cache": not args.no_cache,
         "benchmark": "buy_and_hold_return_pct",
         "simulation_only": True,
     }
@@ -870,52 +1052,73 @@ def main() -> int:
     errors = []
 
     _emit_progress(2, "starting", f"Preparing walk-forward validation for {len(symbols)} symbols")
-    symbol_span = 90.0 / max(1, len(symbols))
-    for symbol_index, symbol in enumerate(symbols):
-        symbol_start = 4.0 + (symbol_index * symbol_span)
+    worker_count = min(max(1, int(args.workers or 1)), 4, len(symbols))
+    if worker_count > 1:
+        from services.ai.auto_lab_orchestrator.bars_bootstrapper import bootstrap_bars_csv
 
-        def report_symbol(percent, stage, message, *, _start=symbol_start):
-            overall = _start + (symbol_span * max(0.0, min(100.0, float(percent))) / 100.0)
-            _emit_progress(overall, stage, message)
-
-        print(f"=== Walk-forward symbol: {symbol} ===")
-        try:
-            result = run_symbol_walk_forward(
+        for symbol in symbols:
+            bootstrap_bars_csv(
                 live_root=live_root,
                 symbol=symbol,
-                args=args,
-                progress_callback=report_symbol,
+                start=args.train_start,
+                end=args.test_end,
+                timeframe=args.timeframe,
+                prefer_local=not args.yfinance_first,
+                allow_yfinance=not args.local_only,
             )
-            results.append(result)
-            print(
-                f"{symbol}: status={result.get('status')} "
-                f"best={result.get('best_candidate_id', '')} "
-                f"test_score={result.get('best_test_score', 0.0)} "
-                f"test_hit={result.get('best_test_objective_hit', False)} "
-                f"label={result.get('best_overfit_label', '')} "
-                f"rolling={result.get('best_rolling_status', 'unavailable')} "
-                f"holdout={result.get('best_holdout_research_pass', False)}"
-            )
-        except Exception as exc:
-            error = {
-                "symbol": symbol,
-                "status": "error",
-                "error_type": exc.__class__.__name__,
-                "error": str(exc),
-                "traceback": traceback.format_exc(),
-                **best_holdout_symbol_fields(None),
+        worker_args = dict(vars(args))
+        worker_args["yfinance_first"] = False
+        by_symbol = {}
+        with ProcessPoolExecutor(max_workers=worker_count) as executor:
+            futures = {
+                executor.submit(
+                    _run_walk_forward_symbol_worker,
+                    str(live_root),
+                    symbol,
+                    worker_args,
+                ): symbol
+                for symbol in symbols
             }
-            results.append(error)
-            errors.append(error)
-            print(f"{symbol}: ERROR {exc.__class__.__name__}: {exc}")
-            if not args.continue_on_error:
-                break
+            for completed_index, future in enumerate(as_completed(futures), start=1):
+                symbol = futures[future]
+                try:
+                    by_symbol[symbol] = future.result()
+                except Exception as exc:
+                    error = {
+                        "symbol": symbol,
+                        "status": "error",
+                        "error_type": exc.__class__.__name__,
+                        "error": str(exc),
+                        "traceback": traceback.format_exc(),
+                        **best_holdout_symbol_fields(None),
+                    }
+                    by_symbol[symbol] = error
+                    errors.append(error)
+                _emit_progress(
+                    4.0 + (90.0 * completed_index / len(symbols)),
+                    "symbol_complete",
+                    f"Completed {completed_index}/{len(symbols)} walk-forward symbols",
+                )
+        results = [by_symbol[symbol] for symbol in symbols if symbol in by_symbol]
+    else:
+        for symbol_index, symbol in enumerate(symbols):
+            symbol_span = 90.0 / max(1, len(symbols))
+            symbol_start = 4.0 + (symbol_index * symbol_span)
 
-        _emit_progress(
-            min(94.0, symbol_start + symbol_span),
-            "symbol_complete",
-            f"Completed {symbol_index + 1}/{len(symbols)} walk-forward symbols",
-        )
+            def report_symbol(percent, stage, message, *, _start=symbol_start):
+                overall = _start + (symbol_span * max(0.0, min(100.0, float(percent))) / 100.0)
+                _emit_progress(overall, stage, message)
+
+            try:
+                results.append(
+                    run_symbol_walk_forward(live_root=live_root, symbol=symbol, args=args, progress_callback=report_symbol)
+                )
+            except Exception as exc:
+                error = {"symbol": symbol, "status": "error", "error_type": exc.__class__.__name__, "error": str(exc), "traceback": traceback.format_exc(), **best_holdout_symbol_fields(None)}
+                results.append(error)
+                errors.append(error)
+                if not args.continue_on_error:
+                    break
 
     _emit_progress(96, "reports", "Building walk-forward leaderboard and promotion reports")
     payload = build_walk_forward_payload(

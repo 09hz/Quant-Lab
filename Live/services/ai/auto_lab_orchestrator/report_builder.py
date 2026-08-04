@@ -125,14 +125,17 @@ def write_run_bundle(run: ExperimentRun, output_dir: Path) -> dict[str, str]:
     scorecards_json = output_dir / "scorecards.json"
     report_md = output_dir / "report.md"
 
-    run_json.write_text(json.dumps(run.to_dict(), indent=2), encoding="utf-8")
-    results_json.write_text(json.dumps([r.to_dict() for r in run.results], indent=2), encoding="utf-8")
-    scorecards_json.write_text(json.dumps([s.to_dict() for s in run.scorecards], indent=2), encoding="utf-8")
-    report_md.write_text(build_markdown_report(run), encoding="utf-8")
-
-    return {
+    artifacts = {
         "run_json": str(run_json),
         "results_json": str(results_json),
         "scorecards_json": str(scorecards_json),
         "report_md": str(report_md),
     }
+    run.artifacts = artifacts
+
+    run_json.write_text(json.dumps(run.to_dict(), indent=2), encoding="utf-8")
+    results_json.write_text(json.dumps([r.to_dict() for r in run.results], indent=2), encoding="utf-8")
+    scorecards_json.write_text(json.dumps([s.to_dict() for s in run.scorecards], indent=2), encoding="utf-8")
+    report_md.write_text(build_markdown_report(run), encoding="utf-8")
+
+    return artifacts

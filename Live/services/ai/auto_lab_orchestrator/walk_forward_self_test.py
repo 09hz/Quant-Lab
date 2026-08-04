@@ -33,9 +33,11 @@ def main() -> int:
         classify_holdout_regime,
         reserve_final_holdout,
         run_final_holdout_test,
+        select_diverse_scorecards,
         summarize_rolling_results,
+        validate_walk_forward_dates,
     )
-    from services.ai.auto_lab_orchestrator.models import NormalizedBacktestResult, StrategyCandidate
+    from services.ai.auto_lab_orchestrator.models import NormalizedBacktestResult, StrategyCandidate, StrategyScorecard
 
     sample_bars = pd.DataFrame(
         {
@@ -47,6 +49,45 @@ def main() -> int:
             "volume": [1000] * 90,
         }
     )
+    diversity_candidates = {
+        "ema_a": StrategyCandidate("ema_a", "EMA A", "crossover"),
+        "ema_clone": StrategyCandidate("ema_clone", "EMA Clone", "crossover"),
+        "rsi_a": StrategyCandidate("rsi_a", "RSI A", "rsi_mean_reversion"),
+    }
+    diversity_scores = [
+        StrategyScorecard("ema_a", "AMD", 90.0, "A", engine_pass=True, research_pass=True),
+        StrategyScorecard("ema_clone", "AMD", 89.0, "A", engine_pass=True, research_pass=True),
+        StrategyScorecard("rsi_a", "AMD", 80.0, "B", engine_pass=True, research_pass=True),
+    ]
+    diversity_results = [
+        NormalizedBacktestResult("ema_a", "AMD", "ok", "contract", raw_summary={"strategy_result": {"signals": [{"index": 1, "side": "BUY"}]}}),
+        NormalizedBacktestResult("ema_clone", "AMD", "ok", "contract", raw_summary={"strategy_result": {"signals": [{"index": 1, "side": "BUY"}]}}),
+        NormalizedBacktestResult("rsi_a", "AMD", "ok", "contract", raw_summary={"strategy_result": {"signals": [{"index": 4, "side": "BUY"}]}}),
+    ]
+    diverse = select_diverse_scorecards(
+        scorecards=diversity_scores,
+        candidates_by_id=diversity_candidates,
+        results=diversity_results,
+        limit=3,
+    )
+    assert [scorecard.candidate_id for scorecard in diverse] == ["ema_a", "rsi_a"]
+    valid_dates = validate_walk_forward_dates(
+        train_start="2020-01-01",
+        train_end="2023-12-31",
+        test_start="2024-01-01",
+        test_end="2025-12-31",
+    )
+    assert valid_dates["train_end"] < valid_dates["test_start"]
+    try:
+        validate_walk_forward_dates(
+            train_start="2017-01-01",
+            train_end="2023-12-31",
+            test_start="2017-01-01",
+            test_end="2025-12-31",
+        )
+        raise AssertionError("Overlapping train/test windows must be rejected")
+    except ValueError as exc:
+        assert "overlap" in str(exc).lower()
     windows = build_rolling_windows(sample_bars, window_count=3, min_bars=20)
     assert len(windows) == 3
     assert [window["row_count"] for window in windows] == [30, 30, 30]
@@ -157,6 +198,36 @@ def main() -> int:
     assert holdout_result["holdout_fees"] == 4.0
     assert holdout_result["holdout_slippage"] == 2.0
     assert holdout_result["holdout_regime"] == "uptrend_low_volatility"
+    assert holdout_result["holdout_errors"] == []
+    assert holdout_result["holdout_warnings"] == []
+
+    class ErrorHoldoutAdapter:
+        def run_candidate(self, candidate, bars, goal, symbol):
+            return NormalizedBacktestResult(
+                candidate_id=candidate.candidate_id,
+                symbol=symbol,
+                status="error",
+                engine="contract",
+                errors=["Strategy parser rejected the candidate."],
+                warnings=["Diagnostic warning."],
+            )
+
+    error_holdout = run_final_holdout_test(
+        adapter=ErrorHoldoutAdapter(),
+        candidate=candidate,
+        symbol="AMD",
+        holdout_bars=holdout_split["holdout_bars"],
+        holdout_available=True,
+        timeframe="1d",
+        initial_cash=10000.0,
+        target_equity=10800.0,
+        max_drawdown_pct=30.0,
+        commission_per_order=1.25,
+        slippage_bps=6.0,
+    )
+    assert error_holdout["holdout_engine_pass"] is False
+    assert error_holdout["holdout_errors"] == ["Strategy parser rejected the candidate."]
+    assert error_holdout["holdout_warnings"] == ["Diagnostic warning."]
 
     unavailable_result = run_final_holdout_test(
         adapter=fake_adapter,
@@ -186,9 +257,15 @@ def main() -> int:
     cli_defaults = build_argument_parser().parse_args([])
     assert cli_defaults.holdout_pct == 20.0
     assert cli_defaults.holdout_min_bars == 20
-    cli_override = build_argument_parser().parse_args(["--holdout-pct", "25", "--holdout-min-bars", "30"])
+    assert cli_defaults.workers == 2
+    assert cli_defaults.no_cache is False
+    cli_override = build_argument_parser().parse_args(
+        ["--holdout-pct", "25", "--holdout-min-bars", "30", "--workers", "1", "--no-cache"]
+    )
     assert cli_override.holdout_pct == 25.0
     assert cli_override.holdout_min_bars == 30
+    assert cli_override.workers == 1
+    assert cli_override.no_cache is True
 
     from services.ai.auto_lab_orchestrator.walk_forward_reporter import (
         build_paper_review_overlay,
@@ -512,6 +589,7 @@ def main() -> int:
             "--max-mutations-per-parent",
             "2",
             "--continue-on-error",
+            "--no-cache",
             "--holdout-pct",
             "20",
             "--holdout-min-bars",

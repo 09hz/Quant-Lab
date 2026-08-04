@@ -219,7 +219,7 @@ def main() -> int:
         }
         assert parse_auto_lab_progress("ordinary output") is None
 
-        manager = AutoLabCommandJobManager()
+        manager = AutoLabCommandJobManager(max_concurrent_jobs=2)
         started = manager.start(
             kind="universe",
             label="Universe Auto Lab",
@@ -228,23 +228,42 @@ def main() -> int:
                 "-u",
                 "-c",
                 (
+                    "import time; "
                     "print('AUTOLAB_PROGRESS|40|symbol|Testing AMD', flush=True); "
-                    "print('job output', flush=True)"
+                    "time.sleep(0.15); print('job output', flush=True)"
                 ),
             ],
             cwd=repo_root,
+            run_dir=repo_root / "universe-test-run",
         )
+        walk_started = manager.start(
+            kind="walk_forward",
+            label="Walk-Forward Validation",
+            cmd=[sys.executable, "-u", "-c", "print('errors: 1', flush=True)"],
+            cwd=repo_root,
+            run_dir=repo_root / "walk-test-run",
+        )
+        assert walk_started["job_id"] != started["job_id"]
+        assert len(manager.snapshots()) == 2
         assert started["status"] in {"queued", "running"}
         deadline = time.monotonic() + 10.0
-        completed = manager.snapshot()
+        completed = manager.snapshot(started["job_id"])
         while completed["status"] in {"queued", "running"} and time.monotonic() < deadline:
             time.sleep(0.02)
-            completed = manager.snapshot()
+            completed = manager.snapshot(started["job_id"])
         assert completed["status"] == "completed"
         assert completed["percent"] == 100.0
         assert completed["return_code"] == 0
         assert "job output" in completed["output"]
         assert "AUTOLAB_PROGRESS" not in completed["output"].split("OUTPUT:", 1)[-1]
+        assert completed["run_dir"].endswith("universe-test-run")
+        walk_completed = manager.snapshot(walk_started["job_id"])
+        while walk_completed["status"] in {"queued", "running"} and time.monotonic() < deadline:
+            time.sleep(0.02)
+            walk_completed = manager.snapshot(walk_started["job_id"])
+        assert walk_completed["status"] == "completed_with_errors"
+        assert walk_completed["error_count"] == 1
+        assert walk_completed["run_dir"].endswith("walk-test-run")
 
         layout = build_auto_lab_tab()
         assert layout is not None

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from datetime import datetime, timezone
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import argparse
 import json
 import sys
@@ -87,7 +88,7 @@ def _read_text_if_exists(path: Path) -> str:
     return ""
 
 
-def run_symbol_pipeline(
+def _run_symbol_pipeline_uncached(
     *,
     live_root: Path,
     symbol: str,
@@ -170,6 +171,7 @@ def run_symbol_pipeline(
         goal=baseline_goal,
         candidates=sized_seeds,
         bars_by_symbol={symbol: bars},
+        write_artifacts=False,
     )
     baseline_run.summary["data_mode"] = "csv_historical_bars"
     baseline_run.summary["universe_runner"] = True
@@ -242,6 +244,7 @@ def run_symbol_pipeline(
         goal=mutation_goal,
         candidates=sized_mutations,
         bars_by_symbol={symbol: bars},
+        write_artifacts=False,
     )
     run.summary["data_mode"] = "csv_historical_bars"
     run.summary["universe_runner"] = True
@@ -333,11 +336,74 @@ def run_symbol_pipeline(
     }
 
 
+def run_symbol_pipeline(*, live_root: Path, symbol: str, args, progress_callback=None) -> dict:
+    from services.ai.auto_lab_orchestrator.bars_bootstrapper import bootstrap_bars_csv
+    from services.ai.auto_lab_orchestrator.orchestrator import (
+        build_exact_result_cache_key,
+        load_exact_symbol_result,
+        save_exact_symbol_result,
+    )
+
+    boot = bootstrap_bars_csv(
+        live_root=live_root,
+        symbol=symbol,
+        start=args.start,
+        end=args.end,
+        timeframe=args.timeframe,
+        prefer_local=not args.yfinance_first,
+        allow_yfinance=not args.local_only,
+    )
+    settings = {
+        key: value
+        for key, value in vars(args).items()
+        if key not in {"run_id", "continue_on_error", "workers", "no_cache"}
+    }
+    cache_key = build_exact_result_cache_key(
+        live_root=live_root,
+        kind="universe",
+        symbol=symbol,
+        csv_path=Path(boot.csv_path),
+        settings=settings,
+    )
+    cached = None if getattr(args, "no_cache", False) else load_exact_symbol_result(live_root=live_root, kind="universe", cache_key=cache_key)
+    if cached is not None:
+        cached["cache_hit"] = True
+        cached["cache_key"] = cache_key
+        _report_symbol_progress(progress_callback, 96, "cache_hit", f"Loaded exact cached result for {symbol}")
+        return cached
+    result = _run_symbol_pipeline_uncached(
+        live_root=live_root,
+        symbol=symbol,
+        args=args,
+        progress_callback=progress_callback,
+    )
+    result["cache_hit"] = False
+    result["cache_key"] = cache_key
+    if not getattr(args, "no_cache", False):
+        save_exact_symbol_result(
+            live_root=live_root,
+            kind="universe",
+            cache_key=cache_key,
+            result=result,
+        )
+    return result
+
+
+def _run_universe_symbol_worker(live_root_text: str, symbol: str, args_dict: dict) -> dict:
+    return run_symbol_pipeline(
+        live_root=Path(live_root_text),
+        symbol=symbol,
+        args=argparse.Namespace(**args_dict),
+        progress_callback=None,
+    )
+
+
 def main() -> int:
     live_root = _bootstrap_import_path()
 
     parser = argparse.ArgumentParser(description="Run Auto Lab across a multi-symbol equity universe.")
     parser.add_argument("--symbols", default="AMD,NVDA,MSFT,AAPL,TSLA")
+    parser.add_argument("--run-id", default="")
     parser.add_argument("--start", default="2020-01-01")
     parser.add_argument("--end", default="")
     parser.add_argument("--timeframe", default="1d")
@@ -356,6 +422,8 @@ def main() -> int:
     parser.add_argument("--mutate-quantity", action="store_true")
     parser.add_argument("--strict-parent-gate", action="store_true")
     parser.add_argument("--continue-on-error", action="store_true")
+    parser.add_argument("--workers", type=int, default=2)
+    parser.add_argument("--no-cache", action="store_true")
     args = parser.parse_args()
 
     from services.ai.auto_lab_orchestrator.universe_reporter import build_universe_payload, write_universe_artifacts
@@ -365,7 +433,10 @@ def main() -> int:
         print("No symbols provided.")
         return 2
 
-    universe_run_id = _run_id()
+    universe_run_id = str(args.run_id or _run_id()).strip()
+    if not universe_run_id.replace("-", "").replace("_", "").isalnum():
+        print("Invalid run ID. Use letters, numbers, underscores, or hyphens only.")
+        return 2
     out_dir = live_root / "data" / "auto_lab_universe_runs" / universe_run_id
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -387,6 +458,8 @@ def main() -> int:
         "max_mutations_per_parent": args.max_mutations_per_parent,
         "max_total_runs_per_symbol": args.max_total_runs_per_symbol,
         "mutate_quantity": args.mutate_quantity,
+        "workers": min(max(1, int(args.workers or 1)), 4),
+        "exact_result_cache": not args.no_cache,
         "simulation_only": True,
     }
 
@@ -394,50 +467,72 @@ def main() -> int:
     errors = []
 
     _emit_progress(2, "starting", f"Preparing universe run for {len(symbols)} symbols")
-    symbol_span = 90.0 / max(1, len(symbols))
-    for symbol_index, symbol in enumerate(symbols):
-        symbol_start = 4.0 + (symbol_index * symbol_span)
+    worker_count = min(max(1, int(args.workers or 1)), 4, len(symbols))
+    if worker_count > 1:
+        from services.ai.auto_lab_orchestrator.bars_bootstrapper import bootstrap_bars_csv
 
-        def report_symbol(percent, stage, message, *, _start=symbol_start):
-            overall = _start + (symbol_span * max(0.0, min(100.0, float(percent))) / 100.0)
-            _emit_progress(overall, stage, message)
-
-        print(f"=== Running universe symbol: {symbol} ===")
-        try:
-            result = run_symbol_pipeline(
+        for symbol in symbols:
+            bootstrap_bars_csv(
                 live_root=live_root,
                 symbol=symbol,
-                args=args,
-                progress_callback=report_symbol,
+                start=args.start,
+                end=args.end,
+                timeframe=args.timeframe,
+                prefer_local=not args.yfinance_first,
+                allow_yfinance=not args.local_only,
             )
-            symbol_results.append(result)
-            best = (result.get("ranked_mutations") or [{}])[0]
-            print(
-                f"{symbol}: status={result.get('status')} "
-                f"best={best.get('candidate_id', '')} "
-                f"score={best.get('score', 0.0)} "
-                f"objective_hit={best.get('objective_hit', False)} "
-                f"progress={best.get('objective_progress_pct', 0.0)}"
-            )
-        except Exception as exc:
-            error = {
-                "symbol": symbol,
-                "status": "error",
-                "error_type": exc.__class__.__name__,
-                "error": str(exc),
-                "traceback": traceback.format_exc(),
+        worker_args = dict(vars(args))
+        worker_args["yfinance_first"] = False
+        by_symbol = {}
+        with ProcessPoolExecutor(max_workers=worker_count) as executor:
+            futures = {
+                executor.submit(
+                    _run_universe_symbol_worker,
+                    str(live_root),
+                    symbol,
+                    worker_args,
+                ): symbol
+                for symbol in symbols
             }
-            symbol_results.append(error)
-            errors.append(error)
-            print(f"{symbol}: ERROR {exc.__class__.__name__}: {exc}")
-            if not args.continue_on_error:
-                break
+            for completed_index, future in enumerate(as_completed(futures), start=1):
+                symbol = futures[future]
+                try:
+                    by_symbol[symbol] = future.result()
+                except Exception as exc:
+                    error = {
+                        "symbol": symbol,
+                        "status": "error",
+                        "error_type": exc.__class__.__name__,
+                        "error": str(exc),
+                        "traceback": traceback.format_exc(),
+                    }
+                    by_symbol[symbol] = error
+                    errors.append(error)
+                _emit_progress(
+                    4.0 + (90.0 * completed_index / len(symbols)),
+                    "symbol_complete",
+                    f"Completed {completed_index}/{len(symbols)} universe symbols",
+                )
+        symbol_results = [by_symbol[symbol] for symbol in symbols if symbol in by_symbol]
+    else:
+        for symbol_index, symbol in enumerate(symbols):
+            symbol_span = 90.0 / max(1, len(symbols))
+            symbol_start = 4.0 + (symbol_index * symbol_span)
 
-        _emit_progress(
-            min(94.0, symbol_start + symbol_span),
-            "symbol_complete",
-            f"Completed {symbol_index + 1}/{len(symbols)} universe symbols",
-        )
+            def report_symbol(percent, stage, message, *, _start=symbol_start):
+                overall = _start + (symbol_span * max(0.0, min(100.0, float(percent))) / 100.0)
+                _emit_progress(overall, stage, message)
+
+            try:
+                symbol_results.append(
+                    run_symbol_pipeline(live_root=live_root, symbol=symbol, args=args, progress_callback=report_symbol)
+                )
+            except Exception as exc:
+                error = {"symbol": symbol, "status": "error", "error_type": exc.__class__.__name__, "error": str(exc), "traceback": traceback.format_exc()}
+                symbol_results.append(error)
+                errors.append(error)
+                if not args.continue_on_error:
+                    break
 
     _emit_progress(96, "reports", "Building universe leaderboard and reports")
     payload = build_universe_payload(

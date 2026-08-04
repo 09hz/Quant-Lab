@@ -32,6 +32,44 @@ def read_text_file(path: str | Path, limit: int = REPORT_LIMIT_CHARS) -> str:
     return text
 
 
+def load_universe_report_from_dir(run_dir: str | Path) -> dict[str, Any]:
+    run_dir = Path(run_dir)
+    paths = {
+        "universe_report": str(run_dir / "universe_report.md"),
+        "symbol_leaderboard": str(run_dir / "symbol_leaderboard.md"),
+        "strategy_robustness_report": str(run_dir / "strategy_robustness_report.md"),
+        "top_universe_strategy_algorithm": str(run_dir / "top_universe_strategy_algorithm.md"),
+        "universe_results": str(run_dir / "universe_results.json"),
+    }
+    return {
+        "kind": "universe",
+        "run_dir": str(run_dir),
+        "status": "ok" if (run_dir / "universe_report.md").exists() else "missing",
+        "report_md": read_text_file(paths["universe_report"]),
+        "paths": paths,
+    }
+
+
+def load_walk_forward_report_from_dir(run_dir: str | Path) -> dict[str, Any]:
+    run_dir = Path(run_dir)
+    paths = {
+        "walk_forward_universe_report": str(run_dir / "walk_forward_universe_report.md"),
+        "walk_forward_symbol_leaderboard": str(run_dir / "walk_forward_symbol_leaderboard.md"),
+        "overfit_warning_report": str(run_dir / "overfit_warning_report.md"),
+        "top_walk_forward_strategy_algorithm": str(run_dir / "top_walk_forward_strategy_algorithm.md"),
+        "walk_forward_universe_results": str(run_dir / "walk_forward_universe_results.json"),
+        "paper_review_queue": str(run_dir / "paper_review_queue.json"),
+        "paper_review_queue_report": str(run_dir / "paper_review_queue.md"),
+    }
+    return {
+        "kind": "walk_forward",
+        "run_dir": str(run_dir),
+        "status": "ok" if (run_dir / "walk_forward_universe_report.md").exists() else "missing",
+        "report_md": read_text_file(paths["walk_forward_universe_report"]),
+        "paths": paths,
+    }
+
+
 def load_latest_universe_report(live_root: str | Path | None = None) -> dict[str, Any]:
     root = Path(live_root) if live_root else live_root_from_here()
     runs_dir = root / "data" / "auto_lab_universe_runs"
@@ -45,20 +83,7 @@ def load_latest_universe_report(live_root: str | Path | None = None) -> dict[str
             "paths": {},
         }
 
-    paths = {
-        "universe_report": str(run_dir / "universe_report.md"),
-        "symbol_leaderboard": str(run_dir / "symbol_leaderboard.md"),
-        "strategy_robustness_report": str(run_dir / "strategy_robustness_report.md"),
-        "top_universe_strategy_algorithm": str(run_dir / "top_universe_strategy_algorithm.md"),
-        "universe_results": str(run_dir / "universe_results.json"),
-    }
-    return {
-        "kind": "universe",
-        "run_dir": str(run_dir),
-        "status": "ok",
-        "report_md": read_text_file(paths["universe_report"]),
-        "paths": paths,
-    }
+    return load_universe_report_from_dir(run_dir)
 
 
 def load_latest_walk_forward_report(live_root: str | Path | None = None) -> dict[str, Any]:
@@ -74,22 +99,7 @@ def load_latest_walk_forward_report(live_root: str | Path | None = None) -> dict
             "paths": {},
         }
 
-    paths = {
-        "walk_forward_universe_report": str(run_dir / "walk_forward_universe_report.md"),
-        "walk_forward_symbol_leaderboard": str(run_dir / "walk_forward_symbol_leaderboard.md"),
-        "overfit_warning_report": str(run_dir / "overfit_warning_report.md"),
-        "top_walk_forward_strategy_algorithm": str(run_dir / "top_walk_forward_strategy_algorithm.md"),
-        "walk_forward_universe_results": str(run_dir / "walk_forward_universe_results.json"),
-        "paper_review_queue": str(run_dir / "paper_review_queue.json"),
-        "paper_review_queue_report": str(run_dir / "paper_review_queue.md"),
-    }
-    return {
-        "kind": "walk_forward",
-        "run_dir": str(run_dir),
-        "status": "ok",
-        "report_md": read_text_file(paths["walk_forward_universe_report"]),
-        "paths": paths,
-    }
+    return load_walk_forward_report_from_dir(run_dir)
 
 
 def load_latest_paper_review_queue(live_root: str | Path | None = None) -> dict[str, Any]:

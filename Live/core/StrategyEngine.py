@@ -168,11 +168,19 @@ class StrategyEngine:
         "ta.highest": "highest",
         "ta.lowest": "lowest",
         "ta.atr": "atr",
+        "ta.roc": "roc",
+        "ta.bb_upper": "bb_upper",
+        "ta.bb_lower": "bb_lower",
+        "ta.adx": "adx",
+        "ta.supertrend": "supertrend",
         "ta.crossover": "crossover",
         "ta.crossunder": "crossunder",
     }
 
-    SUPPORTED_INDICATORS = {"sma", "ema", "rsi", "highest", "lowest", "atr"}
+    SUPPORTED_INDICATORS = {
+        "sma", "ema", "rsi", "highest", "lowest", "atr",
+        "roc", "bb_upper", "bb_lower", "adx", "supertrend",
+    }
     SUPPORTED_CONDITION_FUNCTIONS = {"crossover", "crossunder"}
 
     # Rendering safeguards. These prevent Plotly/Dash from freezing when a
@@ -184,6 +192,10 @@ class StrategyEngine:
     # Signal-generation safeguard. In position-aware mode, repeated true
     # conditions only create one BUY while flat and one SELL while long.
     POSITION_AWARE_SIGNALS = True
+
+    def __init__(self) -> None:
+        self._indicator_cache: dict[tuple[int, str, str, int], pd.Series] = {}
+        self._cached_bars: dict[int, pd.DataFrame] = {}
 
     def run(self, script: str, bars: pd.DataFrame) -> StrategyScriptResult:
         result = StrategyScriptResult()
@@ -665,6 +677,11 @@ class StrategyEngine:
             "ta.highest(": "highest(",
             "ta.lowest(": "lowest(",
             "ta.atr(": "atr(",
+            "ta.roc(": "roc(",
+            "ta.bb_upper(": "bb_upper(",
+            "ta.bb_lower(": "bb_lower(",
+            "ta.adx(": "adx(",
+            "ta.supertrend(": "supertrend(",
             "ta.crossover(": "crossover(",
             "ta.crossunder(": "crossunder(",
         }
@@ -702,12 +719,25 @@ class StrategyEngine:
             return
 
         try:
-            output = self._calculate_indicator(
-                func_name=func_name,
-                source=source,
-                length=length,
-                bars=bars,
-            )
+            cache_key = None
+            if source_name in {"open", "high", "low", "close", "volume"}:
+                bars_id = id(bars)
+                if bars_id not in self._cached_bars and len(self._cached_bars) >= 8:
+                    self._cached_bars.clear()
+                    self._indicator_cache.clear()
+                self._cached_bars[bars_id] = bars
+                cache_key = (bars_id, func_name, source_name, length)
+            if cache_key is not None and cache_key in self._indicator_cache:
+                output = self._indicator_cache[cache_key].copy()
+            else:
+                output = self._calculate_indicator(
+                    func_name=func_name,
+                    source=source,
+                    length=length,
+                    bars=bars,
+                )
+                if cache_key is not None:
+                    self._indicator_cache[cache_key] = pd.Series(output, index=bars.index).copy()
             output = pd.Series(output, index=bars.index, name=name)
         except Exception as exc:
             result.errors.append(f"Error calculating '{name}': {exc}")
@@ -773,6 +803,61 @@ class StrategyEngine:
                 adjust=False,
                 min_periods=length,
             ).mean()
+
+        if func_name == "roc":
+            return source.pct_change(periods=length, fill_method=None) * 100.0
+
+        if func_name in {"bb_upper", "bb_lower"}:
+            middle = source.rolling(length, min_periods=length).mean()
+            deviation = source.rolling(length, min_periods=length).std(ddof=0)
+            return middle + (2.0 * deviation) if func_name == "bb_upper" else middle - (2.0 * deviation)
+
+        if func_name == "adx":
+            if bars is None:
+                raise ValueError("ADX requires bars data.")
+            high = pd.to_numeric(bars["high"], errors="coerce")
+            low = pd.to_numeric(bars["low"], errors="coerce")
+            close = pd.to_numeric(bars["close"], errors="coerce")
+            up_move = high.diff()
+            down_move = -low.diff()
+            plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+            minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+            true_range = pd.concat(
+                [(high - low), (high - close.shift(1)).abs(), (low - close.shift(1)).abs()],
+                axis=1,
+            ).max(axis=1)
+            atr = true_range.ewm(alpha=1 / length, adjust=False, min_periods=length).mean()
+            plus_di = 100.0 * plus_dm.ewm(alpha=1 / length, adjust=False, min_periods=length).mean() / atr.replace(0, pd.NA)
+            minus_di = 100.0 * minus_dm.ewm(alpha=1 / length, adjust=False, min_periods=length).mean() / atr.replace(0, pd.NA)
+            dx = 100.0 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, pd.NA)
+            return dx.ewm(alpha=1 / length, adjust=False, min_periods=length).mean()
+
+        if func_name == "supertrend":
+            if bars is None:
+                raise ValueError("Supertrend requires bars data.")
+            high = pd.to_numeric(bars["high"], errors="coerce")
+            low = pd.to_numeric(bars["low"], errors="coerce")
+            close = pd.to_numeric(bars["close"], errors="coerce")
+            prev_close = close.shift(1)
+            true_range = pd.concat(
+                [(high - low), (high - prev_close).abs(), (low - prev_close).abs()],
+                axis=1,
+            ).max(axis=1)
+            atr = true_range.ewm(alpha=1 / length, adjust=False, min_periods=length).mean()
+            midpoint = (high + low) / 2.0
+            upper = midpoint + (3.0 * atr)
+            lower = midpoint - (3.0 * atr)
+            trend = pd.Series(index=close.index, dtype="float64")
+            direction_up = True
+            for index in range(len(close)):
+                if pd.isna(atr.iloc[index]):
+                    continue
+                if index > 0 and close.iloc[index] > upper.iloc[index - 1]:
+                    direction_up = True
+                elif index > 0 and close.iloc[index] < lower.iloc[index - 1]:
+                    direction_up = False
+                trend.iloc[index] = lower.iloc[index] if direction_up else upper.iloc[index]
+            return trend
 
         raise ValueError(f"Unsupported indicator: {func_name}")
 
@@ -1343,7 +1428,8 @@ class StrategyEngine:
             overnight sessions like session("2000-0500")
         """
 
-        if "time" not in bars.columns:
+        time_column = "time" if "time" in bars.columns else "date" if "date" in bars.columns else ""
+        if not time_column:
             return None
 
         text = str(session_text or "").strip().strip('"').strip("'")
@@ -1370,7 +1456,21 @@ class StrategyEngine:
         start_hhmm = start_hour * 100 + start_minute
         end_hhmm = end_hour * 100 + end_minute
 
-        times = pd.to_datetime(bars["time"], errors="coerce")
+        times = pd.to_datetime(bars[time_column], errors="coerce")
+        valid_times = times.dropna()
+        normalized_deltas = valid_times.sort_values().diff().dropna()
+        daily_bars = bool(
+            not valid_times.empty
+            and (valid_times.dt.hour == 0).all()
+            and (valid_times.dt.minute == 0).all()
+            and (
+                normalized_deltas.empty
+                or normalized_deltas.median() >= pd.Timedelta(hours=20)
+            )
+        )
+        if daily_bars:
+            return pd.Series(times.notna().astype(bool), index=bars.index)
+
         hhmm = times.dt.hour * 100 + times.dt.minute
 
         if start_hhmm <= end_hhmm:

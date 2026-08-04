@@ -89,6 +89,7 @@ def main() -> int:
             "--max-mutations-per-parent",
             "2",
             "--continue-on-error",
+            "--no-cache",
         ],
         cwd=str(live_root.parent),
         text=True,

@@ -156,6 +156,37 @@ def _mutate_quantity(candidate: StrategyCandidate, max_count: int) -> list[Strat
     return results
 
 
+def _mutate_structure(candidate: StrategyCandidate, max_count: int) -> list[StrategyCandidate]:
+    script = candidate.script or ""
+    if max_count < 1 or "regimeTrend" in script:
+        return []
+    buy_match = re.search(r"(?im)^\s*buy\s+when\s+(.+)$", script)
+    sell_match = re.search(r"(?im)^\s*sell\s+when\s+(.+)$", script)
+    if not buy_match or not sell_match:
+        return []
+    filtered = script
+    filtered = _replace_span(
+        filtered,
+        sell_match.start(1),
+        sell_match.end(1),
+        f"{sell_match.group(1).strip()} or close < regimeTrend",
+    )
+    buy_match = re.search(r"(?im)^\s*buy\s+when\s+(.+)$", filtered)
+    filtered = _replace_span(
+        filtered,
+        buy_match.start(1),
+        buy_match.end(1),
+        f"{buy_match.group(1).strip()} and close > regimeTrend",
+    )
+    filtered = "regimeTrend = ema(close, 50)\n" + filtered
+    params = dict(candidate.parameters or {})
+    params["regime_trend_length"] = 50
+    mutation = {"type": "structural_trend_filter", "length": 50}
+    result = _candidate_copy(candidate, "with_trend_filter_50", filtered, params, mutation)
+    result.tags = sorted(set(result.tags + ["structural", "trend-filter"]))
+    return [result]
+
+
 def preview_parameter_mutations(
     candidate: StrategyCandidate,
     max_mutations: int = 6,
@@ -171,7 +202,7 @@ def preview_parameter_mutations(
         return []
 
     results: list[StrategyCandidate] = []
-    for generator in (_mutate_ma_calls, _mutate_rsi_length, _mutate_thresholds):
+    for generator in (_mutate_structure, _mutate_ma_calls, _mutate_rsi_length, _mutate_thresholds):
         if len(results) >= max_mutations:
             break
         results.extend(generator(candidate, max_mutations - len(results)))
@@ -191,18 +222,22 @@ def generate_mutations_for_parents(
     mutations: list[StrategyCandidate] = []
     seen_scripts: set[str] = set()
 
-    for parent in parents:
-        if len(mutations) >= max_total:
-            break
-        parent_mutations = preview_parameter_mutations(
+    mutation_groups = [
+        preview_parameter_mutations(
             parent,
             max_mutations=max_mutations_per_parent,
             mutate_quantity=mutate_quantity,
         )
-        for mutation in parent_mutations:
+        for parent in parents
+    ]
+    for mutation_index in range(max((len(group) for group in mutation_groups), default=0)):
+        for group in mutation_groups:
             if len(mutations) >= max_total:
-                break
-            script_key = (mutation.script or "").strip()
+                return mutations
+            if mutation_index >= len(group):
+                continue
+            mutation = group[mutation_index]
+            script_key = " ".join((mutation.script or "").split()).lower()
             if not script_key or script_key in seen_scripts:
                 continue
             seen_scripts.add(script_key)

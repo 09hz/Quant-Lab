@@ -40,12 +40,18 @@ class BacktestResult:
     trades: list[BacktestTrade] = field(default_factory=list)
     equity_curve: pd.DataFrame = field(default_factory=pd.DataFrame)
     errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     execution_mode: str = "next_open"
+    sizing_mode: str = "fixed_quantity"
+    cash_exposure_pct: float = 100.0
     commission_per_order: float = 0.0
     slippage_bps: float = 0.0
     total_commission: float = 0.0
     total_slippage: float = 0.0
     unfilled_signal_count: int = 0
+    eligible_buy_signal_count: int = 0
+    filled_buy_signal_count: int = 0
+    fill_rate_pct: float = 100.0
 
 
 class BackTestEngine:
@@ -58,7 +64,8 @@ class BackTestEngine:
         No shorts yet.
         Signals execute at the next bar open by default.
         Optional commission and adverse slippage are included in net PnL.
-        One fixed quantity per trade.
+        Fixed quantity remains the default. Simulation callers may instead size
+        each entry from currently available cash and the current fill price.
     """
 
     def run(
@@ -70,8 +77,11 @@ class BackTestEngine:
         execution_mode: str = "next_open",
         commission_per_order: float = 0.0,
         slippage_bps: float = 0.0,
+        sizing_mode: str = "fixed_quantity",
+        cash_exposure_pct: float = 100.0,
     ) -> BacktestResult:
         errors: list[str] = []
+        warnings: list[str] = []
 
         try:
             initial_cash = float(initial_cash)
@@ -116,6 +126,18 @@ class BackTestEngine:
             slippage_bps = 0.0
             errors.append("Slippage basis points cannot be negative. Used 0.")
 
+        sizing_mode = str(sizing_mode or "fixed_quantity").strip().lower()
+        if sizing_mode not in {"fixed_quantity", "max_affordable_shares", "percent_cash_exposure"}:
+            sizing_mode = "fixed_quantity"
+            errors.append("Invalid sizing mode. Used fixed_quantity.")
+
+        try:
+            cash_exposure_pct = float(cash_exposure_pct)
+        except Exception:
+            cash_exposure_pct = 100.0
+            errors.append("Invalid cash exposure percentage. Used 100.")
+        cash_exposure_pct = max(0.0, min(cash_exposure_pct, 100.0))
+
         if bars is None or bars.empty:
             return BacktestResult(
                 initial_cash=initial_cash,
@@ -129,7 +151,10 @@ class BackTestEngine:
                 winning_trades=0,
                 losing_trades=0,
                 errors=["No bars available."],
+                warnings=warnings,
                 execution_mode=execution_mode,
+                sizing_mode=sizing_mode,
+                cash_exposure_pct=cash_exposure_pct,
                 commission_per_order=commission_per_order,
                 slippage_bps=slippage_bps,
             )
@@ -149,7 +174,10 @@ class BackTestEngine:
                 winning_trades=0,
                 losing_trades=0,
                 errors=["No valid bars available."],
+                warnings=warnings,
                 execution_mode=execution_mode,
+                sizing_mode=sizing_mode,
+                cash_exposure_pct=cash_exposure_pct,
                 commission_per_order=commission_per_order,
                 slippage_bps=slippage_bps,
             )
@@ -157,6 +185,8 @@ class BackTestEngine:
         signal_map: dict[int, list[StrategySignal]] = {}
         execution_lag = 1 if execution_mode == "next_open" else 0
         unfilled_signal_count = 0
+        eligible_buy_signal_count = 0
+        filled_buy_signal_count = 0
         for signal in signals or []:
             execution_index = int(signal.index) + execution_lag
             if execution_index >= len(clean_bars):
@@ -185,34 +215,54 @@ class BackTestEngine:
             for signal in signal_map.get(int(idx), []):
                 side = str(signal.side).upper()
                 fill_price = self._apply_slippage(execution_price, side, slippage_bps)
-                slippage_cost = abs(fill_price - execution_price) * quantity
 
                 if side == "BUY":
                     if position_qty != 0:
                         continue
+                    eligible_buy_signal_count += 1
 
-                    cost = (fill_price * quantity) + commission_per_order
+                    order_quantity = self._entry_quantity(
+                        sizing_mode=sizing_mode,
+                        fixed_quantity=quantity,
+                        cash=cash,
+                        fill_price=fill_price,
+                        commission_per_order=commission_per_order,
+                        cash_exposure_pct=cash_exposure_pct,
+                    )
+                    if order_quantity <= 0:
+                        unfilled_signal_count += 1
+                        warnings.append(
+                            f"BUY at index {idx} could not afford one share within "
+                            f"the {cash_exposure_pct:.2f}% cash exposure limit."
+                        )
+                        continue
+
+                    cost = (fill_price * order_quantity) + commission_per_order
 
                     if cost > cash:
-                        errors.append(
+                        unfilled_signal_count += 1
+                        warnings.append(
                             f"Insufficient cash for BUY at index {idx}: "
                             f"cost ${cost:,.2f}, cash ${cash:,.2f}"
                         )
                         continue
 
                     cash -= cost
-                    position_qty = quantity
+                    position_qty = order_quantity
                     entry_price = fill_price
                     entry_time = bar_time
                     entry_index = int(idx)
                     entry_commission = commission_per_order
-                    entry_slippage = slippage_cost
+                    entry_slippage = abs(fill_price - execution_price) * order_quantity
                     total_commission += commission_per_order
-                    total_slippage += slippage_cost
+                    total_slippage += entry_slippage
+                    filled_buy_signal_count += 1
 
                 elif side == "SELL":
                     if position_qty <= 0 or entry_price is None:
                         continue
+
+                    slippage_cost = abs(fill_price - execution_price) * position_qty
 
                     proceeds = (fill_price * position_qty) - commission_per_order
                     cash += proceeds
@@ -289,6 +339,11 @@ class BackTestEngine:
             if trade_count
             else 0.0
         )
+        fill_rate_pct = (
+            (filled_buy_signal_count / eligible_buy_signal_count) * 100.0
+            if eligible_buy_signal_count
+            else 100.0
+        )
 
         return BacktestResult(
             initial_cash=float(initial_cash),
@@ -304,13 +359,36 @@ class BackTestEngine:
             trades=trades,
             equity_curve=equity_curve,
             errors=errors,
+            warnings=warnings,
             execution_mode=execution_mode,
+            sizing_mode=sizing_mode,
+            cash_exposure_pct=float(cash_exposure_pct),
             commission_per_order=float(commission_per_order),
             slippage_bps=float(slippage_bps),
             total_commission=float(total_commission),
             total_slippage=float(total_slippage),
             unfilled_signal_count=int(unfilled_signal_count),
+            eligible_buy_signal_count=int(eligible_buy_signal_count),
+            filled_buy_signal_count=int(filled_buy_signal_count),
+            fill_rate_pct=float(fill_rate_pct),
         )
+
+    def _entry_quantity(
+        self,
+        *,
+        sizing_mode: str,
+        fixed_quantity: int,
+        cash: float,
+        fill_price: float,
+        commission_per_order: float,
+        cash_exposure_pct: float,
+    ) -> int:
+        if sizing_mode == "fixed_quantity":
+            return int(fixed_quantity)
+        available_cash = max(0.0, float(cash) - float(commission_per_order))
+        if sizing_mode == "percent_cash_exposure":
+            available_cash *= float(cash_exposure_pct) / 100.0
+        return max(0, int(available_cash // max(float(fill_price), 1e-12)))
 
     def _apply_slippage(self, price: float, side: str, slippage_bps: float) -> float:
         adjustment = slippage_bps / 10_000.0

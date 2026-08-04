@@ -18,7 +18,7 @@ def main() -> int:
     live_root = _bootstrap_import_path()
 
     from services.ai.auto_lab_orchestrator.models import ExperimentGoal
-    from services.ai.auto_lab_orchestrator.orchestrator import AutoLabOrchestrator
+    from services.ai.auto_lab_orchestrator.orchestrator import AutoLabOrchestrator, build_run_id
     from services.ai.auto_lab_orchestrator.sample_data import make_sample_bars
     from services.ai.auto_lab_orchestrator.templates import starter_strategy_candidates
     from services.ai.auto_lab_orchestrator.adapters import ToyBacktestAdapter
@@ -40,6 +40,7 @@ def main() -> int:
     )
     bars = make_sample_bars(symbol=symbol, days=180)
     candidates = starter_strategy_candidates(symbol=symbol)[:3]
+    assert build_run_id() != build_run_id(), "Concurrent run IDs must be unique within the same second"
 
     orchestrator = AutoLabOrchestrator(adapter=ToyBacktestAdapter(), live_root=live_root)
     run = orchestrator.run_experiment(goal=goal, candidates=candidates, bars_by_symbol={symbol: bars})
