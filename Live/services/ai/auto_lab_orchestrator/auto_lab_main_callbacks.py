@@ -332,6 +332,7 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
     )
     from services.ai.auto_lab_orchestrator.script_viewer import (
         build_script_packet,
+        refresh_run_manifest,
         summarize_script_paths,
         write_latest_manifest,
     )
@@ -339,6 +340,7 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
         load_latest_paper_review_queue,
         load_latest_universe_report,
         load_latest_walk_forward_report,
+        load_paper_review_queue_from_dir,
         load_universe_report_from_dir,
         load_walk_forward_report_from_dir,
         summarize_paths,
@@ -351,6 +353,25 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
     live_root = _live_root()
     package_dir = _package_dir()
     python_exe = sys.executable
+
+    def _paper_review_queue(job_store):
+        jobs = _stored_jobs(job_store)
+        walk_job = jobs.get("walk_forward") or {}
+        job_id = str(walk_job.get("job_id") or "")
+        server_snapshot = _AUTO_LAB_JOB_MANAGER.snapshot(job_id, include_output=False) if job_id else {}
+        if walk_job and server_snapshot.get("job_id") != job_id:
+            if not _AUTO_LAB_JOB_MANAGER.snapshots():
+                return load_latest_paper_review_queue(live_root)
+            walk_root = (live_root / "data" / "auto_lab_walk_forward_runs").resolve()
+            return load_paper_review_queue_from_dir(walk_root / "_invalid_job_association")
+        walk_run_dir = str(server_snapshot.get("run_dir") or "")
+        if walk_run_dir:
+            walk_root = (live_root / "data" / "auto_lab_walk_forward_runs").resolve()
+            resolved_run_dir = Path(walk_run_dir).resolve()
+            if resolved_run_dir.parent == walk_root:
+                return load_paper_review_queue_from_dir(resolved_run_dir)
+            return load_paper_review_queue_from_dir(walk_root / "_invalid_run_association")
+        return load_latest_paper_review_queue(live_root)
 
     @app.callback(
         Output("main-autolab-capital-summary", "children"),
@@ -388,10 +409,11 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
         Input("main-autolab-walk-forward-report", "children"),
         Input("main-autolab-refresh", "n_clicks"),
         State("main-autolab-paper-review-candidate", "value"),
+        State("main-autolab-job-store", "data"),
         prevent_initial_call=False,
     )
-    def refresh_paper_review_candidates(_walk_report, _refresh_clicks, selected_review_id):
-        queue = load_latest_paper_review_queue(live_root)
+    def refresh_paper_review_candidates(_walk_report, _refresh_clicks, selected_review_id, job_store):
+        queue = _paper_review_queue(job_store)
         candidates = list(queue.get("candidates") or [])
         options = [
             {
@@ -440,6 +462,7 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
         State("main-autolab-review-max-daily-loss", "value"),
         State("main-autolab-review-max-drawdown", "value"),
         State("main-autolab-review-max-orders", "value"),
+        State("main-autolab-job-store", "data"),
         prevent_initial_call=True,
     )
     def control_paper_review(
@@ -450,6 +473,7 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
         max_daily_loss_pct,
         max_drawdown_pct,
         max_orders_per_day,
+        job_store,
     ):
         triggered = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else ""
         if paper_trading_service is None:
@@ -464,7 +488,7 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
         if not selected_review_id:
             return no_update, "Select a promoted candidate before activating paper review.", no_update
 
-        queue = load_latest_paper_review_queue(live_root)
+        queue = _paper_review_queue(job_store)
         candidate = next(
             (
                 item
@@ -509,23 +533,41 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
         Output("main-autolab-symbols", "value"),
         Output("main-autolab-discovery-report", "children"),
         Output("main-autolab-discovery-paths", "children"),
+        Output("main-autolab-discovery-store", "data"),
         Input("main-autolab-suggest-symbols", "n_clicks"),
         State("main-autolab-symbols", "value"),
         State("main-autolab-discovery-theme", "value"),
         State("main-autolab-discovery-max-symbols", "value"),
+        State("main-autolab-discovery-store", "data"),
         prevent_initial_call=True,
     )
-    def suggest_symbols(n_clicks, symbols, theme, max_symbols):
+    def suggest_symbols(n_clicks, symbols, theme, max_symbols, discovery_state):
         if not n_clicks:
             raise PreventUpdate
 
         from services.ai.auto_lab_orchestrator.symbol_discovery import discover_symbol_universe
+        from services.ai.auto_lab_orchestrator.symbol_discovery import normalize_symbols
         from services.ai.auto_lab_orchestrator.symbol_discovery_reporter import write_symbol_discovery_reports
 
+        discovery_state = dict(discovery_state or {})
+        current_symbols = normalize_symbols(symbols)
+        last_suggested = normalize_symbols(discovery_state.get("last_suggested"))
+        same_generated_input = bool(last_suggested and current_symbols == last_suggested)
+        seed_symbols = (
+            normalize_symbols(discovery_state.get("seed_symbols"))
+            if same_generated_input
+            else current_symbols
+        )
+        same_search = (
+            seed_symbols == normalize_symbols(discovery_state.get("seed_symbols"))
+            and str(theme or "").strip().lower() == str(discovery_state.get("theme") or "").strip().lower()
+        )
+        seen_symbols = normalize_symbols(discovery_state.get("seen_symbols")) if same_search else []
         packet = discover_symbol_universe(
-            seed_symbols=symbols,
+            seed_symbols=seed_symbols,
             theme=theme,
             max_symbols=max_symbols or 10,
+            exclude_symbols=seen_symbols,
         )
         paths = write_symbol_discovery_reports(live_root, packet)
         suggested_value = ",".join(packet.get("suggested_symbols", []))
@@ -539,7 +581,14 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
             ]
         )
 
-        return suggested_value, paths.get("report_md", ""), path_text
+        suggested_symbols = normalize_symbols(packet.get("suggested_symbols"))
+        next_state = {
+            "seed_symbols": seed_symbols,
+            "seen_symbols": list(dict.fromkeys([*seen_symbols, *suggested_symbols])),
+            "last_suggested": suggested_symbols,
+            "theme": str(theme or ""),
+        }
+        return suggested_value, paths.get("report_md", ""), path_text, next_state
 
     def _report_packet(
         manifest_paths: dict[str, str] | None = None,
@@ -560,7 +609,11 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
             walk_forward = load_walk_forward_report_from_dir(walk_snapshot["run_dir"])
         else:
             walk_forward = load_latest_walk_forward_report(live_root)
-        scripts = build_script_packet(live_root)
+        scripts = build_script_packet(
+            live_root,
+            universe_dir=(universe_snapshot.get("run_dir") or None) if not walk_snapshot.get("run_dir") else None,
+            walk_dir=walk_snapshot.get("run_dir") or None,
+        )
         path_text = "\n".join(
             [
                 "UNIVERSE",
@@ -596,6 +649,7 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
                 "started_at",
                 "ended_at",
                 "return_code",
+                "run_dir",
             )
         } | {
             "consumed": bool(consumed),
@@ -762,10 +816,14 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
                     full_snapshot = _AUTO_LAB_JOB_MANAGER.snapshot(job_id)
                     completed_snapshots[kind] = full_snapshot
                     output_messages.append(full_snapshot.get("output", f"{kind} finished."))
+                    refreshed_manifest_paths = refresh_run_manifest(
+                        live_root,
+                        full_snapshot.get("run_dir") or stored_job.get("run_dir") or "",
+                    )
                     stored_jobs[kind] = _job_store(
                         snapshot,
                         consumed=True,
-                        manifest_paths=stored_job.get("manifest_paths"),
+                        manifest_paths=refreshed_manifest_paths or stored_job.get("manifest_paths"),
                     )
 
             if not has_active and not completed_snapshots:
@@ -859,6 +917,7 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
                 capital.to_dict(),
                 command=cmd,
                 warnings=flag_warnings,
+                run_dir=run_dir,
             )
 
         elif triggered == "main-autolab-run-walk-forward":
@@ -904,6 +963,14 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
                 "2",
                 "--continue-on-error",
             ]
+            universe_report = load_latest_universe_report(live_root)
+            candidate_packet = Path(str(universe_report.get("run_dir") or "")) / "universe_results.json"
+            if candidate_packet.is_file():
+                cmd.extend(["--candidate-packet", str(candidate_packet)])
+            else:
+                flag_warnings.append(
+                    "No completed Universe candidate packet was available; Walk-Forward will use seed fallback."
+                )
             cmd, flag_warnings = append_supported_capital_flags(cmd, script_path, capital)
             manifest_paths = write_latest_manifest(
                 live_root,
@@ -921,10 +988,12 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
                     "rolling_slippage_bps": rolling_slippage,
                     "max_runs_per_symbol": max_runs,
                     "max_mutations_per_parent": max_mutations,
+                    "candidate_packet": str(candidate_packet) if candidate_packet.is_file() else "",
                 },
                 capital.to_dict(),
                 command=cmd,
                 warnings=flag_warnings,
+                run_dir=run_dir,
             )
 
         if job_kind:

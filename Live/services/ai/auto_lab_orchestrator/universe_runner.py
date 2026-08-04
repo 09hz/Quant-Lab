@@ -53,10 +53,12 @@ def _candidate_family(candidate_id: str) -> str:
 
 def _result_rows(run, scorecards) -> list[dict]:
     result_by_key = {(r.candidate_id, r.symbol): r for r in run.results}
+    candidate_by_id = {candidate.candidate_id: candidate for candidate in run.candidates}
     rows = []
     for sc in sorted(scorecards, key=lambda item: item.total_score, reverse=True):
         result = result_by_key.get((sc.candidate_id, sc.symbol))
         metrics = dict(getattr(result, "metrics", {}) or {}) if result else {}
+        candidate = candidate_by_id.get(sc.candidate_id)
         rows.append(
             {
                 "candidate_id": sc.candidate_id,
@@ -74,6 +76,13 @@ def _result_rows(run, scorecards) -> list[dict]:
                 "final_equity": metrics.get("final_equity", 0.0),
                 "warnings": list(getattr(sc, "warnings", []) or []),
                 "fail_reasons": list(getattr(sc, "fail_reasons", []) or []),
+                "name": getattr(candidate, "name", sc.candidate_id),
+                "family": getattr(candidate, "family", _candidate_family(sc.candidate_id)),
+                "script": getattr(candidate, "script", ""),
+                "parameters": dict(getattr(candidate, "parameters", {}) or {}),
+                "tags": list(getattr(candidate, "tags", []) or []),
+                "source": getattr(candidate, "source", "universe_run"),
+                "notes": getattr(candidate, "notes", ""),
             }
         )
     return rows

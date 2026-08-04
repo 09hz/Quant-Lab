@@ -27,17 +27,58 @@ def main() -> int:
 
     import pandas as pd
     from services.ai.auto_lab_orchestrator.walk_forward_runner import (
+        WALK_FORWARD_CACHE_CONTRACT,
         best_holdout_symbol_fields,
         build_argument_parser,
         build_rolling_windows,
         classify_holdout_regime,
+        load_universe_candidate_packet,
         reserve_final_holdout,
+        resolve_universe_candidate_packet,
         run_final_holdout_test,
         select_diverse_scorecards,
         summarize_rolling_results,
         validate_walk_forward_dates,
     )
     from services.ai.auto_lab_orchestrator.models import NormalizedBacktestResult, StrategyCandidate, StrategyScorecard
+
+    packet_dir = live_root / "data" / "auto_lab_walk_forward_runs" / "_candidate_packet_contract"
+    packet_dir.mkdir(parents=True, exist_ok=True)
+    packet_path = packet_dir / "universe_results.json"
+    packet_path.write_text(
+        json.dumps(
+            {
+                "universe_run_id": "universe_contract",
+                "generated_at": "2026-01-01T00:00:00+00:00",
+                "symbol_results": [
+                    {
+                        "symbol": "AMD",
+                        "ranked_mutations": [
+                            {
+                                "candidate_id": "packet_ema",
+                                "name": "Packet EMA",
+                                "family": "crossover",
+                                "script": "fast = ema(close, 9)\nslow = ema(close, 21)\nbuy when crossover(fast, slow)\nsell when crossunder(fast, slow)",
+                                "parameters": {"fast": 9, "slow": 21},
+                            }
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    packet_candidates, packet_lineage = load_universe_candidate_packet(
+        packet_path,
+        symbol="AMD",
+        max_candidates=3,
+    )
+    assert [candidate.candidate_id for candidate in packet_candidates] == ["packet_ema"]
+    assert packet_candidates[0].script.startswith("fast = ema")
+    assert packet_lineage["universe_run_id"] == "universe_contract"
+    assert resolve_universe_candidate_packet(live_root, str(packet_path)) == packet_path.resolve()
+    assert resolve_universe_candidate_packet(live_root) != packet_path.resolve()
+    assert WALK_FORWARD_CACHE_CONTRACT == "authoritative_universe_packet_v2"
 
     sample_bars = pd.DataFrame(
         {
@@ -259,6 +300,8 @@ def main() -> int:
     assert cli_defaults.holdout_min_bars == 20
     assert cli_defaults.workers == 2
     assert cli_defaults.no_cache is False
+    assert cli_defaults.candidate_packet == ""
+    assert cli_defaults.no_universe_packet is False
     cli_override = build_argument_parser().parse_args(
         ["--holdout-pct", "25", "--holdout-min-bars", "30", "--workers", "1", "--no-cache"]
     )
@@ -573,6 +616,8 @@ def main() -> int:
             str(runner),
             "--symbols",
             "AMD,NVDA",
+            "--run-id",
+            "walk_forward_self_test_contract",
             "--train-start",
             "2024-01-01",
             "--train-end",
@@ -590,6 +635,7 @@ def main() -> int:
             "2",
             "--continue-on-error",
             "--no-cache",
+            "--no-universe-packet",
             "--holdout-pct",
             "20",
             "--holdout-min-bars",
@@ -608,7 +654,7 @@ def main() -> int:
         return result.returncode
 
     runs_dir = live_root / "data" / "auto_lab_walk_forward_runs"
-    latest = sorted([p for p in runs_dir.iterdir() if p.is_dir()], key=lambda p: p.stat().st_mtime, reverse=True)[0]
+    latest = runs_dir / "walk_forward_self_test_contract"
     required = [
         "walk_forward_universe_results.json",
         "walk_forward_universe_report.md",
@@ -628,6 +674,7 @@ def main() -> int:
     assert payload["settings"]["rolling_windows"] == 3
     assert payload["settings"]["holdout_pct"] == 20.0
     assert payload["settings"]["holdout_min_bars"] == 20
+    assert payload["settings"]["candidate_source"] == "seed_library_fallback"
 
     print("AI Auto Lab walk-forward self-test: PASS")
     print(f"latest_walk_forward_run_dir: {latest}")

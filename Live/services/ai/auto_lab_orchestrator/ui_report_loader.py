@@ -12,14 +12,23 @@ def live_root_from_here() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
-def latest_dir(base_dir: str | Path) -> Path | None:
+def latest_dir(base_dir: str | Path, required_file: str = "") -> Path | None:
     base = Path(base_dir)
     if not base.exists():
         return None
-    dirs = [p for p in base.iterdir() if p.is_dir()]
+    dirs = [
+        p
+        for p in base.iterdir()
+        if p.is_dir()
+        and not p.name.startswith("_")
+        and (not required_file or (p / required_file).is_file())
+    ]
     if not dirs:
         return None
-    return sorted(dirs, key=lambda p: p.stat().st_mtime, reverse=True)[0]
+    return max(
+        dirs,
+        key=lambda p: (p / required_file).stat().st_mtime if required_file else p.stat().st_mtime,
+    )
 
 
 def read_text_file(path: str | Path, limit: int = REPORT_LIMIT_CHARS) -> str:
@@ -73,7 +82,7 @@ def load_walk_forward_report_from_dir(run_dir: str | Path) -> dict[str, Any]:
 def load_latest_universe_report(live_root: str | Path | None = None) -> dict[str, Any]:
     root = Path(live_root) if live_root else live_root_from_here()
     runs_dir = root / "data" / "auto_lab_universe_runs"
-    run_dir = latest_dir(runs_dir)
+    run_dir = latest_dir(runs_dir, "universe_results.json")
     if not run_dir:
         return {
             "kind": "universe",
@@ -89,7 +98,7 @@ def load_latest_universe_report(live_root: str | Path | None = None) -> dict[str
 def load_latest_walk_forward_report(live_root: str | Path | None = None) -> dict[str, Any]:
     root = Path(live_root) if live_root else live_root_from_here()
     runs_dir = root / "data" / "auto_lab_walk_forward_runs"
-    run_dir = latest_dir(runs_dir)
+    run_dir = latest_dir(runs_dir, "walk_forward_universe_results.json")
     if not run_dir:
         return {
             "kind": "walk_forward",
@@ -104,7 +113,7 @@ def load_latest_walk_forward_report(live_root: str | Path | None = None) -> dict
 
 def load_latest_paper_review_queue(live_root: str | Path | None = None) -> dict[str, Any]:
     root = Path(live_root) if live_root else live_root_from_here()
-    run_dir = latest_dir(root / "data" / "auto_lab_walk_forward_runs")
+    run_dir = latest_dir(root / "data" / "auto_lab_walk_forward_runs", "paper_review_queue.json")
     if not run_dir:
         return {
             "schema_version": "paper_review_queue_v24_0",
@@ -115,6 +124,11 @@ def load_latest_paper_review_queue(live_root: str | Path | None = None) -> dict[
             "auto_execute": False,
         }
 
+    return load_paper_review_queue_from_dir(run_dir)
+
+
+def load_paper_review_queue_from_dir(run_dir: str | Path) -> dict[str, Any]:
+    run_dir = Path(run_dir)
     queue_path = run_dir / "paper_review_queue.json"
     payload = load_json_summary(queue_path)
     if not payload:

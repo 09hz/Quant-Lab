@@ -105,6 +105,11 @@ def build_auto_lab_tab() -> html.Div:
                 ],
             ),
             build_market_memory_packet_panel(),
+            dcc.Store(
+                id="main-autolab-discovery-store",
+                data={"seed_symbols": [], "seen_symbols": [], "last_suggested": [], "theme": ""},
+                storage_type="session",
+            ),
             html.Div(
                 className="autolab-grid autolab-grid-controls",
                 children=[

@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from pathlib import Path
 import ast
+import json
 import sys
 import time
 import traceback
@@ -137,6 +138,19 @@ def main() -> int:
         "walk_forward_progress_output": 'Output("main-autolab-walk-forward-progress", "children")' in callback_text,
         "universe_button_lock": 'Output("main-autolab-run-universe", "disabled")' in callback_text,
         "walk_forward_button_lock": 'Output("main-autolab-run-walk-forward", "disabled")' in callback_text,
+        "walk_forward_candidate_packet": '"--candidate-packet"' in callback_text,
+        "exact_paper_review_queue": "load_paper_review_queue_from_dir" in callback_text,
+        "paper_review_does_not_cross_runs": (
+            'if walk_run_dir:' in callback_text
+            and 'if walk_run_dir and (Path(walk_run_dir) / "paper_review_queue.json").is_file()' not in callback_text
+        ),
+        "exact_manifest_run_dir": "run_dir=run_dir" in callback_text,
+        "completion_refreshes_manifest": "refresh_run_manifest(" in callback_text,
+        "paper_review_validates_run_root": "resolved_run_dir.parent == walk_root" in callback_text,
+        "walk_packet_wins_simultaneous_completion": (
+            'if not walk_snapshot.get("run_dir") else None' in callback_text
+        ),
+        "paper_review_restart_recovery": "if not _AUTO_LAB_JOB_MANAGER.snapshots():" in callback_text,
     }
     failed_capital = [name for name, ok in capital_checks.items() if not ok]
     if failed_capital:
@@ -204,6 +218,7 @@ def main() -> int:
             _normalize_holdout_pct,
             parse_auto_lab_progress,
         )
+        from services.ai.auto_lab_orchestrator.script_viewer import refresh_run_manifest, write_latest_manifest
         from dash._validate import validate_layout
         from ui.auto_lab_ui import build_auto_lab_progress_children, build_auto_lab_tab
 
@@ -218,6 +233,45 @@ def main() -> int:
             "message": "Rolling window 2/4",
         }
         assert parse_auto_lab_progress("ordinary output") is None
+
+        manifest_run_dir = live_root / "data" / "auto_lab_walk_forward_runs" / "_manifest_association_test"
+        universe_packet_dir = live_root / "data" / "auto_lab_universe_runs" / "_manifest_association_universe"
+        universe_packet_dir.mkdir(parents=True, exist_ok=True)
+        candidate_packet = universe_packet_dir / "universe_results.json"
+        candidate_packet.write_text("{}", encoding="utf-8")
+        (universe_packet_dir / "top_universe_strategy_algorithm.md").write_text(
+            "# Associated Universe strategy\n",
+            encoding="utf-8",
+        )
+        manifest_paths = write_latest_manifest(
+            live_root,
+            "walk_forward",
+            {
+                "symbols": "AMD",
+                "train_start": "2020-01-01",
+                "train_end": "2023-12-31",
+                "candidate_packet": str(candidate_packet),
+            },
+            {"initial_cash": 12000, "target_cash": 24000},
+            command=[sys.executable, "walk_forward_runner.py", "--run-id", "manifest_contract"],
+            run_dir=manifest_run_dir,
+        )
+        manifest_payload = json.loads(
+            Path(manifest_paths["manifest_path"]).read_text(encoding="utf-8")
+        )
+        assert Path(manifest_payload["run_dir"]).resolve() == manifest_run_dir.resolve()
+        run_id_index = manifest_payload["command"].index("--run-id")
+        assert manifest_payload["command"][run_id_index + 1] == "manifest_contract"
+        (manifest_run_dir / "top_walk_forward_strategy_algorithm.md").write_text(
+            "# Completed strategy\n",
+            encoding="utf-8",
+        )
+        refreshed_paths = refresh_run_manifest(live_root, manifest_run_dir)
+        refreshed_payload = json.loads(Path(refreshed_paths["manifest_path"]).read_text(encoding="utf-8"))
+        assert refreshed_payload["script_paths"]["walk_forward_script_report"].endswith(
+            "top_walk_forward_strategy_algorithm.md"
+        )
+        assert Path(refreshed_payload["script_paths"]["latest_universe_dir"]).resolve() == universe_packet_dir.resolve()
 
         manager = AutoLabCommandJobManager(max_concurrent_jobs=2)
         started = manager.start(
@@ -322,6 +376,7 @@ def main() -> int:
         assert expected_review_ids.issubset(components)
         expected_progress_ids = {
             "main-autolab-job-store",
+            "main-autolab-discovery-store",
             "main-autolab-universe-progress",
             "main-autolab-walk-forward-progress",
         }

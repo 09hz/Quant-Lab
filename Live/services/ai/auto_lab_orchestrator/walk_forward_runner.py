@@ -4,10 +4,15 @@ from pathlib import Path
 from datetime import datetime, timezone
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import argparse
+import hashlib
+import json
 import math
 import statistics
 import sys
 import traceback
+
+
+WALK_FORWARD_CACHE_CONTRACT = "authoritative_universe_packet_v2"
 
 
 def _emit_progress(percent: float, stage: str, message: str) -> None:
@@ -38,6 +43,113 @@ def _parse_symbols(text: str) -> list[str]:
         if item and item not in symbols:
             symbols.append(item)
     return symbols
+
+
+def resolve_universe_candidate_packet(
+    live_root: Path,
+    explicit_path: str = "",
+    *,
+    disabled: bool = False,
+) -> Path | None:
+    if disabled:
+        return None
+    if explicit_path:
+        path = Path(explicit_path).expanduser().resolve()
+        if not path.is_file():
+            raise ValueError(f"Universe candidate packet does not exist: {path}")
+        return path
+    from services.ai.auto_lab_orchestrator.ui_report_loader import latest_dir
+
+    run_dir = latest_dir(live_root / "data" / "auto_lab_universe_runs", "universe_results.json")
+    return run_dir / "universe_results.json" if run_dir else None
+
+
+def load_universe_candidate_packet(
+    packet_path: str | Path,
+    *,
+    symbol: str,
+    max_candidates: int,
+) -> tuple[list, dict]:
+    from services.ai.auto_lab_orchestrator.models import StrategyCandidate
+
+    path = Path(packet_path).resolve()
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    symbol_result = next(
+        (
+            row
+            for row in payload.get("symbol_results", [])
+            if str(row.get("symbol") or "").upper() == str(symbol).upper()
+        ),
+        None,
+    )
+    if not symbol_result:
+        return [], {
+            "packet_path": str(path),
+            "universe_run_id": str(payload.get("universe_run_id") or ""),
+            "status": "symbol_missing",
+        }
+
+    ranked_rows = [row for row in symbol_result.get("ranked_mutations", []) if isinstance(row, dict)]
+    candidate_payloads = {
+        str(row.get("candidate_id") or ""): row
+        for row in ranked_rows
+        if row.get("candidate_id") and row.get("script")
+    }
+    if not candidate_payloads:
+        trace_path = Path(str(symbol_result.get("run_dir") or "")) / "strategy_build_trace.json"
+        if trace_path.is_file():
+            trace_payload = json.loads(trace_path.read_text(encoding="utf-8"))
+            candidate_payloads = {
+                str(row.get("candidate_id") or ""): {
+                    "candidate_id": row.get("candidate_id"),
+                    "name": row.get("candidate_name"),
+                    "family": row.get("parent_id") or row.get("candidate_id"),
+                    "script": row.get("final_code"),
+                    "source": row.get("source") or "universe_strategy_trace",
+                    "notes": row.get("next_test_idea") or "",
+                }
+                for row in trace_payload.get("traces", [])
+                if isinstance(row, dict) and row.get("candidate_id") and row.get("final_code")
+            }
+    if not candidate_payloads:
+        run_json = str((symbol_result.get("artifacts") or {}).get("run_json") or "")
+        run_path = Path(run_json) if run_json else None
+        if run_path and run_path.is_file():
+            run_payload = json.loads(run_path.read_text(encoding="utf-8"))
+            candidate_payloads = {
+                str(row.get("candidate_id") or ""): row
+                for row in run_payload.get("candidates", [])
+                if isinstance(row, dict) and row.get("candidate_id") and row.get("script")
+            }
+
+    ordered_ids = [str(row.get("candidate_id") or "") for row in ranked_rows]
+    candidates = []
+    for candidate_id in ordered_ids:
+        data = candidate_payloads.get(candidate_id)
+        if not data:
+            continue
+        candidates.append(
+            StrategyCandidate(
+                candidate_id=candidate_id,
+                name=str(data.get("name") or candidate_id),
+                family=str(data.get("family") or data.get("strategy_family") or "universe_candidate"),
+                script=str(data.get("script") or ""),
+                parameters=dict(data.get("parameters") or {}),
+                symbols=[str(symbol).upper()],
+                tags=list(dict.fromkeys([*(data.get("tags") or []), "universe-packet", "walk-forward-input"])),
+                source=f"universe_packet:{payload.get('universe_run_id', path.parent.name)}",
+                notes=str(data.get("notes") or "Candidate loaded from an immutable Universe result packet."),
+            )
+        )
+        if len(candidates) >= max(1, int(max_candidates or 1)):
+            break
+    return candidates, {
+        "packet_path": str(path),
+        "universe_run_id": str(payload.get("universe_run_id") or path.parent.name),
+        "generated_at": str(payload.get("generated_at") or ""),
+        "status": "ok" if candidates else "no_candidates",
+        "candidate_count": len(candidates),
+    }
 
 
 def validate_walk_forward_dates(*, train_start: str, train_end: str, test_start: str, test_end: str) -> dict[str, str]:
@@ -598,12 +710,34 @@ def _run_symbol_walk_forward_uncached(*, live_root: Path, symbol: str, args, pro
     train_buy_hold = buy_hold_return_pct(train_bars)
     test_buy_hold = buy_hold_return_pct(test_bars)
 
-    seeds = discover_strategy_seed_candidates(
-        live_root=live_root,
-        symbol=symbol,
-        max_examples=args.max_examples,
-        include_built_ins=True,
-    )
+    packet_candidates = []
+    packet_lineage = {
+        "packet_path": str(getattr(args, "candidate_packet", "") or ""),
+        "universe_run_id": "",
+        "status": "not_configured",
+        "candidate_count": 0,
+    }
+    if getattr(args, "candidate_packet", ""):
+        packet_candidates, packet_lineage = load_universe_candidate_packet(
+            args.candidate_packet,
+            symbol=symbol,
+            max_candidates=args.max_total_runs_per_symbol,
+        )
+        if not packet_candidates:
+            raise ValueError(
+                f"Universe candidate packet has no usable candidates for {symbol}: "
+                f"{args.candidate_packet}"
+            )
+        seeds = packet_candidates
+        candidate_source = "universe_packet"
+    else:
+        seeds = discover_strategy_seed_candidates(
+            live_root=live_root,
+            symbol=symbol,
+            max_examples=args.max_examples,
+            include_built_ins=True,
+        )
+        candidate_source = "seed_library_fallback"
 
     sizing_config = SizingConfig(
         sizing_mode=args.sizing_mode,
@@ -656,7 +790,9 @@ def _run_symbol_walk_forward_uncached(*, live_root: Path, symbol: str, args, pro
         eligible_parents = [c for c in sized_seeds_train if c.candidate_id in engine_pass_ids]
 
     mutations = []
-    if eligible_parents:
+    if eligible_parents and packet_candidates:
+        mutations = eligible_parents[: args.max_total_runs_per_symbol]
+    elif eligible_parents:
         mutations = generate_mutations_for_parents(
             parents=eligible_parents,
             max_mutations_per_parent=args.max_mutations_per_parent,
@@ -679,6 +815,8 @@ def _run_symbol_walk_forward_uncached(*, live_root: Path, symbol: str, args, pro
             "buy_hold_train_return_pct": train_buy_hold,
             "buy_hold_test_return_pct": test_buy_hold,
             "validated_candidates": [],
+            "candidate_source": candidate_source,
+            "candidate_packet": packet_lineage,
             **best_holdout_symbol_fields(None),
         }
 
@@ -747,6 +885,8 @@ def _run_symbol_walk_forward_uncached(*, live_root: Path, symbol: str, args, pro
             "buy_hold_train_return_pct": train_buy_hold,
             "buy_hold_test_return_pct": test_buy_hold,
             "validated_candidates": [],
+            "candidate_source": candidate_source,
+            "candidate_packet": packet_lineage,
             **best_holdout_symbol_fields(None),
         }
 
@@ -872,6 +1012,8 @@ def _run_symbol_walk_forward_uncached(*, live_root: Path, symbol: str, args, pro
         "train_run_dir": str(Path(train_run.artifacts["report_md"]).parent),
         "test_run_dir": str(Path(test_run.artifacts["report_md"]).parent),
         "train_research_pass_candidates": sum(1 for sc in train_run.scorecards if sc.research_pass),
+        "candidate_source": candidate_source,
+        "candidate_packet": packet_lineage,
         "validated_candidates": rows,
         "best_candidate_id": best.get("candidate_id", ""),
         "best_train_score": best.get("train_score", 0.0),
@@ -909,6 +1051,11 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args, progress_call
         for key, value in vars(args).items()
         if key not in {"run_id", "continue_on_error", "workers", "no_cache"}
     }
+    settings["cache_contract"] = WALK_FORWARD_CACHE_CONTRACT
+    packet_path = Path(str(getattr(args, "candidate_packet", "") or ""))
+    settings["candidate_packet_sha256"] = (
+        hashlib.sha256(packet_path.read_bytes()).hexdigest() if packet_path.is_file() else ""
+    )
     cache_key = build_exact_result_cache_key(
         live_root=live_root,
         kind="walk_forward",
@@ -917,6 +1064,9 @@ def run_symbol_walk_forward(*, live_root: Path, symbol: str, args, progress_call
         settings=settings,
     )
     cached = None if getattr(args, "no_cache", False) else load_exact_symbol_result(live_root=live_root, kind="walk_forward", cache_key=cache_key)
+    if cached is not None and getattr(args, "candidate_packet", ""):
+        if cached.get("candidate_source") != "universe_packet":
+            cached = None
     if cached is not None:
         cached["cache_hit"] = True
         cached["cache_key"] = cache_key
@@ -953,6 +1103,8 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run multi-symbol walk-forward validation.")
     parser.add_argument("--symbols", default="AMD,NVDA,MSFT,AAPL,TSLA")
     parser.add_argument("--run-id", default="")
+    parser.add_argument("--candidate-packet", default="", help="Exact Universe results JSON used as candidate lineage.")
+    parser.add_argument("--no-universe-packet", action="store_true", help="Use the seed library instead of a Universe packet.")
     parser.add_argument("--train-start", default="2020-01-01")
     parser.add_argument("--train-end", default="2023-12-31")
     parser.add_argument("--test-start", default="2024-01-01")
@@ -1010,6 +1162,17 @@ def main() -> int:
     args.test_start = validated_dates["test_start"]
     args.test_end = validated_dates["test_end"]
 
+    try:
+        candidate_packet = resolve_universe_candidate_packet(
+            live_root,
+            args.candidate_packet,
+            disabled=args.no_universe_packet,
+        )
+    except ValueError as exc:
+        print(f"Invalid Universe candidate packet: {exc}")
+        return 2
+    args.candidate_packet = str(candidate_packet) if candidate_packet else ""
+
     run_id = str(args.run_id or _run_id()).strip()
     if not run_id.replace("-", "").replace("_", "").isalnum():
         print("Invalid run ID. Use letters, numbers, underscores, or hyphens only.")
@@ -1044,6 +1207,8 @@ def main() -> int:
         "max_total_runs_per_symbol": args.max_total_runs_per_symbol,
         "workers": min(max(1, int(args.workers or 1)), 4),
         "exact_result_cache": not args.no_cache,
+        "candidate_source": "universe_packet" if args.candidate_packet else "seed_library_fallback",
+        "candidate_packet": args.candidate_packet,
         "benchmark": "buy_and_hold_return_pct",
         "simulation_only": True,
     }
