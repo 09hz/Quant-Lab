@@ -12,6 +12,12 @@ import uuid
 AUTO_LAB_PROGRESS_PREFIX = "AUTOLAB_PROGRESS"
 
 
+def _local_timestamp() -> str:
+    from services.ai.auto_lab_orchestrator.models import local_now_iso
+
+    return local_now_iso()
+
+
 def parse_auto_lab_progress(line: str) -> dict | None:
     """Parse one machine-readable progress line emitted by an Auto Lab runner."""
     parts = str(line or "").strip().split("|", 3)
@@ -98,7 +104,7 @@ class AutoLabCommandJobManager:
                 "percent": 1.0,
                 "stage": "queued",
                 "message": "Queued for background execution.",
-                "started_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                "started_at": _local_timestamp(),
                 "ended_at": "",
                 "return_code": None,
                 "error_count": 0,
@@ -201,7 +207,7 @@ class AutoLabCommandJobManager:
                                 except (TypeError, ValueError):
                                     pass
             return_code = process.wait()
-            ended_at = time.strftime("%Y-%m-%d %H:%M:%S")
+            ended_at = _local_timestamp()
             if self.snapshot(job_id, include_output=False).get("status") == "cancelled":
                 self._update(job_id, return_code=return_code, _process=None)
                 return
@@ -241,7 +247,7 @@ class AutoLabCommandJobManager:
                 status="failed",
                 stage="failed",
                 message=f"Could not run research process: {exc}",
-                ended_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+                ended_at=_local_timestamp(),
                 return_code=-1,
                 _process=None,
             )
@@ -258,7 +264,7 @@ class AutoLabCommandJobManager:
                 status="cancelled",
                 stage="cancelled",
                 message="Cancelled by user.",
-                ended_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+                ended_at=_local_timestamp(),
             )
         if process is not None and process.poll() is None:
             process.terminate()
@@ -294,9 +300,9 @@ def _normalize_holdout_pct(value) -> int:
 
 
 def _run_command(cmd: list[str], cwd: Path) -> tuple[str, int]:
-    started = time.strftime("%Y-%m-%d %H:%M:%S")
+    started = _local_timestamp()
     result = subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True)
-    ended = time.strftime("%Y-%m-%d %H:%M:%S")
+    ended = _local_timestamp()
     output = "\n".join(
         [
             f"Started: {started}",
@@ -325,11 +331,12 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
     from services.ai.auto_lab_orchestrator.capital_controls import (
         append_supported_capital_flags,
         money,
-        normalize_capital,
+        normalize_capital_with_warnings,
     )
     from services.ai.auto_lab_orchestrator.market_memory_packet_callbacks import (
         register_market_memory_packet_callbacks,
     )
+    from services.ai.auto_lab_orchestrator.models import local_run_timestamp
     from services.ai.auto_lab_orchestrator.script_viewer import (
         build_script_packet,
         refresh_run_manifest,
@@ -375,20 +382,23 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
 
     @app.callback(
         Output("main-autolab-capital-summary", "children"),
+        Output("main-autolab-capital-store", "data"),
         Input("main-autolab-initial-cash", "value"),
         Input("main-autolab-target-cash", "value"),
         Input("main-autolab-cash-exposure", "value"),
         Input("main-autolab-sizing-mode", "value"),
+        State("main-autolab-capital-store", "data"),
         prevent_initial_call=False,
     )
-    def update_capital_summary(initial_cash, target_cash, cash_exposure, sizing_mode):
-        capital = normalize_capital(
+    def update_capital_summary(initial_cash, target_cash, cash_exposure, sizing_mode, previous_capital):
+        capital, validation_warnings = normalize_capital_with_warnings(
             initial_cash=initial_cash,
             target_cash=target_cash,
             cash_exposure_pct=cash_exposure,
             sizing_mode=sizing_mode,
+            previous=previous_capital,
         )
-        return [
+        summary = [
             html.H4("Simulated capital assumptions"),
             html.Ul(
                 [
@@ -401,6 +411,9 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
             ),
             html.Strong("Research/simulation only. These are not real account balances."),
         ]
+        if validation_warnings:
+            summary.append(html.Ul([html.Li(message) for message in validation_warnings]))
+        return summary, capital.to_dict()
 
     @app.callback(
         Output("main-autolab-paper-review-candidate", "options"),
@@ -708,6 +721,7 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
         State("main-autolab-cash-exposure", "value"),
         State("main-autolab-initial-cash", "value"),
         State("main-autolab-target-cash", "value"),
+        State("main-autolab-capital-store", "data"),
         State("main-autolab-universe-start", "value"),
         State("main-autolab-universe-end", "value"),
         State("main-autolab-max-runs", "value"),
@@ -734,6 +748,7 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
         cash_exposure,
         initial_cash,
         target_cash,
+        capital_store,
         universe_start,
         universe_end,
         max_runs,
@@ -851,11 +866,12 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
             )
 
         symbols_clean = _clean_symbols(symbols)
-        capital = normalize_capital(
+        capital, capital_warnings = normalize_capital_with_warnings(
             initial_cash=initial_cash,
             target_cash=target_cash,
             cash_exposure_pct=cash_exposure,
             sizing_mode=sizing_mode,
+            previous=capital_store,
         )
 
         max_runs = max_runs or 20
@@ -871,13 +887,13 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
         job_id = ""
         run_dir: Path | None = None
         cmd: list[str] = []
-        flag_warnings: list[str] = []
+        flag_warnings: list[str] = list(capital_warnings)
         manifest_paths: dict[str, str] = {}
 
         if triggered == "main-autolab-run-universe":
             job_kind = "universe"
             job_label = "Universe Auto Lab"
-            job_id = f"universe_ui_{uuid.uuid4().hex[:16]}"
+            job_id = f"universe_ui_{local_run_timestamp()}_{uuid.uuid4().hex[:8]}"
             run_dir = live_root / "data" / "auto_lab_universe_runs" / job_id
             script_path = package_dir / "universe_runner.py"
             cmd = [
@@ -903,7 +919,8 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
                 "2",
                 "--continue-on-error",
             ]
-            cmd, flag_warnings = append_supported_capital_flags(cmd, script_path, capital)
+            cmd, supported_flag_warnings = append_supported_capital_flags(cmd, script_path, capital)
+            flag_warnings.extend(supported_flag_warnings)
             manifest_paths = write_latest_manifest(
                 live_root,
                 "universe",
@@ -923,7 +940,7 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
         elif triggered == "main-autolab-run-walk-forward":
             job_kind = "walk_forward"
             job_label = "Walk-Forward Validation"
-            job_id = f"walk_forward_ui_{uuid.uuid4().hex[:16]}"
+            job_id = f"walk_forward_ui_{local_run_timestamp()}_{uuid.uuid4().hex[:8]}"
             run_dir = live_root / "data" / "auto_lab_walk_forward_runs" / job_id
             script_path = package_dir / "walk_forward_runner.py"
             cmd = [
@@ -971,7 +988,8 @@ def register_auto_lab_main_callbacks(app, paper_trading_service=None):
                 flag_warnings.append(
                     "No completed Universe candidate packet was available; Walk-Forward will use seed fallback."
                 )
-            cmd, flag_warnings = append_supported_capital_flags(cmd, script_path, capital)
+            cmd, supported_flag_warnings = append_supported_capital_flags(cmd, script_path, capital)
+            flag_warnings.extend(supported_flag_warnings)
             manifest_paths = write_latest_manifest(
                 live_root,
                 "walk_forward",

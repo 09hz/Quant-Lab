@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 from .models import ExperimentRun
 from .safety import safety_banner
+
+
+def _local_timestamp(value: str) -> str:
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone().isoformat()
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def build_markdown_report(run: ExperimentRun) -> str:
@@ -18,7 +26,8 @@ def build_markdown_report(run: ExperimentRun) -> str:
         "## Run",
         "",
         f"- run_id: `{run.run_id}`",
-        f"- created_at: `{run.created_at}`",
+        f"- created_at: `{_local_timestamp(run.created_at)}`",
+        f"- created_at_utc: `{run.created_at}`",
         f"- question: {run.goal.question}",
         f"- symbols: {', '.join(run.goal.symbols)}",
         f"- timeframe: {run.goal.timeframe}",

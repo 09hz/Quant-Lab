@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import argparse
 import hashlib
@@ -178,7 +178,9 @@ def validate_walk_forward_dates(*, train_start: str, train_end: str, test_start:
 
 
 def _run_id() -> str:
-    return "walk_forward_" + datetime.now(timezone.utc).strftime("%Y-%m-%dT%H%M%SZ")
+    from services.ai.auto_lab_orchestrator.models import local_run_timestamp
+
+    return "walk_forward_" + local_run_timestamp()
 
 
 def _safe_float(value, default=0.0) -> float:
@@ -1115,8 +1117,8 @@ def build_argument_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sizing-mode", default="percent_cash_exposure", choices=["fixed_quantity", "max_affordable_shares", "percent_cash_exposure"])
     parser.add_argument("--cash-exposure-pct", type=float, default=95.0)
     parser.add_argument("--fixed-quantity", type=int, default=10)
-    parser.add_argument("--initial-cash", type=float, default=12000.0)
-    parser.add_argument("--target-equity", type=float, default=24000.0)
+    parser.add_argument("--initial-cash", default=12000.0)
+    parser.add_argument("--target-equity", default=24000.0)
     parser.add_argument("--max-drawdown-pct", type=float, default=30.0)
     parser.add_argument("--max-examples", type=int, default=8)
     parser.add_argument("--max-mutations-per-parent", type=int, default=4)
@@ -1140,7 +1142,20 @@ def main() -> int:
     live_root = _bootstrap_import_path()
     args = build_argument_parser().parse_args()
 
+    from services.ai.auto_lab_orchestrator.capital_controls import normalize_capital_with_warnings
     from services.ai.auto_lab_orchestrator.walk_forward_reporter import build_walk_forward_payload, write_walk_forward_artifacts
+
+    capital, capital_warnings = normalize_capital_with_warnings(
+        initial_cash=args.initial_cash,
+        target_cash=args.target_equity,
+        cash_exposure_pct=args.cash_exposure_pct,
+        sizing_mode=args.sizing_mode,
+    )
+    args.initial_cash = capital.initial_cash
+    args.target_equity = capital.target_cash
+    args.cash_exposure_pct = capital.cash_exposure_pct
+    for warning in capital_warnings:
+        print(f"[CAPITAL ASSUMPTION] {warning}")
 
     symbols = _parse_symbols(args.symbols)
     if not symbols:

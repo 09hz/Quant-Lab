@@ -110,6 +110,16 @@ def build_auto_lab_tab() -> html.Div:
                 data={"seed_symbols": [], "seen_symbols": [], "last_suggested": [], "theme": ""},
                 storage_type="session",
             ),
+            dcc.Store(
+                id="main-autolab-capital-store",
+                data={
+                    "initial_cash": 12000.0,
+                    "target_cash": 24000.0,
+                    "cash_exposure_pct": 95.0,
+                    "sizing_mode": "percent_cash_exposure",
+                },
+                storage_type="session",
+            ),
             html.Div(
                 className="autolab-grid autolab-grid-controls",
                 children=[
@@ -206,8 +216,8 @@ def build_auto_lab_tab() -> html.Div:
                             html.Div(
                                 className="autolab-two-col",
                                 children=[
-                                    _number_input("main-autolab-initial-cash", "Starting cash", 12000, 1, None, 100),
-                                    _number_input("main-autolab-target-cash", "Target cash", 24000, 1, None, 100),
+                                    _number_input("main-autolab-initial-cash", "Starting cash", 12000, 1, 100000000, 100),
+                                    _number_input("main-autolab-target-cash", "Target cash", 24000, 1, 100000000, 100),
                                 ],
                             ),
                             html.Div(

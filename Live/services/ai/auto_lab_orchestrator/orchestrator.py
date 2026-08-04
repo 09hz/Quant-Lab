@@ -11,6 +11,7 @@ from .models import (
     ExperimentGoal,
     ExperimentRun,
     StrategyCandidate,
+    local_run_timestamp,
     utc_now_iso,
 )
 from .scorecard import score_strategy_result
@@ -23,8 +24,7 @@ EXACT_CACHE_VERSION = "autolab_exact_v1"
 
 
 def build_run_id(prefix: str = "autolab") -> str:
-    timestamp = utc_now_iso().replace(":", "").replace("+", "Z")
-    return f"{prefix}_{timestamp}_{uuid.uuid4().hex[:8]}"
+    return f"{prefix}_{local_run_timestamp()}_{uuid.uuid4().hex[:8]}"
 
 
 def build_exact_result_cache_key(

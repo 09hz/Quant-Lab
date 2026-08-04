@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from datetime import datetime, timezone
 import json
 import math
+
+from services.ai.auto_lab_orchestrator.models import local_now_iso, utc_now_iso
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -242,7 +243,8 @@ def build_walk_forward_payload(
     return {
         "schema_version": "walk_forward_universe_v23_0",
         "walk_forward_run_id": walk_forward_run_id,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": local_now_iso(),
+        "generated_at_utc": utc_now_iso(),
         "symbols": symbols,
         "settings": settings,
         "symbol_results": annotated_symbol_results,
@@ -318,7 +320,8 @@ def build_paper_review_queue(
     return {
         "schema_version": "paper_review_queue_v24_0",
         "walk_forward_run_id": run_id,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": local_now_iso(),
+        "generated_at_utc": utc_now_iso(),
         "candidate_count": len(candidates),
         "auto_execute": False,
         "candidates": candidates,

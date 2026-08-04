@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from services.ai.auto_lab_orchestrator.models import local_now_iso, local_run_timestamp, utc_now_iso
 
 
 MAX_MD_CHARS = 65000
@@ -127,7 +128,7 @@ def summarize_script_paths(paths: dict[str, Any]) -> str:
 
 
 def _friendly_label(run_type: str, context: dict[str, Any]) -> str:
-    generated = datetime.now().strftime("%Y-%m-%d_%H%M")
+    generated = local_run_timestamp()
     if run_type == "walk_forward":
         train = f"{context.get('train_start', '')}_to_{context.get('train_end', '')}"
         test = f"{context.get('test_start', '')}_to_{context.get('test_end', '')}"
@@ -166,7 +167,8 @@ def write_latest_manifest(
     )
     manifest = {
         "schema_version": "auto_lab_ui_manifest_v22_2",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": local_now_iso(),
+        "generated_at_utc": utc_now_iso(),
         "run_type": run_type,
         "friendly_label": _friendly_label(run_type, context),
         "run_dir": str(run_dir),

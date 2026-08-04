@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
 import re
 from typing import Any
+
+from services.ai.auto_lab_orchestrator.models import local_now_iso, utc_now_iso
 
 
 @dataclass(frozen=True)
@@ -346,7 +347,8 @@ def discover_symbol_universe(
 
     return {
         "schema_version": "auto_lab_symbol_discovery_v22_3",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": local_now_iso(),
+        "generated_at_utc": utc_now_iso(),
         "mode": "research_simulation_only",
         "seed_symbols": seeds,
         "theme": theme or "",

@@ -48,7 +48,7 @@ def _json_text(value: Any) -> str:
 
 
 def _write_reports(repo: Path, result_payload: dict[str, Any], loop_id: str, theme: str) -> dict[str, str]:
-    date_part = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    date_part = datetime.now().astimezone().strftime("%Y-%m-%d")
     out_dir = repo / "Live" / "data" / "research_loop" / "reports" / date_part
     out_dir.mkdir(parents=True, exist_ok=True)
 

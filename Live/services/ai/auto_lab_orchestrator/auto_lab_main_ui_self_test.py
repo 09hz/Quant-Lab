@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from collections import Counter
+from datetime import datetime
 from pathlib import Path
 import ast
 import json
+import re
+import subprocess
 import sys
 import time
 import traceback
@@ -99,6 +102,9 @@ def main() -> int:
     )
     capital_checks = {
         "capital_summary_output": 'Output("main-autolab-capital-summary", "children")' in callback_text,
+        "capital_store_output": 'Output("main-autolab-capital-store", "data")' in callback_text,
+        "capital_store_state": 'State("main-autolab-capital-store", "data")' in callback_text,
+        "capital_validation": "normalize_capital_with_warnings" in callback_text,
         "initial_cash_input": 'Input("main-autolab-initial-cash", "value")' in callback_text,
         "target_cash_input": 'Input("main-autolab-target-cash", "value")' in callback_text,
         "cash_exposure_input": 'Input("main-autolab-cash-exposure", "value")' in callback_text,
@@ -164,6 +170,16 @@ def main() -> int:
         print(f"Holdout control mismatch: expected {expected_holdout_call}, received {holdout_call}")
         return 5
 
+    for component_id, label, default in (
+        ("main-autolab-initial-cash", "Starting cash", 12000),
+        ("main-autolab-target-cash", "Target cash", 24000),
+    ):
+        capital_call = _find_number_input(ui_tree, component_id)
+        expected = [component_id, label, default, 1, 100000000, 100]
+        if capital_call != expected:
+            print(f"Capital control mismatch: expected {expected}, received {capital_call}")
+            return 5
+
     supplied, accepted = _callback_arity(callback_tree, "run_or_refresh")
     if supplied != accepted:
         print(f"Callback arity mismatch: Dash supplies {supplied}, callback accepts {accepted}")
@@ -218,6 +234,12 @@ def main() -> int:
             _normalize_holdout_pct,
             parse_auto_lab_progress,
         )
+        from services.ai.auto_lab_orchestrator.capital_controls import (
+            MAX_CAPITAL,
+            MIN_CAPITAL,
+            normalize_capital_with_warnings,
+        )
+        from services.ai.auto_lab_orchestrator.models import local_now_iso, local_run_timestamp, utc_now_iso
         from services.ai.auto_lab_orchestrator.script_viewer import refresh_run_manifest, write_latest_manifest
         from dash._validate import validate_layout
         from ui.auto_lab_ui import build_auto_lab_progress_children, build_auto_lab_tab
@@ -233,6 +255,57 @@ def main() -> int:
             "message": "Rolling window 2/4",
         }
         assert parse_auto_lab_progress("ordinary output") is None
+        previous_capital = {
+            "initial_cash": 5000,
+            "target_cash": 10000,
+            "cash_exposure_pct": 90,
+            "sizing_mode": "percent_cash_exposure",
+        }
+        retained, retained_warnings = normalize_capital_with_warnings(
+            initial_cash=0,
+            target_cash=float("nan"),
+            previous=previous_capital,
+        )
+        assert retained.initial_cash == 5000 and retained.target_cash == 10000
+        assert len(retained_warnings) == 2
+        capped, capped_warnings = normalize_capital_with_warnings(
+            initial_cash=MAX_CAPITAL + 1,
+            target_cash=float("inf"),
+            previous=previous_capital,
+        )
+        assert capped.initial_cash == MAX_CAPITAL and capped.target_cash == 10000
+        assert any("capped" in warning for warning in capped_warnings)
+        minimum, _ = normalize_capital_with_warnings(initial_cash=0.5, target_cash=2)
+        assert minimum.initial_cash == MIN_CAPITAL
+        local_id = local_run_timestamp()
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{6}[mp]\d{4}", local_id)
+        local_time = datetime.fromisoformat(local_now_iso())
+        utc_time = datetime.fromisoformat(utc_now_iso())
+        assert local_time.utcoffset() is not None
+        assert abs(local_time.timestamp() - utc_time.timestamp()) < 2
+
+        for runner_name, extra_args in (
+            ("universe_runner.py", []),
+            ("walk_forward_runner.py", ["--no-universe-packet"]),
+        ):
+            cli_result = subprocess.run(
+                [
+                    sys.executable,
+                    str(live_root / "services" / "ai" / "auto_lab_orchestrator" / runner_name),
+                    "--symbols=",
+                    "--initial-cash",
+                    "not-a-number",
+                    "--target-equity",
+                    "also-invalid",
+                    *extra_args,
+                ],
+                cwd=str(repo_root),
+                text=True,
+                capture_output=True,
+            )
+            assert cli_result.returncode == 2
+            assert "Starting cash was ignored; keeping $12,000.00." in cli_result.stdout
+            assert "Target cash was ignored; keeping $24,000.00." in cli_result.stdout
 
         manifest_run_dir = live_root / "data" / "auto_lab_walk_forward_runs" / "_manifest_association_test"
         universe_packet_dir = live_root / "data" / "auto_lab_universe_runs" / "_manifest_association_universe"
@@ -377,6 +450,7 @@ def main() -> int:
         expected_progress_ids = {
             "main-autolab-job-store",
             "main-autolab-discovery-store",
+            "main-autolab-capital-store",
             "main-autolab-universe-progress",
             "main-autolab-walk-forward-progress",
         }

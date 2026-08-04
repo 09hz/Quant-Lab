@@ -10,6 +10,19 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
+def local_now_iso() -> str:
+    """Return the current machine-local time with an explicit UTC offset."""
+    return datetime.now().astimezone().replace(microsecond=0).isoformat()
+
+
+def local_run_timestamp() -> str:
+    """Return a filesystem-safe timestamp based on the user's local clock."""
+    now = datetime.now().astimezone()
+    offset = now.strftime("%z") or "+0000"
+    safe_offset = ("p" if offset.startswith("+") else "m") + offset[1:]
+    return now.strftime("%Y-%m-%dT%H%M%S") + safe_offset
+
+
 def safe_float(value: Any, default: float = 0.0) -> float:
     try:
         if value is None or value == "":

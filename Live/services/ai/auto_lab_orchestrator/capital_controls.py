@@ -3,12 +3,19 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any
+import math
+
+
+DEFAULT_INITIAL_CASH = 12000.0
+DEFAULT_TARGET_CASH = 24000.0
+MIN_CAPITAL = 1.0
+MAX_CAPITAL = 100_000_000.0
 
 
 @dataclass(frozen=True)
 class CapitalAssumptions:
-    initial_cash: float = 12000.0
-    target_cash: float = 24000.0
+    initial_cash: float = DEFAULT_INITIAL_CASH
+    target_cash: float = DEFAULT_TARGET_CASH
     cash_exposure_pct: float = 95.0
     sizing_mode: str = "percent_cash_exposure"
     mode: str = "research_simulation_only"
@@ -34,23 +41,79 @@ def _to_float(value: Any, default: float) -> float:
         return float(default)
 
 
+def _previous_capital(previous: CapitalAssumptions | dict[str, Any] | None) -> CapitalAssumptions:
+    if isinstance(previous, CapitalAssumptions):
+        return previous
+    if isinstance(previous, dict):
+        return CapitalAssumptions(
+            initial_cash=_bounded_previous(previous.get("initial_cash"), DEFAULT_INITIAL_CASH),
+            target_cash=_bounded_previous(previous.get("target_cash"), DEFAULT_TARGET_CASH),
+            cash_exposure_pct=min(100.0, max(1.0, _to_float(previous.get("cash_exposure_pct"), 95.0))),
+            sizing_mode=str(previous.get("sizing_mode") or "percent_cash_exposure"),
+        )
+    return CapitalAssumptions()
+
+
+def _bounded_previous(value: Any, default: float) -> float:
+    parsed = _to_float(value, default)
+    if not math.isfinite(parsed) or parsed <= 0:
+        return default
+    return min(MAX_CAPITAL, max(MIN_CAPITAL, parsed))
+
+
+def _normalize_cash(value: Any, previous: float, label: str) -> tuple[float, str | None]:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError, OverflowError):
+        parsed = math.nan
+    if not math.isfinite(parsed) or parsed <= 0:
+        return previous, f"{label} was ignored; keeping {money(previous)}."
+    if parsed < MIN_CAPITAL:
+        return MIN_CAPITAL, f"{label} was raised to the minimum {money(MIN_CAPITAL)}."
+    if parsed > MAX_CAPITAL:
+        return MAX_CAPITAL, f"{label} was capped at {money(MAX_CAPITAL)}."
+    return parsed, None
+
+
+def normalize_capital_with_warnings(
+    initial_cash: Any = None,
+    target_cash: Any = None,
+    cash_exposure_pct: Any = None,
+    sizing_mode: str | None = None,
+    previous: CapitalAssumptions | dict[str, Any] | None = None,
+) -> tuple[CapitalAssumptions, list[str]]:
+    prior = _previous_capital(previous)
+    initial, initial_warning = _normalize_cash(initial_cash, prior.initial_cash, "Starting cash")
+    target, target_warning = _normalize_cash(target_cash, prior.target_cash, "Target cash")
+    exposure = min(100.0, max(1.0, _to_float(cash_exposure_pct, prior.cash_exposure_pct)))
+    sizing = sizing_mode or prior.sizing_mode
+    warnings = [warning for warning in (initial_warning, target_warning) if warning]
+    if target <= initial:
+        warnings.append("Target cash is not above starting cash; the objective requires no positive return.")
+    return (
+        CapitalAssumptions(
+            initial_cash=initial,
+            target_cash=target,
+            cash_exposure_pct=exposure,
+            sizing_mode=sizing,
+        ),
+        warnings,
+    )
+
+
 def normalize_capital(
     initial_cash: Any = None,
     target_cash: Any = None,
     cash_exposure_pct: Any = None,
     sizing_mode: str | None = None,
 ) -> CapitalAssumptions:
-    initial = max(1.0, _to_float(initial_cash, 12000.0))
-    target = max(1.0, _to_float(target_cash, 24000.0))
-    exposure = min(100.0, max(1.0, _to_float(cash_exposure_pct, 95.0)))
-    sizing = sizing_mode or "percent_cash_exposure"
-
-    return CapitalAssumptions(
-        initial_cash=initial,
-        target_cash=target,
-        cash_exposure_pct=exposure,
-        sizing_mode=sizing,
+    capital, _warnings = normalize_capital_with_warnings(
+        initial_cash=initial_cash,
+        target_cash=target_cash,
+        cash_exposure_pct=cash_exposure_pct,
+        sizing_mode=sizing_mode,
     )
+    return capital
 
 
 def money(value: float) -> str:

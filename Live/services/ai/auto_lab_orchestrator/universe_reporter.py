@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from datetime import datetime, timezone
 from typing import Any
 import json
 import math
+
+from services.ai.auto_lab_orchestrator.models import local_now_iso, utc_now_iso
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -100,7 +101,8 @@ def build_universe_payload(
     return {
         "schema_version": "universe_results_v21_5",
         "universe_run_id": universe_run_id,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": local_now_iso(),
+        "generated_at_utc": utc_now_iso(),
         "symbols": symbols,
         "settings": settings,
         "symbol_results": symbol_results,

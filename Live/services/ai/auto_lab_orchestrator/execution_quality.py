@@ -3,11 +3,10 @@ from __future__ import annotations
 from dataclasses import asdict, fields, is_dataclass
 from pathlib import Path
 from typing import Any
-from datetime import datetime, timezone
 import json
 import math
 
-from .models import ExperimentGoal, NormalizedBacktestResult
+from .models import ExperimentGoal, NormalizedBacktestResult, local_now_iso, utc_now_iso
 from .scorecard import score_strategy_result
 
 
@@ -236,7 +235,8 @@ def normalize_run_execution_quality(run: Any, context: str = "") -> dict[str, An
         "normalized_count": len(normalized),
         "untouched_count": untouched,
         "normalized": normalized,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": local_now_iso(),
+        "generated_at_utc": utc_now_iso(),
         "rule": "Insufficient-cash BUY skips become warnings only when usable metrics and the configured experiment goal are available; all research gates are then reapplied.",
     }
 
@@ -248,6 +248,7 @@ def build_execution_quality_report(summary: dict[str, Any]) -> str:
         "AI Auto Lab is research/simulation-only. This report does not place orders or connect to brokers.",
         "",
         f"- generated_at: `{summary.get('generated_at', '')}`",
+        f"- generated_at_utc: `{summary.get('generated_at_utc', '')}`",
         f"- context: {summary.get('context', '')}",
         f"- normalized_count: {summary.get('normalized_count', 0)}",
         f"- untouched_count: {summary.get('untouched_count', 0)}",
