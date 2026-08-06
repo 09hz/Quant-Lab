@@ -345,6 +345,44 @@ label, .control-label, .input-label, .analytics-label, .paper-control-label, .au
 .autolab-progress-completed .autolab-progress-percent, .autolab-progress-completed .autolab-progress-stage { color: var(--positive); }
 .autolab-progress-failed .autolab-progress-percent, .autolab-progress-failed .autolab-progress-stage { color: var(--negative); }
 
+/* AutoLab controls: unified scale */
+.autolab-shell, .research-autolab-page {
+  --control-h: 36px;
+  --control-pad-x: 10px;
+}
+.autolab-shell .research-autolab-controls,
+.autolab-shell .autolab-grid-controls,
+.research-autolab-page .research-autolab-controls,
+.research-autolab-page .autolab-grid-controls {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--s2);
+  align-items: center;
+}
+.autolab-shell .autolab-field,
+.research-autolab-page .autolab-field {
+  flex: 1 1 220px;
+  min-width: 200px;
+}
+.autolab-shell .autolab-action-row,
+.research-autolab-page .autolab-action-row {
+  align-items: center;
+}
+.autolab-shell label,
+.research-autolab-page label,
+.autolab-shell .autolab-label,
+.research-autolab-page .autolab-label {
+  margin-bottom: 4px;
+  line-height: 1.15;
+}
+.autolab-shell .dash-range-slider-input,
+.research-autolab-page .dash-range-slider-input,
+.autolab-shell .dash-dropdown-trigger,
+.research-autolab-page .dash-dropdown-trigger {
+  min-height: var(--control-h) !important;
+  height: var(--control-h) !important;
+}
+
+
 /* Data library */
 .data-library-root, .newsroom-page { padding: var(--s3); }
 .data-library-main { display: grid; grid-template-columns: minmax(480px, .85fr) minmax(0, 1.15fr); align-items: start; gap: var(--s3); }
