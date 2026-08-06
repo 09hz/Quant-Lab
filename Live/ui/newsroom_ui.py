@@ -88,7 +88,7 @@ def build_newsroom_tab(*args: Any, **kwargs: Any) -> Any:
                             dcc.Input(id="newsroom-topic-input", type="text", value="inflation rates Fed market conditions", debounce=True, className="newsroom-input", placeholder="Example: MSFT inflation rates Fed semiconductors"),
                             html.Label("Sources", className="newsroom-label"),
                             dcc.Checklist(id="newsroom-source-filter", options=source_options, value=["fred", "sec", "bls", "bea", "fed", "news"], className="newsroom-checklist", inputClassName="newsroom-check-input", labelClassName="newsroom-check-label"),
-                            html.Div([html.Button("Fetch Research", id="newsroom-fetch", n_clicks=0, className="newsroom-btn primary"), html.Button("Add Selected to Brief", id="newsroom-add-selected", n_clicks=0, className="newsroom-btn"), html.Button("Clear Brief", id="newsroom-clear-brief", n_clicks=0, className="newsroom-btn danger")], className="newsroom-button-row"),
+                            html.Div([html.Button("Fetch Research", id="newsroom-fetch", n_clicks=0, className="newsroom-btn"), html.Button("Add Selected to Brief", id="newsroom-add-selected", n_clicks=0, className="newsroom-btn"), html.Button("Clear Brief", id="newsroom-clear-brief", n_clicks=0, className="newsroom-btn danger")], className="newsroom-button-row"),
                             html.Div(id="newsroom-status", className="newsroom-status"),
                             html.Div(
                                 className="newsroom-recommendation-panel",
@@ -101,7 +101,7 @@ def build_newsroom_tab(*args: Any, **kwargs: Any) -> Any:
                                     html.Div(
                                         [
                                             html.Button("Generate Missing Evidence Recommendations", id="newsroom-generate-recommendations", n_clicks=0, className="newsroom-btn"),
-                                            html.Button("Approve Selected Recommendations", id="newsroom-approve-recommendations", n_clicks=0, className="newsroom-btn primary"),
+                                            html.Button("Approve Selected Recommendations", id="newsroom-approve-recommendations", n_clicks=0, className="newsroom-btn "),
                                             html.Button("Reject Selected", id="newsroom-reject-recommendations", n_clicks=0, className="newsroom-btn danger"),
                                         ],
                                         className="newsroom-button-row",
@@ -196,7 +196,7 @@ def build_newsroom_tab(*args: Any, **kwargs: Any) -> Any:
                                         "Ask Research Analyst",
                                         id="research-analyst-ask",
                                         n_clicks=0,
-                                        className="primary-button",
+                                        className="newsroom-btn",
                                     ),
                                 ],
                             ),

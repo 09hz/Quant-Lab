@@ -69,7 +69,7 @@ def build_market_memory_packet_panel():
                         "Load Market Memory Packet",
                         id="main-autolab-memory-load-btn",
                         n_clicks=0,
-                        className="autolab-button autolab-button-primary",
+                        className="autolab-button",
                     ),
                     html.Button(
                         "Apply Memory Symbols",

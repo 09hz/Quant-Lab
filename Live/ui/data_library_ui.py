@@ -70,7 +70,7 @@ def build_data_library_layout():
                         "Rescan Live/data",
                         id="data-library-scan-btn",
                         n_clicks=0,
-                        className="data-library-button data-library-button-primary",
+                        className="data-library-button ",
                     ),
                     html.Div(
                         className="data-library-field",

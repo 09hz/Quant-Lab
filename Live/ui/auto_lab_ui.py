@@ -271,13 +271,13 @@ def build_auto_lab_tab() -> html.Div:
                         "Run Universe Auto Lab",
                         id="main-autolab-run-universe",
                         n_clicks=0,
-                        className="autolab-button autolab-button-primary",
+                        className="autolab-button ",
                     ),
                     html.Button(
                         "Run Walk-Forward Validation",
                         id="main-autolab-run-walk-forward",
                         n_clicks=0,
-                        className="autolab-button autolab-button-primary",
+                        className="autolab-button ",
                     ),
                     html.Button(
                         "Refresh Latest Reports",
