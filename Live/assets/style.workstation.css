@@ -185,14 +185,16 @@ label, .control-label, .input-label, .analytics-label, .paper-control-label, .au
 }
 
 /* Shared panels/cards */
-.chart-card, .control-box, .stat-card, .analytics-card, .paper-trading-panel, .paper-summary-panel, .paper-summary-card, .paper-table-card, .strategy-lab-panel, .strategy-section-panel, .strategy-editor-panel, .strategy-backtest-panel, .strategy-help-panel, .strategy-ai-advisor-panel, .trade-analytics-panel, .quant-native-card, .quant-native-count-tile, .quant-native-table-card, .quant-dashboard-table-card, .research-loop-controls-panel, .research-analyst-panel, .research-analyst-response, .research-analyst-sources, .research-autolab-safety, .research-autolab-series-box, .research-autolab-summary, .autolab-card, .autolab-capital-card, .autolab-memory-card, .autolab-report-card, .data-library-postgres-panel, .data-library-results, .newsroom-panel, .newsroom-source-card, .newsroom-brief-panel, .newsroom-recommendation-panel, .settings-section, .replay-range-job-panel {
+.chart-card, .control-box, .stat-card, .analytics-card, .paper-trading-panel, .paper-summary-panel, .paper-summary-card, .paper-table-card, .strategy-lab-panel, .strategy-section-panel, .strategy-editor-panel, .strategy-backtest-panel, .strategy-help-panel, .strategy-ai-advisor-panel, .trade-analytics-panel, .quant-native-card, .quant-native-count-tile, .quant-native-table-card, .quant-dashboard-table-card, .research-loop-controls-panel, .research-analyst-panel, .research-analyst-response, .research-analyst-sources, .research-autolab-safety, .research-autolab-series-box, .research-autolab-summary .autolab-capital-card, .autolab-memory-card, .autolab-report-card, .data-library-postgres-panel, .data-library-results, .newsroom-panel, .newsroom-source-card, .newsroom-brief-panel, .newsroom-recommendation-panel, .settings-section, .replay-range-job-panel {
   min-width: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-panel);
 }
 .data-library-preview { color: var(--ink); min-width: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: none; }
 
 .chart-card, .paper-trading-panel, .strategy-lab-panel, .trade-analytics-panel, .research-analyst-panel, .research-loop-controls-panel, .data-library-postgres-panel, .newsroom-panel, .settings-section { padding: var(--s3); }
-.control-box, .stat-card, .analytics-card, .paper-summary-card, .quant-native-card, .quant-native-count-tile, .autolab-card, .newsroom-source-card { padding: var(--s3); }
+.control-box, .stat-card, .analytics-card, .paper-summary-card, .quant-native-card, .quant-native-count-tile, .newsroom-source-card { padding: var(--s3); }
 .quant-native-card { color: var(--ink); }
+
+.autolab-card{ color: var(--ink); min-width: 0; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow-panel);}
 
 /* Rows and grids */
 .controls-row, .controls-row-top, .controls-row-bottom, .paper-controls-row, .paper-button-group, .paper-control-row, .range-row, .chart-control-row, .strategy-lab-actions, .strategy-ai-actions, .strategy-ai-context-actions, .strategy-help-button-row, .newsroom-button-row, .newsroom-pill-row, .autolab-action-row, .autolab-memory-controls, .research-autolab-button-row, .data-library-toolbar, .data-library-postgres-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s2) var(--s3); }
