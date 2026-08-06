@@ -89,6 +89,8 @@ def score_strategy_result(result: NormalizedBacktestResult, goal: ExperimentGoal
     trades = int(result.metric("trade_count", "num_trades", default=len(result.trades)))
     profit_factor = result.metric("profit_factor", default=0.0)
     final_equity = result.metric("final_equity", "ending_equity", "final_cash", default=0.0)
+    eligible_buys = int(result.metric("eligible_buy_signal_count", default=0.0))
+    fill_rate_pct = result.metric("fill_rate_pct", default=100.0)
 
     target_return_pct = goal.target_return_pct()
     objective_hit = bool(goal.target_equity > 0 and final_equity >= goal.target_equity)
@@ -141,6 +143,10 @@ def score_strategy_result(result: NormalizedBacktestResult, goal: ExperimentGoal
         fail_reasons.append("Final equity was not positive.")
     if return_pct < 0:
         fail_reasons.append("Negative simulated return.")
+    if eligible_buys > 0 and fill_rate_pct < 80.0:
+        fail_reasons.append(
+            f"Only {fill_rate_pct:.2f}% of eligible BUY signals were filled; minimum required is 80.00%."
+        )
 
     if target_return_pct and not objective_hit:
         warnings.append(

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from datetime import datetime, timezone
 from typing import Any
 import json
 import re
+
+from services.ai.auto_lab_orchestrator.models import local_now_iso, utc_now_iso
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
@@ -320,7 +321,8 @@ def build_strategy_trace_packet(report_dir: Path) -> dict[str, Any]:
 
     return {
         "schema_version": "strategy_build_trace_v21_4_3",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": local_now_iso(),
+        "generated_at_utc": utc_now_iso(),
         "run_id": str(run.get("run_id") or ""),
         "report_dir": str(report_dir),
         "settings": settings,

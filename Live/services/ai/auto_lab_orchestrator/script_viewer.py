@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from services.ai.auto_lab_orchestrator.models import local_now_iso, local_run_timestamp, utc_now_iso
 
 
 MAX_MD_CHARS = 65000
@@ -19,17 +20,10 @@ def _read_text(path: Path, max_chars: int = MAX_MD_CHARS) -> str:
     return text
 
 
-def _latest_dir(base: Path) -> Path | None:
-    if not base.exists():
-        return None
-    candidates = [
-        path
-        for path in base.iterdir()
-        if path.is_dir() and not path.name.startswith("_")
-    ]
-    if not candidates:
-        return None
-    return max(candidates, key=lambda path: path.stat().st_mtime)
+def _latest_dir(base: Path, required_file: str = "") -> Path | None:
+    from services.ai.auto_lab_orchestrator.ui_report_loader import latest_dir
+
+    return latest_dir(base, required_file)
 
 
 def _find_first(run_dir: Path | None, names: list[str]) -> Path | None:
@@ -50,16 +44,31 @@ def _find_first(run_dir: Path | None, names: list[str]) -> Path | None:
 
 
 def latest_universe_dir(live_root: Path) -> Path | None:
-    return _latest_dir(live_root / "data" / "auto_lab_universe_runs")
+    return _latest_dir(live_root / "data" / "auto_lab_universe_runs", "universe_results.json")
 
 
 def latest_walk_forward_dir(live_root: Path) -> Path | None:
-    return _latest_dir(live_root / "data" / "auto_lab_walk_forward_runs")
+    return _latest_dir(live_root / "data" / "auto_lab_walk_forward_runs", "walk_forward_universe_results.json")
 
 
-def build_script_packet(live_root: Path) -> dict[str, Any]:
-    universe_dir = latest_universe_dir(live_root)
-    walk_dir = latest_walk_forward_dir(live_root)
+def build_script_packet(
+    live_root: Path,
+    *,
+    universe_dir: str | Path | None = None,
+    walk_dir: str | Path | None = None,
+) -> dict[str, Any]:
+    walk_dir = Path(walk_dir) if walk_dir else latest_walk_forward_dir(live_root)
+    if universe_dir:
+        universe_dir = Path(universe_dir)
+    elif walk_dir:
+        manifest_path = walk_dir / "00_ui_run_manifest.json"
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            candidate_packet = Path(str(manifest.get("context", {}).get("candidate_packet") or ""))
+            universe_dir = candidate_packet.parent if candidate_packet.is_file() else None
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            universe_dir = None
+    universe_dir = universe_dir or latest_universe_dir(live_root)
 
     universe_file = _find_first(
         universe_dir,
@@ -119,7 +128,7 @@ def summarize_script_paths(paths: dict[str, Any]) -> str:
 
 
 def _friendly_label(run_type: str, context: dict[str, Any]) -> str:
-    generated = datetime.now().strftime("%Y-%m-%d_%H%M")
+    generated = local_run_timestamp()
     if run_type == "walk_forward":
         train = f"{context.get('train_start', '')}_to_{context.get('train_end', '')}"
         test = f"{context.get('test_start', '')}_to_{context.get('test_end', '')}"
@@ -136,19 +145,30 @@ def write_latest_manifest(
     capital: dict[str, Any],
     command: list[str] | None = None,
     warnings: list[str] | None = None,
+    run_dir: str | Path | None = None,
 ) -> dict[str, str]:
     """Write human-friendly index files into the latest run directory.
 
     This does not rename backend output folders yet; it adds a readable index and manifest.
     """
-    run_dir = latest_walk_forward_dir(live_root) if run_type == "walk_forward" else latest_universe_dir(live_root)
+    run_dir = Path(run_dir) if run_dir else (
+        latest_walk_forward_dir(live_root) if run_type == "walk_forward" else latest_universe_dir(live_root)
+    )
     if not run_dir:
         return {}
+    run_dir.mkdir(parents=True, exist_ok=True)
 
-    packet = build_script_packet(live_root)
+    candidate_packet = Path(str(context.get("candidate_packet") or ""))
+    packet_universe_dir = candidate_packet.parent if candidate_packet.is_file() else None
+    packet = build_script_packet(
+        live_root,
+        universe_dir=run_dir if run_type == "universe" else packet_universe_dir,
+        walk_dir=run_dir if run_type == "walk_forward" else None,
+    )
     manifest = {
         "schema_version": "auto_lab_ui_manifest_v22_2",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": local_now_iso(),
+        "generated_at_utc": utc_now_iso(),
         "run_type": run_type,
         "friendly_label": _friendly_label(run_type, context),
         "run_dir": str(run_dir),
@@ -209,3 +229,21 @@ def write_latest_manifest(
         "index_path": str(index_path),
         "run_dir": str(run_dir),
     }
+
+
+def refresh_run_manifest(live_root: Path, run_dir: str | Path) -> dict[str, str]:
+    """Refresh output paths after a queued run has finished writing artifacts."""
+    run_dir = Path(run_dir)
+    manifest_path = run_dir / "00_ui_run_manifest.json"
+    if not manifest_path.is_file():
+        return {}
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    return write_latest_manifest(
+        live_root,
+        str(payload.get("run_type") or ""),
+        dict(payload.get("context") or {}),
+        dict(payload.get("capital_assumptions") or {}),
+        command=list(payload.get("command") or []),
+        warnings=list(payload.get("warnings") or []),
+        run_dir=run_dir,
+    )

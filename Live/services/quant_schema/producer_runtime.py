@@ -101,6 +101,19 @@ def looks_like_producer_name(name: str, category: str | None) -> bool:
     return any(word in lowered for word in ["backtest", "walk_forward", "universe", "autolab", "auto_lab", "packet", "report", "strategy"])
 
 
+def should_wire_member(module_name: str, member_name: str) -> bool:
+    """Keep hot Auto Lab loops out of broad persistence interception."""
+    normalized_module = str(module_name or "").lower()
+    normalized_member = str(member_name or "").lower()
+    if "services.ai.auto_lab_orchestrator" in normalized_module:
+        return normalized_member in {
+            "build_universe_payload",
+            "build_walk_forward_payload",
+            "build_paper_review_queue",
+        }
+    return True
+
+
 def looks_captureable(result: Any) -> bool:
     if result is None:
         return False
@@ -270,6 +283,8 @@ def wire_namespace(
     wrapped_members: list[str] = []
 
     for name, value in list(namespace.items()):
+        if not should_wire_member(module_name, name):
+            continue
         category = infer_category(module_name, name)
         if not category:
             continue

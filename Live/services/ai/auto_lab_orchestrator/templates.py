@@ -71,6 +71,24 @@ def _candidate_id_from_path(path: Path) -> str:
     return ("example_" + stem)[:80] if stem else "example_strategy"
 
 
+def _strategy_family(script: str) -> str:
+    lower = str(script or "").lower()
+    for token, family in (
+        ("supertrend(", "supertrend"),
+        ("adx(", "adx_trend"),
+        ("bb_upper(", "bollinger_mean_reversion"),
+        ("roc(", "roc_momentum"),
+        ("rsi(", "rsi_mean_reversion"),
+        ("highest(", "breakout"),
+        ("atr(", "atr_filtered_trend"),
+    ):
+        if token in lower:
+            return family
+    if "crossover" in lower or "crossunder" in lower:
+        return "crossover"
+    return "rule_based"
+
+
 def _is_strategy_only_dir(path: Path) -> bool:
     parts = {part.lower() for part in path.parts}
     return bool(parts.intersection(STRATEGY_ONLY_DIR_TOKENS))
@@ -231,7 +249,7 @@ def load_strategy_example_candidates(live_root: Path, symbol: str = "AMD", limit
             StrategyCandidate(
                 candidate_id=_candidate_id_from_path(path),
                 name=path.stem.replace("_", " ").replace("-", " ").title(),
-                family="example_file",
+                family=_strategy_family(script),
                 script=script,
                 parameters={"quantity": 10},
                 symbols=[symbol],

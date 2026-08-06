@@ -195,7 +195,7 @@ def _build_strategy_editor_panel():
             html.Div(
                 id="strategy-status",
                 className="strategy-status",
-                children="Strategy Lab ready.",
+                children="Strategy Lab ready. Strategy orders are review/backtest-only.",
             ),
         ],
     )
@@ -461,6 +461,21 @@ def _build_paper_trading_panel():
                 className="paper-controls-row",
                 children=[
                     html.Div(
+                        className="control-box control-cash",
+                        children=[
+                            html.Label("Starting Cash"),
+                            dcc.Input(
+                                id="paper-starting-cash",
+                                type="number",
+                                min=100,
+                                step=100,
+                                value=100000,
+                                className="paper-input",
+                                debounce=False,
+                            ),
+                        ],
+                    ),
+                    html.Div(
                         className="control-box control-qty",
                         children=[
                             html.Label("Quantity"),
@@ -519,6 +534,13 @@ def _build_paper_trading_panel():
                     html.Div(
                         className="paper-button-group",
                         children=[
+                            html.Button(
+                                "Apply Cash & Reset",
+                                id="paper-apply-cash",
+                                n_clicks=0,
+                                className="paper-reset-btn",
+                                title="Set a new simulated starting balance and clear paper positions, orders, and fills.",
+                            ),
                             html.Button("Buy", id="paper-buy", n_clicks=0, className="paper-buy-btn"),
                             html.Button("Sell", id="paper-sell", n_clicks=0, className="paper-sell-btn"),
                             html.Button(
@@ -547,6 +569,11 @@ def _build_paper_trading_panel():
                 id="paper-trade-status",
                 className="paper-trade-status",
                 children="Paper account ready.",
+            ),
+            html.Div(
+                id="paper-active-review-status",
+                className="paper-review-guard-status",
+                children="Auto Lab paper review is inactive. Normal manual paper trading limits apply.",
             ),
             html.Div(
                 className="paper-summary-grid",

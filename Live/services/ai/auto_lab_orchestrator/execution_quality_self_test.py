@@ -19,22 +19,41 @@ def main() -> int:
     live_root = _bootstrap_import_path()
 
     from services.ai.auto_lab_orchestrator.execution_quality import normalize_run_execution_quality, write_execution_quality_report
+    from services.ai.auto_lab_orchestrator.models import ExperimentGoal
+
+    insufficient_cash_error = (
+        "Insufficient cash for BUY at index 176: cost $20,402.36, cash $20,000.00"
+    )
 
     run = SimpleNamespace(
+        goal=ExperimentGoal(
+            symbols=["AMD"],
+            starting_cash=12000.0,
+            target_equity=18000.0,
+            max_drawdown_pct=30.0,
+            min_trades=3,
+        ),
         summary={},
         results=[
             SimpleNamespace(
                 candidate_id="example_rsi_mean_reversion_rsi_14_to_9",
                 symbol="AMD",
+                status="error",
+                engine="core_strategy_backtest_adapter",
                 metrics={
                     "initial_cash": 12000.0,
-                    "final_equity": 13171.3614,
-                    "total_return_pct": 9.761344999999997,
-                    "max_drawdown_pct": 8.542728708626615,
-                    "trade_count": 3,
+                    "final_equity": 20000.0,
+                    "total_return_pct": 66.6667,
+                    "max_drawdown_pct": 35.0,
+                    "trade_count": 10,
                     "win_rate_pct": 100.0,
                     "profit_factor": 10.0,
                 },
+                trades=[],
+                equity_curve=[],
+                errors=[insufficient_cash_error],
+                warnings=[],
+                raw_summary={},
             )
         ],
         scorecards=[
@@ -49,10 +68,7 @@ def main() -> int:
                 objective_hit=False,
                 objective_progress_pct=0.0,
                 component_scores={},
-                fail_reasons=[
-                    "Insufficient cash for BUY at index 176: cost $13,402.36, cash $13,171.36",
-                    "Insufficient cash for BUY at index 226: cost $13,987.49, cash $13,171.36",
-                ],
+                fail_reasons=[insufficient_cash_error],
                 warnings=[],
                 retest_recommendation="Fix engine/script/data errors before retesting.",
             )
@@ -63,8 +79,16 @@ def main() -> int:
     assert summary["normalized_count"] == 1, "Expected one normalized candidate"
     sc = run.scorecards[0]
     assert sc.engine_pass is True, "Expected engine_pass True after normalization"
-    assert sc.fail_reasons == [], "Expected fail_reasons moved to warnings"
-    assert sc.total_score > 0, "Expected recovered score"
+    assert sc.research_pass is False, "Drawdown gate must remain authoritative"
+    assert sc.passed is False, "Compatibility pass flag must follow research_pass"
+    assert sc.objective_hit is True, "Configured target_equity must determine objective success"
+    assert any("drawdown" in reason.lower() for reason in sc.fail_reasons), "Expected drawdown failure to be preserved"
+    assert any("insufficient" in warning.lower() for warning in sc.warnings), "Expected insufficient cash warning"
+    assert run.results[0].status == "ok", "Recovered result status should match engine_pass"
+    assert run.results[0].errors == [], "Recovered insufficient-cash errors should move to warnings"
+    assert run.summary["passed_count"] == 0, "Run summary pass count must follow corrected scorecards"
+    assert run.summary["best_candidate_id"] == sc.candidate_id, "Run summary best candidate must be refreshed"
+    assert run.summary["best_score"] == sc.total_score, "Run summary best score must be refreshed"
 
     out_dir = live_root / "data" / "auto_lab_runs" / "_execution_quality_self_test"
     artifacts = write_execution_quality_report(run, out_dir, summary)

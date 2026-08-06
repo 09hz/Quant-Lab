@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from services.ai.auto_lab_orchestrator.models import local_now_iso, local_run_timestamp, utc_now_iso
 
 
 def _safe_name(value: str) -> str:
@@ -64,9 +65,8 @@ def write_symbol_discovery_reports(live_root: Path, packet: dict[str, Any]) -> d
     base = live_root / "data" / "auto_lab_symbol_discovery"
     base.mkdir(parents=True, exist_ok=True)
 
-    now = datetime.now(timezone.utc)
     first = packet.get("suggested_symbols", ["symbols"])[0] if packet.get("suggested_symbols") else "symbols"
-    run_id = f"{now.strftime('%Y-%m-%d_%H%M%S')}_symbol_discovery_{_safe_name(str(first))}"
+    run_id = f"{local_run_timestamp()}_symbol_discovery_{_safe_name(str(first))}"
     run_dir = base / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -81,7 +81,8 @@ def write_symbol_discovery_reports(live_root: Path, packet: dict[str, Any]) -> d
 
     manifest = {
         "schema_version": "auto_lab_symbol_discovery_manifest_v22_3",
-        "generated_at": now.isoformat(),
+        "generated_at": local_now_iso(),
+        "generated_at_utc": utc_now_iso(),
         "run_id": run_id,
         "run_dir": str(run_dir),
         "suggested_symbols": packet.get("suggested_symbols", []),

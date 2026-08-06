@@ -31,7 +31,7 @@ def register_data_library_callbacks(app) -> None:
         State("main-tabs", "value"),
         prevent_initial_call=False,
     )
-    def _refresh_data_library(refresh_clicks, scan_clicks, artifact_type, extension, search, limit):
+    def _refresh_data_library(refresh_clicks, scan_clicks, artifact_type, extension, search, limit, _main_tab):
         trigger = ""
         try:
             trigger = callback_context.triggered[0]["prop_id"].split(".")[0] if callback_context.triggered else ""
@@ -98,7 +98,7 @@ def register_data_library_callbacks(app) -> None:
         State("main-tabs", "value"),
         prevent_initial_call=False,
     )
-    def _preview_artifact(artifact_id, artifacts):
+    def _preview_artifact(artifact_id, artifacts, _main_tab):
         if not artifact_id:
             return (
                 "Select an artifact to preview Markdown, JSON, or CSV catalog data.\n\n"

@@ -12,6 +12,7 @@ REQUIRED_UI_IDS = {
     "main-autolab-suggest-symbols",
     "main-autolab-discovery-report",
     "main-autolab-discovery-paths",
+    "main-autolab-discovery-store",
 }
 
 
@@ -77,6 +78,32 @@ def main() -> int:
         print(symbols)
         return 4
 
+    mining = discover_symbol_universe("AMD", "mining", 10)
+    assert "mining" in mining["theme_hits"]
+    assert any(symbol in mining["suggested_symbols"] for symbol in ("FCX", "NEM", "GOLD", "XME"))
+    second_page = discover_symbol_universe(
+        "AMD",
+        "mining",
+        10,
+        exclude_symbols=mining["suggested_symbols"],
+    )
+    assert second_page["suggested_symbols"] != mining["suggested_symbols"]
+    crowded = discover_symbol_universe(
+        "AMD,NVDA,MSFT,AAPL,TSLA",
+        "mining",
+        5,
+    )
+    crowded_seeds = {"AMD", "NVDA", "MSFT", "AAPL", "TSLA"}
+    assert crowded_seeds.issubset(crowded["suggested_symbols"])
+    crowded_next = discover_symbol_universe(
+        "AMD,NVDA,MSFT,AAPL,TSLA",
+        "mining",
+        5,
+        exclude_symbols=crowded["suggested_symbols"],
+    )
+    assert crowded_seeds.issubset(crowded_next["suggested_symbols"])
+    assert crowded_next["suggested_symbols"] != crowded["suggested_symbols"]
+
     md = render_symbol_discovery_markdown(packet)
     if "AI Symbol Discovery Report" not in md or "Suggested universe" not in md:
         print("Markdown render check failed.")
@@ -96,7 +123,7 @@ def main() -> int:
         "outputs_discovery_report": 'Output("main-autolab-discovery-report", "children")' in cb_text,
         "outputs_discovery_paths": 'Output("main-autolab-discovery-paths", "children")' in cb_text,
         "button_input": 'Input("main-autolab-suggest-symbols", "n_clicks")' in cb_text,
-        "no_capital_summary_output": 'Output("main-autolab-capital-summary", "children")' not in cb_text,
+        "capital_summary_output": 'Output("main-autolab-capital-summary", "children")' in cb_text,
     }
     failed = [name for name, ok in callback_checks.items() if not ok]
     if failed:

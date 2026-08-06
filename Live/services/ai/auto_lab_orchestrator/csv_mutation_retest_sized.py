@@ -69,6 +69,9 @@ def _is_mutation_payload(payload: dict) -> bool:
 
 
 def find_parent_run(live_root: Path, run_id: str = "", allow_chained_mutations: bool = False) -> tuple[Path | None, dict]:
+    if run_id == "__force_csv_baseline__":
+        return None, {}
+
     runs_dir = live_root / "data" / "auto_lab_runs"
     if not runs_dir.exists():
         return None, {}

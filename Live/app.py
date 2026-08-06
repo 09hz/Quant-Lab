@@ -363,7 +363,10 @@ try:
         register_auto_lab_main_callbacks,
     )
 
-    register_auto_lab_main_callbacks(app)
+    register_auto_lab_main_callbacks(
+        app,
+        paper_trading_service=paper_trading_service,
+    )
 except Exception as exc:
     print(f"[WARN] AI Auto Lab callbacks not registered: {exc}", flush=True)
 # =============================================================================

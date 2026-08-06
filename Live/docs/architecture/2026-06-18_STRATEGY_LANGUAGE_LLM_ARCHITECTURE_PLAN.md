@@ -159,6 +159,9 @@ plotshape exitSignal title="Sell Signal" text="SELL" location="abovebar"
 
 ### Phase 6 — Strategy Orders
 
+Implementation status (2026-08-03): complete for safe named long-only orders.
+Legacy `buy`/`sell` and named `entry`/`close` rules now normalize to the same non-executing market-order intent model. Paper and live broker execution remain explicitly disconnected.
+
 Start with a safe simplified syntax:
 
 ```text

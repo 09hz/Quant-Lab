@@ -57,7 +57,7 @@ def _latest_run_view(run: dict[str, Any] | None):
         "errors",
     ]:
         rows.append(html.Tr([html.Td(key), html.Td(str(run.get(key, "")))]))
-    return html.Div([html.H4("Latest ingestion run"), html.Table([html.Tbody(rows)], className="surfaceTextWhite")])
+    return html.Div([html.H4("Latest ingestion run"), html.Table([html.Tbody(rows)], className="data-library-pg-mini-table")])
 
 
 def _skipped_view(rows: list[dict[str, Any]]):
@@ -70,7 +70,7 @@ def _skipped_view(rows: list[dict[str, Any]]):
             body.append(html.Tr([html.Td("error"), html.Td(str(row["error"])), html.Td("")]))
         else:
             body.append(html.Tr([html.Td(str(row.get("status"))), html.Td(str(row.get("skip_reason"))), html.Td(str(row.get("count")))]))
-    return html.Div([html.H4("Skipped/status summary"), html.Table([html.Thead(header), html.Tbody(body)], className="surfaceTextWhite")])
+    return html.Div([html.H4("Skipped/status summary"), html.Table([html.Thead(header), html.Tbody(body)], className="data-library-pg-mini-table")])
 
 
 def _status_banner(status, action_message: str | None = None):
@@ -216,7 +216,7 @@ def register_postgres_status_callbacks(app):
         return (
             _setup_result_view(setup_result),
             _status_banner(status, action_message=action_message),
-            html.Div([html.H4("PostgreSQL table counts"), _table_from_dict(status.counts)]),
+            html.Div([html.H4("PostgreSQL table counts"), _table_from_dict(status.counts)], className="data-library-pg-mini-table"),
             _latest_run_view(status.latest_run),
             _skipped_view(status.skipped_summary),
         )

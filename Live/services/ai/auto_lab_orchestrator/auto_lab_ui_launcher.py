@@ -4,7 +4,6 @@ from pathlib import Path
 import argparse
 import subprocess
 import sys
-import time
 
 
 def _bootstrap_import_path() -> Path:
@@ -21,6 +20,8 @@ LIVE_ROOT = _bootstrap_import_path()
 PACKAGE_DIR = Path(__file__).resolve().parent
 PYTHON_EXE = sys.executable
 
+from services.ai.auto_lab_orchestrator.models import local_now_iso
+
 
 def _safe_symbols(value: str) -> str:
     cleaned = []
@@ -32,9 +33,9 @@ def _safe_symbols(value: str) -> str:
 
 
 def _run_command(cmd: list[str], cwd: Path) -> str:
-    started = time.strftime("%Y-%m-%d %H:%M:%S")
+    started = local_now_iso()
     result = subprocess.run(cmd, cwd=str(cwd), text=True, capture_output=True)
-    ended = time.strftime("%Y-%m-%d %H:%M:%S")
+    ended = local_now_iso()
     parts = [
         f"Started: {started}",
         f"Ended: {ended}",

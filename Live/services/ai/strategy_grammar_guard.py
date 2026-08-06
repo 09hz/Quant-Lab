@@ -48,6 +48,10 @@ plot trend
 buy when longSignal
 sell when exitSignal
 
+# Equivalent named long-only order syntax:
+entry Long long when longSignal
+close Long when exitSignal
+
 Hard rules:
 - Return Strategy Lab script syntax, not generic Python.
 - Do not use imports.
@@ -58,10 +62,13 @@ Hard rules:
 - Do not put math inside boolean comparisons, e.g. do not write atr > atrSma * 0.8.
 - Do not use inline multiplication/division/addition/subtraction inside condition assignments.
 - Break complex logic into simple boolean variables.
-- Use buy when <condition> for long entry.
-- Use sell when <condition> for long exit.
+- Use either buy/sell rules or named entry/close rules for a long-only strategy.
+- Named entry syntax is: entry <Name> long when <condition>.
+- Named close syntax is: close <Name> when <condition>.
+- Order rules create safe review/backtest intents only; they never submit broker orders.
 - Do not create short-entry logic unless the user explicitly says the engine supports shorts.
 - Do not use sell when shortSetup / buy when exitShort by default.
+- Do not use Pine strategy.entry(...) or strategy.close(...); use the named syntax above.
 - For "script only" requests, return only the script. No markdown fence, no explanation, no comments.
 """.strip()
 
@@ -166,6 +173,32 @@ def validate_strategy_lab_script(text: str) -> list[GrammarIssue]:
 
         if re.search(r"\bshortsetup\b|\bexitshort\b", lower):
             add("short-logic", "Short strategy variables are risky unless the engine supports true shorts.")
+
+        if re.match(r"^strategy\.(?:entry|close)\s*\(", lower):
+            add(
+                "unsupported-pine-order",
+                "Use Strategy Lab named orders, not Pine calls: entry <Name> long when <condition> / close <Name> when <condition>.",
+            )
+
+        if re.match(r"^entry\b", lower) and not re.match(
+            r"^entry\s+[A-Za-z_][A-Za-z0-9_]*\s+long\s+when\s+.+$",
+            line,
+            flags=re.IGNORECASE,
+        ):
+            add(
+                "unsupported-strategy-entry",
+                "Only named long entries are supported: entry <Name> long when <condition>.",
+            )
+
+        if re.match(r"^close\b", lower) and not re.match(
+            r"^close\s+[A-Za-z_][A-Za-z0-9_]*\s+when\s+.+$",
+            line,
+            flags=re.IGNORECASE,
+        ):
+            add(
+                "unsupported-strategy-close",
+                "Use named long-position closes: close <Name> when <condition>.",
+            )
 
     return issues
 

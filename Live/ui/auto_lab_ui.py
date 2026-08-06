@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dash import dcc, html
 
+from ui.auto_lab_memory_packet_ui import build_market_memory_packet_panel
+
 
 def _date_input(component_id: str, label: str, value: str):
     return html.Div(
@@ -30,10 +32,51 @@ def _number_input(component_id: str, label: str, value, min_value=None, max_valu
     )
 
 
+def build_auto_lab_progress_children(label: str, snapshot: dict | None = None):
+    state = dict(snapshot or {})
+    status = str(state.get("status") or "idle").lower()
+    percent = max(0.0, min(100.0, float(state.get("percent") or 0.0)))
+    stage = str(state.get("stage") or "idle").replace("_", " ").title()
+    message = str(state.get("message") or "Ready.")
+    return html.Div(
+        className=f"autolab-progress-panel autolab-progress-{status}",
+        children=[
+            html.Div(
+                className="autolab-progress-head",
+                children=[
+                    html.Span(label, className="autolab-progress-label"),
+                    html.Span(f"{percent:.0f}%", className="autolab-progress-percent"),
+                ],
+            ),
+            html.Div(
+                className="autolab-progress-track",
+                role="progressbar",
+                **{
+                    "aria-label": f"{label} progress",
+                    "aria-valuemin": 0,
+                    "aria-valuemax": 100,
+                    "aria-valuenow": round(percent, 2),
+                },
+                children=html.Div(
+                    className="autolab-progress-fill",
+                    style={"width": f"{percent:.2f}%"},
+                ),
+            ),
+            html.Div(
+                className="autolab-progress-detail",
+                children=[
+                    html.Span(stage, className="autolab-progress-stage"),
+                    html.Span(message, className="autolab-progress-message"),
+                ],
+            ),
+        ],
+    )
+
+
 def build_auto_lab_tab() -> html.Div:
     """Build the main-app AI Auto Lab tab.
 
-    Research/simulation only. This layout does not create broker/order controls.
+    Research/simulation only. Paper review controls never create orders.
     """
     return html.Div(
         className="autolab-shell",
@@ -57,9 +100,25 @@ def build_auto_lab_tab() -> html.Div:
                 className="autolab-safety-banner",
                 children=[
                     html.Strong("Safety: "),
-                    "No live orders, no broker connection, no PaperBroker calls, no account credentials, and no financial advice. "
-                    "Capital values and symbol suggestions are simulation/research assumptions only.",
+                    "No live orders, no broker connection, no automatic PaperBroker orders, no account credentials, and no financial advice. "
+                    "Paper review only activates local limits; every simulated order still requires a manual action in Paper Trading.",
                 ],
+            ),
+            build_market_memory_packet_panel(),
+            dcc.Store(
+                id="main-autolab-discovery-store",
+                data={"seed_symbols": [], "seen_symbols": [], "last_suggested": [], "theme": ""},
+                storage_type="session",
+            ),
+            dcc.Store(
+                id="main-autolab-capital-store",
+                data={
+                    "initial_cash": 12000.0,
+                    "target_cash": 24000.0,
+                    "cash_exposure_pct": 95.0,
+                    "sizing_mode": "percent_cash_exposure",
+                },
+                storage_type="session",
             ),
             html.Div(
                 className="autolab-grid autolab-grid-controls",
@@ -135,6 +194,19 @@ def build_auto_lab_tab() -> html.Div:
                                     _date_input("main-autolab-test-end", "Test end", "2025-12-31"),
                                 ],
                             ),
+                            html.Div(
+                                className="autolab-two-col",
+                                children=[
+                                    _number_input("main-autolab-holdout-pct", "Final untouched holdout %", 20, 5, 50, 5),
+                                    _number_input("main-autolab-rolling-windows", "Test 3 rolling windows", 3, 1, 12, 1),
+                                    _number_input("main-autolab-rolling-commission", "Stress commission / order", 1, 0, None, 0.25),
+                                    _number_input("main-autolab-rolling-slippage", "Stress slippage (bps)", 5, 0, 100, 0.5),
+                                ],
+                            ),
+                            html.Div(
+                                "The final slice is excluded from Tests 2 and 3, then used once for promotion Test 4. Test 3 keeps each selected strategy fixed and reruns it across the remaining unseen period with stricter trading costs.",
+                                className="autolab-help",
+                            ),
                         ],
                     ),
                     html.Div(
@@ -144,8 +216,8 @@ def build_auto_lab_tab() -> html.Div:
                             html.Div(
                                 className="autolab-two-col",
                                 children=[
-                                    _number_input("main-autolab-initial-cash", "Starting cash", 12000, 1, None, 100),
-                                    _number_input("main-autolab-target-cash", "Target cash", 24000, 1, None, 100),
+                                    _number_input("main-autolab-initial-cash", "Starting cash", 12000, 1, 100000000, 100),
+                                    _number_input("main-autolab-target-cash", "Target cash", 24000, 1, 100000000, 100),
                                 ],
                             ),
                             html.Div(
@@ -215,6 +287,24 @@ def build_auto_lab_tab() -> html.Div:
                     ),
                 ],
             ),
+            dcc.Store(
+                id="main-autolab-job-store",
+                data={"job_id": "", "status": "idle", "consumed": True},
+                storage_type="memory",
+            ),
+            html.Div(
+                className="autolab-progress-grid",
+                children=[
+                    html.Div(
+                        id="main-autolab-universe-progress",
+                        children=build_auto_lab_progress_children("Universe Auto Lab"),
+                    ),
+                    html.Div(
+                        id="main-autolab-walk-forward-progress",
+                        children=build_auto_lab_progress_children("Walk-Forward Validation"),
+                    ),
+                ],
+            ),
             html.Div(
                 className="autolab-card autolab-capital-card",
                 children=[
@@ -235,6 +325,66 @@ def build_auto_lab_tab() -> html.Div:
                             ),
                             html.Strong("Research/simulation only. These are not real account balances."),
                         ],
+                    ),
+                ],
+            ),
+            html.Div(
+                className="autolab-card autolab-paper-review-card",
+                children=[
+                    dcc.Store(
+                        id="main-autolab-paper-review-store",
+                        data={"review_status": "inactive", "auto_execute": False},
+                        storage_type="session",
+                    ),
+                    html.H3("Phase 5 Strategy Paper Review", className="surfaceTextWhite"),
+                    html.Div(
+                        "Only candidates that passed Tests 2, 3, and 4 appear here. Activation loads the candidate's declared indicators and signals into Watch, applies local risk limits, and never submits an order.",
+                        className="autolab-help",
+                    ),
+                    html.Label("Promoted candidate", className="autolab-label"),
+                    dcc.Dropdown(
+                        id="main-autolab-paper-review-candidate",
+                        options=[],
+                        value=None,
+                        placeholder="Run or refresh walk-forward validation",
+                        clearable=False,
+                        className="autolab-dropdown",
+                    ),
+                    html.Div(
+                        id="main-autolab-paper-review-preview",
+                        children="No promoted candidate is available for paper review.",
+                        className="autolab-review-preview",
+                    ),
+                    html.Div(
+                        className="autolab-two-col autolab-review-risk-grid",
+                        children=[
+                            _number_input("main-autolab-review-max-position", "Max position %", 20, 0.1, 100, 0.1),
+                            _number_input("main-autolab-review-max-daily-loss", "Max daily loss %", 2, 0.1, 100, 0.1),
+                            _number_input("main-autolab-review-max-drawdown", "Max drawdown %", 10, 0.1, 100, 0.1),
+                            _number_input("main-autolab-review-max-orders", "Max orders / day", 10, 1, 10000, 1),
+                        ],
+                    ),
+                    html.Div(
+                        className="autolab-action-row",
+                        children=[
+                            html.Button(
+                                "Activate Review + Watch Overlay",
+                                id="main-autolab-review-activate",
+                                n_clicks=0,
+                                className="autolab-button autolab-button-primary",
+                            ),
+                            html.Button(
+                                "Deactivate Review",
+                                id="main-autolab-review-deactivate",
+                                n_clicks=0,
+                                className="autolab-button",
+                            ),
+                        ],
+                    ),
+                    html.Div(
+                        id="main-autolab-paper-review-status",
+                        children="Paper review is inactive.",
+                        className="autolab-status",
                     ),
                 ],
             ),
@@ -338,6 +488,9 @@ def build_auto_lab_tab() -> html.Div:
         ],
     )
 
+# Legacy broad Market Memory attachment retained for reference only.
+# It wrapped every public builder, including both progress builders, and caused duplicate IDs.
+r'''
 # --- v23.2.2 Market Memory Packet Direct Attachment ---
 try:
     from dash import html as _v23_2_2_html
@@ -519,3 +672,4 @@ try:
 except Exception as _v23_2_2_1_memory_panel_error:
     print(f"v23.2.2.1 Market Memory Packet Direct Attachment failed: {_v23_2_2_1_memory_panel_error}")
 # --- end v23.2.2.1 Market Memory Packet Direct Attachment ---
+'''

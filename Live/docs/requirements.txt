@@ -6,3 +6,4 @@ nest-asyncio
 ib_async
 plotly
 dash
+requests

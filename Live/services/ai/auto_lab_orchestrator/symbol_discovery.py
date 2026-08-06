@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
-from datetime import datetime, timezone
 import re
 from typing import Any
+
+from services.ai.auto_lab_orchestrator.models import local_now_iso, utc_now_iso
 
 
 @dataclass(frozen=True)
@@ -165,6 +166,25 @@ THEME_MAP: dict[str, list[tuple[str, str]]] = {
         ("F", "auto benchmark"),
         ("XLY", "consumer discretionary benchmark"),
     ],
+    "mining": [
+        ("FCX", "copper and diversified mining exposure"),
+        ("NEM", "gold mining exposure"),
+        ("GOLD", "gold mining exposure"),
+        ("RIO", "diversified global mining exposure"),
+        ("BHP", "diversified global mining exposure"),
+        ("SCCO", "copper mining exposure"),
+        ("XME", "metals and mining ETF benchmark"),
+        ("GDX", "gold miners ETF benchmark"),
+    ],
+    "materials": [
+        ("LIN", "industrial gases and materials exposure"),
+        ("APD", "industrial gases exposure"),
+        ("FCX", "copper and materials exposure"),
+        ("NEM", "gold and materials exposure"),
+        ("SHW", "specialty materials exposure"),
+        ("ECL", "specialty chemicals exposure"),
+        ("XLB", "materials sector ETF benchmark"),
+    ],
 }
 
 
@@ -172,7 +192,8 @@ LIQUID_RESEARCH_HINTS = {
     "SPY", "QQQ", "DIA", "IWM", "XLK", "XLF", "XLE", "XLV", "XLY", "SMH", "SOXX", "IGV", "HACK", "ITA",
     "AAPL", "MSFT", "NVDA", "AMD", "AMZN", "GOOGL", "META", "TSLA", "AVGO", "QCOM", "MU", "INTC", "TSM", "ASML",
     "MRVL", "ARM", "ORCL", "CRM", "ADBE", "NOW", "PANW", "CRWD", "JPM", "BAC", "GS", "MS", "XOM", "CVX", "UNH",
-    "LLY", "JNJ", "MRK", "LMT", "RTX", "NOC", "GD", "RIVN", "GM", "F",
+    "LLY", "JNJ", "MRK", "LMT", "RTX", "NOC", "GD", "RIVN", "GM", "F", "FCX", "NEM", "GOLD", "RIO",
+    "BHP", "SCCO", "XME", "GDX", "LIN", "APD", "SHW", "ECL", "XLB",
 }
 
 
@@ -245,8 +266,10 @@ def discover_symbol_universe(
     seed_symbols: str | list[str] | None,
     theme: str | None = None,
     max_symbols: int = 10,
+    exclude_symbols: str | list[str] | None = None,
 ) -> dict[str, Any]:
     seeds = normalize_symbols(seed_symbols)
+    excluded = set(normalize_symbols(exclude_symbols)) - set(seeds)
     max_symbols = max(1, min(int(max_symbols or 10), 30))
 
     candidates: dict[str, SymbolCandidate] = {}
@@ -293,21 +316,45 @@ def discover_symbol_universe(
                 ["default", "research_universe"],
             )
 
-    ranked = sorted(
+    ranked_all = sorted(
         candidates.values(),
         key=lambda c: (-c.score, c.symbol),
-    )[:max_symbols]
+    )
+    seed_rows = [item for item in ranked_all if item.symbol in seeds]
+    theme_rows = [item for item in ranked_all if "theme_match" in item.tags and item.symbol not in seeds]
+    other_rows = [item for item in ranked_all if item.symbol not in seeds and item not in theme_rows]
+
+    selected = list(seed_rows)
+    selection_limit = max(max_symbols, len(selected) + 1)
+
+    def add_rows(rows: list[SymbolCandidate], *, allow_seen: bool) -> None:
+        for item in rows:
+            if len(selected) >= selection_limit:
+                return
+            if item.symbol in {row.symbol for row in selected}:
+                continue
+            if not allow_seen and item.symbol in excluded:
+                continue
+            selected.append(item)
+
+    add_rows(theme_rows, allow_seen=False)
+    add_rows(other_rows, allow_seen=False)
+    add_rows(theme_rows, allow_seen=True)
+    add_rows(other_rows, allow_seen=True)
+    ranked = selected[:selection_limit]
 
     suggested_symbols = [item.symbol for item in ranked]
 
     return {
         "schema_version": "auto_lab_symbol_discovery_v22_3",
-        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_at": local_now_iso(),
+        "generated_at_utc": utc_now_iso(),
         "mode": "research_simulation_only",
         "seed_symbols": seeds,
         "theme": theme or "",
         "theme_hits": theme_hits,
         "max_symbols": max_symbols,
+        "excluded_symbols": sorted(excluded),
         "suggested_symbols": suggested_symbols,
         "ranked_candidates": [item.to_dict() for item in ranked],
         "safety_note": "Symbols are suggested for research/testing only. This is not a buy/sell recommendation.",

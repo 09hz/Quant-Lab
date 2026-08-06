@@ -155,24 +155,6 @@ def build_newsroom_tab(*args: Any, **kwargs: Any) -> Any:
                                 className="research-analyst-controls",
                                 children=[
                                     html.Div(
-                                        className="research-analyst-control",
-                                        children=[
-                                            html.Label("Output style", className="research-analyst-label"),
-                                            dcc.Dropdown(
-                                                id="research-analyst-style",
-                                                options=[
-                                                    {"label": "Concise", "value": "concise"},
-                                                    {"label": "Detailed", "value": "detailed"},
-                                                    {"label": "Bullet brief", "value": "bullet_brief"},
-                                                    {"label": "Validity check", "value": "validity_check"},
-                                                ],
-                                                value="concise",
-                                                clearable=False,
-                                                className = "textColor"
-                                            ),
-                                        ],
-                                    ),
-                                    html.Div(
                                         className="research-analyst-control research-analyst-control-max-output",
                                         children=[
                                             html.Label("Max output tokens", className="research-analyst-label"),
@@ -188,6 +170,25 @@ def build_newsroom_tab(*args: Any, **kwargs: Any) -> Any:
                                             html.Div(
                                                 "Recommended: 3,000-5,000 for market impact, sector, and correlation questions. This is an output-token cap, not a credit estimate.",
                                                 className="research-analyst-help",
+                                            ),
+                                        ],
+                                    ),
+                                    html.Div(
+                                        className="research-analyst-control",
+                                        children=[
+                                            html.Label("Output style", className="research-analyst-label"),
+                                            dcc.Dropdown(
+                                                id="research-analyst-style",
+                                                options=[
+                                                    {"label": "Concise", "value": "concise"},
+                                                    {"label": "Detailed", "value": "detailed"},
+                                                    {"label": "Bullet brief", "value": "bullet_brief"},
+                                                    {"label": "Validity check", "value": "validity_check"},
+                                                ],
+                                                value="concise",
+                                                clearable=False,
+                                                searchable= False,
+                                                className = "textColor"
                                             ),
                                         ],
                                     ),

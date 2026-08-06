@@ -61,7 +61,7 @@ def build_postgres_status_panel():
                                 value="",
                                 placeholder="Type postgres admin password",
                                 debounce=True,
-                                className="data-library-badge"
+
                             ),
                         ],
                     ),

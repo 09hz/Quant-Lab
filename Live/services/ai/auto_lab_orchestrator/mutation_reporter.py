@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 from pathlib import Path
+from datetime import datetime
 import json
 
 from .models import ExperimentRun, StrategyCandidate, StrategyScorecard
 from .safety import safety_banner
+
+
+def _local_timestamp(value: str) -> str:
+    try:
+        return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone().isoformat()
+    except (TypeError, ValueError):
+        return str(value)
 
 
 def _candidate_by_id(candidates: list[StrategyCandidate]) -> dict[str, StrategyCandidate]:
@@ -50,7 +58,8 @@ def build_mutation_report(
         "## Run",
         "",
         f"- run_id: `{run.run_id}`",
-        f"- created_at: `{run.created_at}`",
+        f"- created_at: `{_local_timestamp(run.created_at)}`",
+        f"- created_at_utc: `{run.created_at}`",
         f"- adapter: {run.summary.get('adapter')}",
         f"- mutation_count: {len(run.candidates)}",
         f"- result_count: {len(run.results)}",

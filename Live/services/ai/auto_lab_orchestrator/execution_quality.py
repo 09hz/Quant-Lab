@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, fields, is_dataclass
 from pathlib import Path
 from typing import Any
-from datetime import datetime, timezone
 import json
 import math
+
+from .models import ExperimentGoal, NormalizedBacktestResult, local_now_iso, utc_now_iso
+from .scorecard import score_strategy_result
 
 
 INSUFFICIENT_CASH_TOKEN = "insufficient cash"
@@ -94,63 +96,28 @@ def usable_metrics(metrics: dict[str, Any]) -> bool:
     return final_equity > 0 and initial_cash > 0 and has_return and trade_count >= 0
 
 
-def grade_from_score(score: float) -> str:
-    if score >= 85:
-        return "A"
-    if score >= 75:
-        return "B"
-    if score >= 65:
-        return "C"
-    if score >= 50:
-        return "D"
-    return "F"
+def _experiment_goal(run: Any) -> ExperimentGoal | None:
+    raw_goal = _get_attr(run, "goal")
+    if isinstance(raw_goal, ExperimentGoal):
+        return raw_goal
+
+    goal_data = _as_dict(raw_goal)
+    if not goal_data:
+        return None
+
+    allowed = {item.name for item in fields(ExperimentGoal)}
+    return ExperimentGoal(**{key: value for key, value in goal_data.items() if key in allowed})
 
 
-def recommendation_from_score(engine_pass: bool, research_pass: bool, objective_hit: bool, score: float, metrics: dict[str, Any]) -> str:
-    if not engine_pass:
-        return "Fix engine/script/data errors before retesting."
-    if objective_hit and research_pass:
-        return "Promote to walk-forward validation and stress testing before stronger conclusions."
-    if research_pass:
-        return "Retest nearby parameter values and validate on an unseen out-of-sample window."
-    if score >= 50:
-        return "Keep as low-priority candidate; needs stronger out-of-sample evidence."
-    return "Reject or materially redesign; weak simulated result under current score gates."
-
-
-def recovered_score_from_metrics(metrics: dict[str, Any]) -> tuple[float, dict[str, float]]:
-    initial_cash = _safe_float(metrics.get("initial_cash"), 0.0)
-    final_equity = _safe_float(metrics.get("final_equity"), 0.0)
-    total_return_pct = _safe_float(metrics.get("total_return_pct"), 0.0)
-    if total_return_pct == 0.0 and initial_cash > 0 and final_equity > 0:
-        total_return_pct = ((final_equity / initial_cash) - 1.0) * 100.0
-
-    max_drawdown_pct = abs(_safe_float(metrics.get("max_drawdown_pct"), 0.0))
-    trade_count = _safe_int(metrics.get("trade_count"), 0)
-    win_rate_pct = max(0.0, min(_safe_float(metrics.get("win_rate_pct"), 0.0), 100.0))
-    profit_factor = max(0.0, _safe_float(metrics.get("profit_factor"), 0.0))
-
-    objective_progress_pct = max(0.0, min(total_return_pct, 100.0))
-
-    engine_score = 20.0
-    return_score = max(0.0, min(total_return_pct / 100.0, 1.0)) * 20.0
-    drawdown_score = max(0.0, min(1.0 - (max_drawdown_pct / 30.0), 1.0)) * 20.0
-    trade_score = max(0.0, min(trade_count / 5.0, 1.0)) * 10.0
-    win_score = (win_rate_pct / 100.0) * 10.0
-    profit_factor_score = max(0.0, min(profit_factor / 3.0, 1.0)) * 10.0
-    objective_score = (objective_progress_pct / 100.0) * 20.0
-
-    components = {
-        "engine_score": round(engine_score, 4),
-        "return_score": round(return_score, 4),
-        "drawdown_score": round(drawdown_score, 4),
-        "trade_count_score": round(trade_score, 4),
-        "win_rate_score": round(win_score, 4),
-        "profit_factor_score": round(profit_factor_score, 4),
-        "objective_progress_score": round(objective_score, 4),
-    }
-    total = sum(components.values())
-    return round(total, 4), components
+def _unique_strings(values: list[Any]) -> list[str]:
+    output: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        text = str(value or "").strip()
+        if text and text not in seen:
+            seen.add(text)
+            output.append(text)
+    return output
 
 
 def _scorecard_by_key(scorecards: list[Any]) -> dict[tuple[str, str], Any]:
@@ -165,12 +132,13 @@ def normalize_run_execution_quality(run: Any, context: str = "") -> dict[str, An
     Convert skipped BUY insufficient-cash conditions into execution warnings
     when the result has usable metrics.
 
-    This does not hide the issue. It moves it from hard engine failure to warnings
-    and recomputes a deterministic metric-based score.
+    This does not hide the issue. It moves it from hard engine failure to warnings,
+    then delegates scoring back to the configured experiment policy.
     """
     results = _list_attr(run, "results")
     scorecards = _list_attr(run, "scorecards")
     score_by_key = _scorecard_by_key(scorecards)
+    goal = _experiment_goal(run)
 
     normalized: list[dict[str, Any]] = []
     untouched = 0
@@ -185,56 +153,56 @@ def normalize_run_execution_quality(run: Any, context: str = "") -> dict[str, An
             continue
 
         fail_reasons = [str(x) for x in _list_attr(scorecard, "fail_reasons")]
-        insufficient_cash_reasons = [r for r in fail_reasons if _is_insufficient_cash_reason(r)]
-        other_fail_reasons = [r for r in fail_reasons if not _is_insufficient_cash_reason(r)]
+        result_errors = [str(x) for x in _list_attr(result, "errors")]
+        insufficient_cash_reasons = _unique_strings(
+            [r for r in result_errors + fail_reasons if _is_insufficient_cash_reason(r)]
+        )
+        other_result_errors = [r for r in result_errors if not _is_insufficient_cash_reason(r)]
 
-        if not insufficient_cash_reasons or other_fail_reasons or not usable_metrics(metrics):
+        if not insufficient_cash_reasons or other_result_errors or not usable_metrics(metrics) or goal is None:
             untouched += 1
             continue
 
         old_score = _safe_float(_get_attr(scorecard, "total_score", 0.0), 0.0)
         old_engine_pass = bool(_get_attr(scorecard, "engine_pass", False))
-        recovered_score, components = recovered_score_from_metrics(metrics)
-
-        initial_cash = _safe_float(metrics.get("initial_cash"), 0.0)
-        final_equity = _safe_float(metrics.get("final_equity"), 0.0)
-        objective_hit = initial_cash > 0 and final_equity >= initial_cash * 2.0
-        objective_progress_pct = max(0.0, min(_safe_float(metrics.get("total_return_pct"), 0.0), 100.0))
-        research_pass = recovered_score >= 65.0
-
-        warnings = [str(x) for x in _list_attr(scorecard, "warnings")]
-        warnings.append(
-            "Execution warning: one or more simulated BUY signals were skipped because available simulated cash was insufficient."
+        warnings = _unique_strings(
+            _list_attr(result, "warnings")
+            + _list_attr(scorecard, "warnings")
+            + ["Execution warning: one or more simulated BUY signals were skipped because available simulated cash was insufficient."]
+            + [f"Skipped signal warning: {reason}" for reason in insufficient_cash_reasons[:10]]
         )
-        for reason in insufficient_cash_reasons[:10]:
-            warnings.append(f"Skipped signal warning: {reason}")
 
-        _set_attr(scorecard, "engine_pass", True)
-        _set_attr(scorecard, "passed", bool(research_pass))
-        _set_attr(scorecard, "research_pass", bool(research_pass))
-        _set_attr(scorecard, "objective_hit", bool(objective_hit))
-        _set_attr(scorecard, "objective_progress_pct", round(objective_progress_pct, 4))
-        _set_attr(scorecard, "total_score", recovered_score)
-        _set_attr(scorecard, "grade", grade_from_score(recovered_score))
-        _set_attr(scorecard, "component_scores", components)
-        _set_attr(scorecard, "fail_reasons", [])
-        _set_attr(scorecard, "warnings", warnings)
-        _set_attr(
-            scorecard,
-            "retest_recommendation",
-            recommendation_from_score(True, bool(research_pass), bool(objective_hit), recovered_score, metrics),
+        policy_result = NormalizedBacktestResult(
+            candidate_id=candidate_id,
+            symbol=symbol,
+            status="ok",
+            engine=str(_get_attr(result, "engine", "")),
+            metrics=metrics,
+            trades=_list_attr(result, "trades"),
+            equity_curve=_list_attr(result, "equity_curve"),
+            errors=[],
+            warnings=warnings,
+            raw_summary=_as_dict(_get_attr(result, "raw_summary", {})),
         )
+        rescored = score_strategy_result(policy_result, goal)
+
+        _set_attr(result, "status", "ok")
+        _set_attr(result, "errors", [])
+        _set_attr(result, "warnings", warnings)
+
+        for key, value in _as_dict(rescored).items():
+            _set_attr(scorecard, key, value)
 
         normalized.append(
             {
                 "candidate_id": candidate_id,
                 "symbol": symbol,
                 "old_engine_pass": old_engine_pass,
-                "new_engine_pass": True,
+                "new_engine_pass": rescored.engine_pass,
                 "old_score": old_score,
-                "new_score": recovered_score,
-                "new_grade": grade_from_score(recovered_score),
-                "new_research_pass": bool(research_pass),
+                "new_score": rescored.total_score,
+                "new_grade": rescored.grade,
+                "new_research_pass": rescored.research_pass,
                 "insufficient_cash_warning_count": len(insufficient_cash_reasons),
                 "metrics": metrics,
                 "reasons_moved_to_warnings": insufficient_cash_reasons,
@@ -243,22 +211,33 @@ def normalize_run_execution_quality(run: Any, context: str = "") -> dict[str, An
 
     try:
         summary = dict(_get_attr(run, "summary", {}) or {})
+        best_scorecard = (
+            max(scorecards, key=lambda sc: _safe_float(_get_attr(sc, "total_score", 0.0)))
+            if scorecards
+            else None
+        )
         summary["execution_quality_normalized_count"] = len(normalized)
         summary["engine_pass_count"] = sum(1 for sc in scorecards if bool(_get_attr(sc, "engine_pass", False)))
         summary["research_pass_count"] = sum(1 for sc in scorecards if bool(_get_attr(sc, "research_pass", False)))
         summary["objective_hit_count"] = sum(1 for sc in scorecards if bool(_get_attr(sc, "objective_hit", False)))
+        summary["passed_count"] = summary["research_pass_count"]
+        if best_scorecard is not None:
+            summary["best_candidate_id"] = str(_get_attr(best_scorecard, "candidate_id", ""))
+            summary["best_symbol"] = str(_get_attr(best_scorecard, "symbol", ""))
+            summary["best_score"] = _safe_float(_get_attr(best_scorecard, "total_score", 0.0))
         _set_attr(run, "summary", summary)
     except Exception:
         pass
 
     return {
-        "schema_version": "execution_quality_v21_4_4",
+        "schema_version": "execution_quality_v21_4_5",
         "context": context,
         "normalized_count": len(normalized),
         "untouched_count": untouched,
         "normalized": normalized,
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "rule": "Insufficient-cash BUY skips become warnings only when usable metrics exist and no other hard fail reasons are present.",
+        "generated_at": local_now_iso(),
+        "generated_at_utc": utc_now_iso(),
+        "rule": "Insufficient-cash BUY skips become warnings only when usable metrics and the configured experiment goal are available; all research gates are then reapplied.",
     }
 
 
@@ -269,6 +248,7 @@ def build_execution_quality_report(summary: dict[str, Any]) -> str:
         "AI Auto Lab is research/simulation-only. This report does not place orders or connect to brokers.",
         "",
         f"- generated_at: `{summary.get('generated_at', '')}`",
+        f"- generated_at_utc: `{summary.get('generated_at_utc', '')}`",
         f"- context: {summary.get('context', '')}",
         f"- normalized_count: {summary.get('normalized_count', 0)}",
         f"- untouched_count: {summary.get('untouched_count', 0)}",
